@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
 import styles from './Settings.module.css'
 
@@ -7,19 +7,71 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-export default function Settings({ onClose, initialOpen }: SettingsProps) {
+export default function Settings({ onClose }: SettingsProps) {
   const store = useSettingsStore()
   const [localTmdb, setLocalTmdb] = useState(store.tmdbApiKey)
-  const [localTraktId, setLocalTraktId] = useState(store.traktClientId)
-  const [localTraktSecret, setLocalTraktSecret] = useState(store.traktClientSecret)
   const [localRd, setLocalRd] = useState(store.realDebridApiKey)
   const [localTb, setLocalTb] = useState(store.torboxApiKey)
   const [saved, setSaved] = useState(false)
 
+  const [authState, setAuthState] = useState<'idle' | 'connecting' | 'waiting' | 'connected' | 'error'>('idle')
+  const [userCode, setUserCode] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [userName, setUserName] = useState('')
+
+  useEffect(() => {
+    if (store.traktConnected) {
+      setAuthState('connected')
+    }
+  }, [store.traktConnected])
+
+  const startDeviceAuth = useCallback(async () => {
+    setAuthState('connecting')
+    setAuthError('')
+
+    try {
+      const code = await window.api.trakt.getDeviceCode()
+      setUserCode(code.user_code)
+      setAuthState('waiting')
+      pollForToken(code.device_code, code.interval || 5)
+    } catch (err: any) {
+      setAuthError(err.message || 'Failed to connect')
+      setAuthState('error')
+    }
+  }, [])
+
+  const pollForToken = useCallback(async (code: string, interval: number) => {
+    const maxAttempts = Math.floor(600 / interval)
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, interval * 1000))
+      try {
+        const result = await window.api.trakt.pollForToken(code)
+        if (result.access_token) {
+          await window.api.trakt.setTokens(result.access_token, result.refresh_token)
+          store.setTraktConnected(true)
+          setAuthState('connected')
+          setUserName(result.user?.username || '')
+          return
+        }
+      } catch (err: any) {
+        setAuthError(err.message || 'Authentication failed')
+        setAuthState('error')
+        return
+      }
+    }
+    setAuthError('Code expired. Try again.')
+    setAuthState('error')
+  }, [store])
+
+  const disconnect = useCallback(async () => {
+    await window.api.trakt.setTokens(null, null)
+    store.setTraktConnected(false)
+    setAuthState('idle')
+    setUserCode('')
+  }, [store])
+
   const handleSave = async () => {
     store.setTmdbApiKey(localTmdb)
-    store.setTraktClientId(localTraktId)
-    store.setTraktClientSecret(localTraktSecret)
     store.setRealDebridApiKey(localRd)
     store.setTorboxApiKey(localTb)
     await store.saveToDisk()
@@ -53,23 +105,59 @@ export default function Settings({ onClose, initialOpen }: SettingsProps) {
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Trakt</h2>
-          <p className={styles.desc}>For scrobbling and watch history sync</p>
-          <input
-            type="text"
-            className={styles.input}
-            placeholder="Client ID"
-            value={localTraktId}
-            onChange={(e) => setLocalTraktId(e.target.value)}
-          />
-          <input
-            type="password"
-            className={styles.input}
-            placeholder="Client Secret"
-            value={localTraktSecret}
-            onChange={(e) => setLocalTraktSecret(e.target.value)}
-          />
-          {store.traktConnected && (
-            <span className={styles.connected}>Connected</span>
+          <p className={styles.desc}>Scrobble, sync watch history, and get recommendations</p>
+
+          {authState === 'idle' && (
+            store.traktConnected ? (
+              <div className={styles.connectedInfo}>
+                <p className={styles.connected}>Connected</p>
+                <button className={styles.disconnectBtn} onClick={disconnect}>
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <button className={styles.connectBtn} onClick={startDeviceAuth}>
+                Connect to Trakt
+              </button>
+            )
+          )}
+
+          {authState === 'connecting' && (
+            <p className={styles.authInfo}>Connecting to Trakt...</p>
+          )}
+
+          {authState === 'waiting' && (
+            <div className={styles.deviceAuth}>
+              <p className={styles.authInfo}>
+                Visit{' '}
+                <a href="https://trakt.tv/activate" target="_blank" rel="noreferrer">
+                  trakt.tv/activate
+                </a>{' '}
+                and enter the code below:
+              </p>
+              <div className={styles.userCode}>{userCode}</div>
+              <p className={styles.authHint}>Waiting for authorization...</p>
+            </div>
+          )}
+
+          {authState === 'connected' && (
+            <div className={styles.connectedInfo}>
+              <p className={styles.connected}>
+                Connected{userName ? ` as ${userName}` : ''}
+              </p>
+              <button className={styles.disconnectBtn} onClick={disconnect}>
+                Disconnect
+              </button>
+            </div>
+          )}
+
+          {authState === 'error' && (
+            <div className={styles.errorBox}>
+              <p className={styles.errorText}>{authError}</p>
+              <button className={styles.connectBtn} onClick={() => { setAuthState('idle'); setAuthError('') }}>
+                Try Again
+              </button>
+            </div>
           )}
         </section>
 

@@ -31,6 +31,8 @@ const api = {
     getDeviceCode: () => ipcRenderer.invoke('trakt:get-device-code'),
     pollForToken: (deviceCode: string) =>
       ipcRenderer.invoke('trakt:poll-for-token', deviceCode),
+    setTokens: (accessToken: string | null, refreshToken: string | null) =>
+      ipcRenderer.invoke('trakt:set-tokens', accessToken, refreshToken),
     getWatchedMovies: () => ipcRenderer.invoke('trakt:get-watched-movies'),
     getWatchedShows: () => ipcRenderer.invoke('trakt:get-watched-shows'),
     scrobble: (action: string, media: object) =>

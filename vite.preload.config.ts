@@ -8,7 +8,6 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'dist/preload',
     rollupOptions: {
       external: ['electron'],
     },

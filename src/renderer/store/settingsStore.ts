@@ -2,10 +2,6 @@ import { create } from 'zustand'
 
 interface SettingsState {
   tmdbApiKey: string
-  traktClientId: string
-  traktClientSecret: string
-  traktAccessToken: string | null
-  traktRefreshToken: string | null
   traktConnected: boolean
   realDebridApiKey: string
   torboxApiKey: string
@@ -15,9 +11,6 @@ interface SettingsState {
   keyboardNavEnabled: boolean
 
   setTmdbApiKey: (key: string) => void
-  setTraktClientId: (id: string) => void
-  setTraktClientSecret: (secret: string) => void
-  setTraktTokens: (access: string | null, refresh: string | null) => void
   setTraktConnected: (connected: boolean) => void
   setRealDebridApiKey: (key: string) => void
   setTorboxApiKey: (key: string) => void
@@ -31,10 +24,6 @@ interface SettingsState {
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   tmdbApiKey: '',
-  traktClientId: '',
-  traktClientSecret: '',
-  traktAccessToken: null,
-  traktRefreshToken: null,
   traktConnected: false,
   realDebridApiKey: '',
   torboxApiKey: '',
@@ -44,9 +33,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   keyboardNavEnabled: true,
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
-  setTraktClientId: (id) => set({ traktClientId: id }),
-  setTraktClientSecret: (secret) => set({ traktClientSecret: secret }),
-  setTraktTokens: (access, refresh) => set({ traktAccessToken: access, traktRefreshToken: refresh }),
   setTraktConnected: (connected) => set({ traktConnected: connected }),
   setRealDebridApiKey: (key) => set({ realDebridApiKey: key }),
   setTorboxApiKey: (key) => set({ torboxApiKey: key }),
@@ -58,14 +44,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadFromDisk: async () => {
     try {
       const settings = await window.api.settings.getAll()
-      if (settings) set(settings as SettingsState)
+      if (settings) set(settings as Partial<SettingsState>)
     } catch { /* ignore */ }
   },
 
   saveToDisk: async () => {
     try {
       const state = get()
-      await window.api.settings.set('all', state)
+      await Promise.all([
+        window.api.settings.set('tmdbApiKey', state.tmdbApiKey),
+        window.api.settings.set('traktConnected', state.traktConnected),
+        window.api.settings.set('realDebridApiKey', state.realDebridApiKey),
+        window.api.settings.set('torboxApiKey', state.torboxApiKey),
+        window.api.settings.set('preferredDebrid', state.preferredDebrid),
+        window.api.settings.set('downloadPath', state.downloadPath),
+        window.api.settings.set('autoPlayNext', state.autoPlayNext),
+        window.api.settings.set('keyboardNavEnabled', state.keyboardNavEnabled),
+      ])
     } catch { /* ignore */ }
   },
 }))

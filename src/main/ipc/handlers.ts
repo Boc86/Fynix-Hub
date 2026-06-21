@@ -7,8 +7,9 @@ import * as DebridService from '../services/debrid.service'
 import * as IntrosService from '../services/intros.service'
 import * as CacheService from '../services/cache.service'
 
-export function registerIpcHandlers(): void {
-  WebTorrentService.init()
+export async function registerIpcHandlers(): Promise<void> {
+  TraktService.loadCredentials()
+  await WebTorrentService.init()
 
   ipcMain.handle('app:get-version', () => '1.0.0')
 
@@ -79,12 +80,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('trakt:poll-for-token', async (_event, deviceCode) => {
-    const result = await TraktService.pollForToken(deviceCode)
-    if (result.access_token) {
-      CacheService.setSetting('traktAccessToken', result.access_token)
-      CacheService.setSetting('traktRefreshToken', result.refresh_token)
-    }
-    return result
+    return TraktService.pollForToken(deviceCode)
   })
 
   ipcMain.handle('trakt:get-watched-movies', async () => {
@@ -109,6 +105,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('trakt:get-auth-status', () => {
     return { authenticated: TraktService.isAuthenticated() }
+  })
+
+  ipcMain.handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
+    TraktService.setTokens(accessToken, refreshToken)
   })
 
   ipcMain.handle('torrent:search', async (_event, query) => {

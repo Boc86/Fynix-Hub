@@ -1,11 +1,14 @@
-import WebTorrent from 'webtorrent'
+import type WebTorrent from 'webtorrent'
 
 let client: WebTorrent | null = null
+let WebTorrentClass: typeof WebTorrent | null = null
 
-export function init(): WebTorrent {
-  if (!client) {
-    client = new WebTorrent()
+export async function init(): Promise<WebTorrent> {
+  if (client) return client
+  if (!WebTorrentClass) {
+    WebTorrentClass = (await import('webtorrent')).default
   }
+  client = new WebTorrentClass()
   return client
 }
 

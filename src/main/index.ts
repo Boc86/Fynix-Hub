@@ -2,6 +2,9 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
 
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('in-process-gpu')
+
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
 
@@ -42,8 +45,8 @@ function createWindow(): void {
   })
 }
 
-app.whenReady().then(() => {
-  registerIpcHandlers()
+app.whenReady().then(async () => {
+  await registerIpcHandlers()
   createWindow()
 
   app.on('activate', () => {

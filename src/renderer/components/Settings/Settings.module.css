@@ -78,8 +78,101 @@
 
 .connected {
   color: var(--accent-green);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 500;
+}
+
+.connectBtn {
+  padding: 10px 20px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.connectBtn:hover {
+  background: var(--accent-hover);
+}
+
+.disconnectBtn {
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--text-muted);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.disconnectBtn:hover {
+  color: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.authInfo {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.authInfo a {
+  color: var(--accent);
+}
+
+.deviceAuth {
+  text-align: center;
+  padding: 20px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.userCode {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+  margin: 16px 0;
+  padding: 12px 24px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  display: inline-block;
+  font-family: monospace;
+}
+
+.authHint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.connectedInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.errorBox {
+  padding: 12px;
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 4px;
+}
+
+.errorText {
+  font-size: 0.85rem;
+  color: #e74c3c;
+  margin-bottom: 8px;
 }
 
 .saveBtn {
