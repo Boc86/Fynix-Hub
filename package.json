@@ -1,0 +1,46 @@
+{
+  "name": "fynix-hub",
+  "productName": "Fynix Hub",
+  "version": "1.0.0",
+  "description": "Media Hub with Netflix-like experience",
+  "main": ".vite/build/main/index.js",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "make:flatpak": "electron-forge make --platform=linux --arch=x64",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "media",
+    "torrent",
+    "streaming",
+    "flatpak"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-deb": "^7.11.2",
+    "@electron-forge/maker-flatpak": "^7.11.2",
+    "@electron-forge/maker-rpm": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/plugin-vite": "^7.11.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/webtorrent": "^0.110.1",
+    "electron": "^42.4.1",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "theintrodb": "^3.1.1",
+    "webtorrent": "^3.0.16",
+    "zustand": "^5.0.14"
+  }
+}
