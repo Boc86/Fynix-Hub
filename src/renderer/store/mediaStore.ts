@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { MediaItem, MovieDetails, TvDetails, Genre } from '../types'
+import type { MediaItem, MovieDetails, TvDetails, Genre, Episode } from '../types'
 
 interface MediaState {
   trending: MediaItem[]
@@ -8,7 +8,13 @@ interface MediaState {
   topRatedMovies: MediaItem[]
   genres: Genre[]
   selectedMedia: (MovieDetails | TvDetails) | null
+  selectedSeason: number
+  selectedEpisode: number | null
+  seasonEpisodes: Episode[]
   continueWatching: MediaItem[]
+  resumeProgress: number | null
+  traktWatched: Set<number>
+  traktPlayback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
   isLoading: boolean
   error: string | null
   setTrending: (items: MediaItem[]) => void
@@ -17,7 +23,13 @@ interface MediaState {
   setTopRatedMovies: (items: MediaItem[]) => void
   setGenres: (genres: Genre[]) => void
   setSelectedMedia: (media: (MovieDetails | TvDetails) | null) => void
+  setSelectedSeason: (season: number) => void
+  setSelectedEpisode: (episode: number | null) => void
+  setSeasonEpisodes: (episodes: Episode[]) => void
   setContinueWatching: (items: MediaItem[]) => void
+  setResumeProgress: (progress: number | null) => void
+  setTraktWatched: (ids: Set<number>) => void
+  setTraktPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
 }
@@ -29,7 +41,13 @@ export const useMediaStore = create<MediaState>((set) => ({
   topRatedMovies: [],
   genres: [],
   selectedMedia: null,
+  selectedSeason: 1,
+  selectedEpisode: null,
+  seasonEpisodes: [],
   continueWatching: [],
+  resumeProgress: null,
+  traktWatched: new Set<number>(),
+  traktPlayback: [],
   isLoading: false,
   error: null,
 
@@ -38,8 +56,20 @@ export const useMediaStore = create<MediaState>((set) => ({
   setPopularTvShows: (items) => set({ popularTvShows: items }),
   setTopRatedMovies: (items) => set({ topRatedMovies: items }),
   setGenres: (genres) => set({ genres }),
-  setSelectedMedia: (media) => set({ selectedMedia: media }),
+  setSelectedMedia: (media) => set({
+    selectedMedia: media,
+    selectedSeason: media && 'seasons' in media ? 1 : 1,
+    selectedEpisode: null,
+    seasonEpisodes: [],
+    resumeProgress: null,
+  }),
+  setSelectedSeason: (season) => set({ selectedSeason: season, selectedEpisode: null, seasonEpisodes: [] }),
+  setSelectedEpisode: (episode) => set({ selectedEpisode: episode }),
+  setSeasonEpisodes: (episodes) => set({ seasonEpisodes: episodes }),
   setContinueWatching: (items) => set({ continueWatching: items }),
+  setResumeProgress: (progress) => set({ resumeProgress: progress }),
+  setTraktWatched: (ids) => set({ traktWatched: ids }),
+  setTraktPlayback: (items) => set({ traktPlayback: items }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
 }))

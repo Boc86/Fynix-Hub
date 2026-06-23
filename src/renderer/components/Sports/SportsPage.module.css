@@ -1,0 +1,231 @@
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 80px 48px 48px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  outline: none;
+}
+
+.page::-webkit-scrollbar {
+  display: none;
+}
+
+.breadcrumb {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 24px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.message {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 18px;
+  text-align: center;
+  margin-top: 120px;
+}
+
+.error {
+  color: #ff6b6b;
+  font-size: 18px;
+  text-align: center;
+  margin-top: 120px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 24px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+}
+
+.card:hover,
+.card.focused {
+  background: rgba(255, 255, 255, 0.12);
+  transform: scale(1.05);
+  border-color: var(--accent, #ff4757);
+}
+
+.cardImage {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.cardPlaceholder {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.cardLabel {
+  font-weight: 500;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  color: #fff;
+  font-size: 16px;
+  text-align: left;
+}
+
+.listItem:hover,
+.listItem.focused {
+  background: rgba(255, 255, 255, 0.12);
+  transform: scale(1.02);
+  border-color: var(--accent, #ff4757);
+}
+
+.listTitle {
+  font-weight: 500;
+}
+
+.listMeta {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+
+.clubSearchWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.searchRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.searchInput {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 14px 18px;
+  color: #fff;
+  font-size: 16px;
+  outline: none;
+}
+
+.searchInput:focus {
+  border-color: var(--accent, #ff4757);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.searchButton {
+  background: var(--accent, #ff4757);
+  border: none;
+  border-radius: 10px;
+  padding: 14px 24px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.searchButton:hover,
+.searchButton.focused {
+  transform: scale(1.05);
+  opacity: 0.9;
+}
+
+.clubProfile {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.clubName {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.clubMeta {
+  margin: -8px 0 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.clubSectionTitle {
+  margin: 8px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.fixturesWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.directionRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.toggle {
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 12px 20px;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.toggle:hover,
+.toggle.focused {
+  background: rgba(255, 255, 255, 0.14);
+  transform: scale(1.03);
+  border-color: var(--accent, #ff4757);
+}
+
+.toggleActive {
+  background: var(--accent, #ff4757);
+}

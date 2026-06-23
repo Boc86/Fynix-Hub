@@ -18,12 +18,18 @@ export interface MediaItem {
   genreIds: number[]
 }
 
+export interface VideoList {
+  results: Video[]
+}
+
 export interface MovieDetails extends MediaItem {
   runtime: number
   tagline: string
+  status: string
   genres: Genre[]
   credits: Credits
-  videos: Video[]
+  videos: VideoList
+  productionCompanies: Company[]
 }
 
 export interface TvDetails extends MediaItem {
@@ -33,6 +39,29 @@ export interface TvDetails extends MediaItem {
   status: string
   genres: Genre[]
   credits: Credits
+  videos: VideoList
+  networks: Network[]
+  createdBy: CreatedBy[]
+}
+
+export interface Company {
+  id: number
+  name: string
+  logoPath: string | null
+  originCountry: string
+}
+
+export interface Network {
+  id: number
+  name: string
+  logoPath: string | null
+  originCountry: string
+}
+
+export interface CreatedBy {
+  id: number
+  name: string
+  profilePath: string | null
 }
 
 export interface Season {

@@ -1,4 +1,4 @@
-const INTRODB_API = 'https://api.introdb.app'
+import { getMedia } from 'theintrodb'
 
 interface SegmentQuery {
   tmdbId?: number
@@ -18,24 +18,35 @@ interface SegmentResult {
 }
 
 export async function getSegments(query: SegmentQuery): Promise<SegmentResult[]> {
-  const params = new URLSearchParams()
-  if (query.tmdbId) params.set('tmdb_id', String(query.tmdbId))
-  if (query.imdbId) params.set('imdb_id', query.imdbId)
-  if (query.season) params.set('season', String(query.season))
-  if (query.episode) params.set('episode', String(query.episode))
+  if (!query.tmdbId) return []
 
   try {
-    const res = await fetch(`${INTRODB_API}/segments?${params}`)
-    if (!res.ok) return []
-    const data = await res.json()
-    return (data.segments || []).map((seg: any) => ({
-      type: seg.segment_type || seg.type,
-      startMs: seg.start_ms ?? (seg.start_sec != null ? seg.start_sec * 1000 : null),
-      endMs: seg.end_ms ?? (seg.end_sec != null ? seg.end_sec * 1000 : null),
-      durationMs: seg.duration_ms ?? null,
-      startsAtBeginning: seg.start_ms === null || seg.start_ms === 0,
-      endsAtMediaEnd: seg.end_ms === null,
-    }))
+    const data = await getMedia({
+      tmdbId: query.tmdbId,
+      season: query.season,
+      episode: query.episode,
+    })
+
+    if (!data) return []
+
+    const results: SegmentResult[] = []
+
+    for (const segType of ['intro', 'recap', 'credits'] as const) {
+      const segments = data[segType]
+      if (!segments || segments.length === 0) continue
+      for (const seg of segments) {
+        results.push({
+          type: segType,
+          startMs: seg.startMs ?? null,
+          endMs: seg.endMs ?? null,
+          durationMs: seg.durationMs ?? null,
+          startsAtBeginning: seg.startsAtBeginning ?? false,
+          endsAtMediaEnd: seg.endsAtMediaEnd ?? false,
+        })
+      }
+    }
+
+    return results
   } catch {
     return []
   }

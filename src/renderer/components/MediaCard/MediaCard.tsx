@@ -1,24 +1,33 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import type { MediaItem } from '../../types'
 import styles from './MediaCard.module.css'
 
 interface MediaCardProps {
   item: MediaItem
   onSelect: (item: MediaItem) => void
+  isFocused?: boolean
+  isWatched?: boolean
 }
 
-export default function MediaCard({ item, onSelect }: MediaCardProps) {
+export default function MediaCard({ item, onSelect, isFocused, isWatched }: MediaCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false)
+  const cardRef = useRef<HTMLDivElement>(null)
   const posterUrl = item.posterPath
     ? `https://image.tmdb.org/t/p/w342${item.posterPath}`
     : null
+
+  useEffect(() => {
+    if (isFocused && cardRef.current) {
+      cardRef.current.focus()
+    }
+  }, [isFocused])
 
   const handleClick = useCallback(() => {
     onSelect(item)
   }, [item, onSelect])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if ((e.key === 'Enter' || e.key === ' ') && !e.defaultPrevented) {
       e.preventDefault()
       onSelect(item)
     }
@@ -26,10 +35,11 @@ export default function MediaCard({ item, onSelect }: MediaCardProps) {
 
   return (
     <div
-      className={styles.card}
+      ref={cardRef}
+      className={`${styles.card} ${isFocused ? styles.focused : ''}`}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      tabIndex={0}
+      tabIndex={-1}
       role="button"
       aria-label={item.title}
     >
@@ -52,14 +62,23 @@ export default function MediaCard({ item, onSelect }: MediaCardProps) {
             </svg>
           </div>
         )}
-      </div>
-      <div className={styles.info}>
-        <h3 className={styles.cardTitle}>{item.title}</h3>
-        <div className={styles.meta}>
+        <div className={styles.overlay}>
           {item.voteAverage > 0 && (
-            <span className={styles.rating}>{item.voteAverage.toFixed(1)}</span>
+            <span className={`${styles.ratingBadge} ${
+              item.voteAverage >= 7 ? styles.ratingGreen :
+              item.voteAverage >= 5 ? styles.ratingYellow :
+              styles.ratingRed
+            }`}>
+              {item.voteAverage.toFixed(1)}
+            </span>
           )}
-          <span className={styles.year}>{item.releaseDate?.slice(0, 4)}</span>
+          {isWatched && (
+            <span className={styles.watchedBadge}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+              </svg>
+            </span>
+          )}
         </div>
       </div>
     </div>

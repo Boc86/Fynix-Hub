@@ -9,6 +9,9 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      output: {
+        entryFileNames: 'preload.js',
+      },
       external: ['electron'],
     },
   },

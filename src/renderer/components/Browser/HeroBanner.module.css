@@ -45,6 +45,16 @@
   text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
 }
 
+.clearlogo {
+  max-height: 120px;
+  max-width: 400px;
+  min-height: 40px;
+  object-fit: contain;
+  margin-bottom: 16px;
+  display: block;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.7));
+}
+
 .overview {
   font-size: 1rem;
   line-height: 1.5;
@@ -107,4 +117,24 @@
 
 .infoBtn:hover {
   background: rgba(109, 109, 110, 0.5);
+}
+
+.playBtn.focused,
+.playBtn:focus-visible,
+.infoBtn.focused,
+.infoBtn:focus-visible {
+  outline: none;
+  transform: scale(1.05);
+  animation: btnPulse 2s ease-in-out infinite;
+}
+
+@keyframes btnPulse {
+  0%, 100% {
+    transform: scale(1.05);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.02);
+    filter: brightness(1.15);
+  }
 }

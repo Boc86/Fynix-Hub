@@ -2,6 +2,7 @@ import * as CacheService from './cache.service'
 
 const TRAKT_BASE = 'https://api.trakt.tv'
 const TRAKT_AUTH_BASE = 'https://api.trakt.tv/oauth'
+const USER_AGENT = 'FynixHub/1.0.0'
 
 const XOR_KEY = 0xAB
 
@@ -53,6 +54,7 @@ export function isAuthenticated(): boolean {
 async function fetchTrakt(path: string, options: RequestInit = {}) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'User-Agent': USER_AGENT,
     'trakt-api-version': '2',
     'trakt-api-key': clientId,
     ...(options.headers as Record<string, string> || {}),
@@ -61,14 +63,17 @@ async function fetchTrakt(path: string, options: RequestInit = {}) {
     headers['Authorization'] = `Bearer ${accessToken}`
   }
   const res = await fetch(`${TRAKT_BASE}${path}`, { ...options, headers })
-  if (!res.ok) throw new Error(`Trakt error: ${res.status}`)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '(could not read body)')
+    throw new Error(`Trakt error: ${res.status} - ${body.slice(0, 500)}`)
+  }
   return res.json()
 }
 
 export async function getDeviceCode() {
   const res = await fetch(`${TRAKT_AUTH_BASE}/device/code`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
     body: JSON.stringify({ client_id: clientId }),
   })
   if (!res.ok) throw new Error(`Trakt device code error: ${res.status}`)
@@ -78,7 +83,7 @@ export async function getDeviceCode() {
 export async function pollForToken(deviceCode: string) {
   const res = await fetch(`${TRAKT_AUTH_BASE}/device/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
     body: JSON.stringify({
       code: deviceCode,
       client_id: clientId,
@@ -86,8 +91,12 @@ export async function pollForToken(deviceCode: string) {
     }),
   })
   if (res.status === 400) {
-    const body = await res.json()
-    return { error: body.error || 'pending' }
+    try {
+      const body = await res.json()
+      return { error: body.error || 'pending' }
+    } catch {
+      return { error: 'pending' }
+    }
   }
   if (!res.ok) throw new Error(`Trakt auth error: ${res.status}`)
   const data = await res.json()
@@ -128,4 +137,46 @@ export async function markUnwatched(media: object) {
 
 export async function getSettings() {
   return fetchTrakt('/users/settings')
+}
+
+export async function getWatchlist(type: 'movies' | 'shows') {
+  return fetchTrakt(`/sync/watchlist/${type}`)
+}
+
+export async function getPlayback() {
+  return fetchTrakt('/sync/playback')
+}
+
+export async function getPlaybackMovies() {
+  return fetchTrakt('/sync/playback/movies')
+}
+
+export async function getPlaybackEpisodes() {
+  return fetchTrakt('/sync/playback/episodes')
+}
+
+export function buildScrobblePayload(tmdbId: number, mediaType: string, progress: number, season?: number, episode?: number) {
+  if (mediaType === 'tv' && season !== undefined && episode !== undefined) {
+    return {
+      show: { ids: { tmdb: tmdbId } },
+      episode: { season, number: episode },
+      progress: Math.round(progress * 100),
+    }
+  }
+  return {
+    movie: { ids: { tmdb: tmdbId } },
+    progress: Math.round(progress * 100),
+  }
+}
+
+export function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number, episode?: number) {
+  if (mediaType === 'tv' && season !== undefined && episode !== undefined) {
+    return {
+      shows: [{
+        ids: { tmdb: tmdbId },
+        seasons: [{ season, episodes: [{ number: episode }] }],
+      }],
+    }
+  }
+  return { movies: [{ ids: { tmdb: tmdbId } }] }
 }

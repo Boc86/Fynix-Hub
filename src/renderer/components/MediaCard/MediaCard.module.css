@@ -4,8 +4,9 @@
   cursor: pointer;
   border-radius: 4px;
   overflow: hidden;
-  transition: transform var(--transition-normal);
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal);
   position: relative;
+  outline: none;
 }
 
 .card:hover {
@@ -13,9 +14,21 @@
   z-index: 5;
 }
 
-.card:focus-visible {
+.card.focused {
   transform: scale(1.05);
-  box-shadow: var(--focus-ring);
+  animation: selectedPulse 2s ease-in-out infinite;
+  z-index: 10;
+}
+
+@keyframes selectedPulse {
+  0%, 100% {
+    transform: scale(1.05);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.02);
+    filter: brightness(1.15);
+  }
 }
 
 .posterWrap {
@@ -62,32 +75,50 @@
   background: var(--bg-card);
 }
 
-.info {
-  padding: 8px 4px;
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
-.cardTitle {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 4px;
+.ratingBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
-.rating {
-  color: var(--accent-green);
-  font-weight: 600;
+.ratingGreen {
+  background: rgba(0, 200, 83, 0.85);
+  color: #fff;
 }
 
-.year {
-  color: var(--text-muted);
+.ratingYellow {
+  background: rgba(255, 193, 7, 0.85);
+  color: #000;
 }
+
+.ratingRed {
+  background: rgba(244, 67, 54, 0.85);
+  color: #fff;
+}
+
+.watchedBadge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 200, 83, 0.9);
+  border-radius: 50%;
+  color: #fff;
+}
+
+

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
+import * as TorrentSearchService from './services/torrent-search.service'
 
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('in-process-gpu')
@@ -16,15 +17,12 @@ function createWindow(): void {
     height: 1080,
     minWidth: 1280,
     minHeight: 720,
+    fullscreen: true,
     backgroundColor: '#141414',
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#141414',
-      symbolColor: '#ffffff',
-      height: 40,
-    },
+    titleBarOverlay: false,
     webPreferences: {
-      preload: path.resolve(__dirname, '../preload/index.js'),
+      preload: path.resolve(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -47,6 +45,11 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   await registerIpcHandlers()
+
+  if (TorrentSearchService.shouldRefreshTrackers()) {
+    TorrentSearchService.refreshTrackers().catch(() => {})
+  }
+
   createWindow()
 
   app.on('activate', () => {

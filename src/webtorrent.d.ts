@@ -32,14 +32,11 @@ declare module 'webtorrent' {
     length: number
     downloaded: number
     progress: number
-    streamURL: string
-    getBlob(cb: (err: Error | null, blob?: Blob) => void): void
-    getBuffer(cb: (err: Error | null, buffer?: Buffer) => void): void
-    streamTo(elem: HTMLMediaElement | string): void
-    appendTo(elem: HTMLElement | string): void
-    renderTo(elem: HTMLElement | string): void
     select(): void
     deselect(): void
+    stream(opts?: { start?: number; end?: number }): NodeJS.ReadableStream
+    getBlob(cb: (err: Error | null, blob?: Blob) => void): void
+    getBuffer(cb: (err: Error | null, buffer?: Buffer) => void): void
   }
 
   interface Torrent extends EventEmitter {
@@ -69,6 +66,14 @@ declare module 'webtorrent' {
     createdBy: string
     maxWebConns: number
 
+    on(event: 'metadata', listener: () => void): this
+    on(event: 'ready', listener: () => void): this
+    on(event: 'error', listener: (err: Error) => void): this
+    on(event: 'done', listener: () => void): this
+    on(event: 'download', listener: (bytesDownloaded: number) => void): this
+    on(event: 'upload', listener: (bytesUploaded: number) => void): this
+    on(event: string, listener: (...args: any[]) => void): this
+
     destroy(opts?: { destroyStore?: boolean }, cb?: () => void): void
     addPeer(peer: string): boolean
     removePeer(peer: string): void
@@ -83,6 +88,7 @@ declare module 'webtorrent' {
     add(torrentId: string | Buffer, opts?: TorrentOptions): Promise<Torrent>
     get(infoHash: string): Promise<Torrent | undefined>
     remove(torrentId: string | Torrent): Promise<void>
+    createServer(): { listen: (port: number, host: string, cb: () => void) => void; address: () => { port: number } | string | null }
     destroy(): void
     WEBRTC_SUPPORT: boolean
   }

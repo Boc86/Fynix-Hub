@@ -85,6 +85,17 @@ export function getWatchProgress(tmdbId: number, mediaType: string, season?: num
   return row?.progress ?? null
 }
 
+export function getFullWatchHistory() {
+  const rows = getDb().prepare(
+    'SELECT tmdb_id, media_type, season, episode, progress, watched_at FROM watch_history ORDER BY watched_at DESC'
+  ).all() as { tmdb_id: number; media_type: string; season: number | null; episode: number | null; progress: number; watched_at: string }[]
+  return rows
+}
+
+export function clearImageCache() {
+  getDb().prepare("DELETE FROM cache WHERE key LIKE 'fanart:%' OR key LIKE 'tmdb:%'").run()
+}
+
 export function closeDb() {
   if (db) {
     db.close()

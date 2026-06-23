@@ -7,6 +7,12 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 80px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .modal {
@@ -40,6 +46,55 @@
 
 .input::placeholder {
   color: var(--text-muted);
+}
+
+.filterBar {
+  display: flex;
+  gap: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--bg-hover);
+}
+
+.filterTab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+}
+
+.filterTab:hover {
+  color: var(--text-primary);
+}
+
+.filterTab:focus-visible {
+  outline: none;
+  transform: scale(1.05);
+}
+
+.filterActive {
+  color: var(--accent);
+}
+
+.focused {
+  color: var(--accent);
+  transform: scale(1.05);
+  animation: selectedPulse 2s ease-in-out infinite;
+}
+
+.filterActive::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
 }
 
 .results {
