@@ -40,10 +40,14 @@ const config: ForgeConfig = {
           '--share=network',
           '--share=ipc',
           '--socket=x11',
+          '--socket=wayland',
           '--socket=pulseaudio',
+          '--socket=session-bus',
           '--filesystem=home',
           '--device=dri',
           '--talk-name=org.freedesktop.Flatpak',
+          '--talk-name=org.freedesktop.DBus',
+          '--env=ELECTRON_OZONE_PLATFORM_HINT=x11',
         ]
       }
     }),
