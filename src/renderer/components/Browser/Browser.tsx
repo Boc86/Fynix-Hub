@@ -28,7 +28,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     setTrending, setPopularMovies, setPopularTvShows,
     setTopRatedMovies, setContinueWatching,
     setTraktWatched, setTraktPlayback,
-    setLoading, setError
+    setLoading, setError, refreshVersion
   } = useMediaStore()
 
   const loadedRef = useRef(false)
@@ -71,6 +71,101 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     const rows = getVisibleRows()
     return rows[rowIdx]?.items.length ?? 0
   }, [getVisibleRows])
+
+  const fetchTraktDataRef = useRef<() => Promise<void>>(async () => {})
+  fetchTraktDataRef.current = async () => {
+    const authStatus = await window.api.trakt.getAuthStatus()
+    console.log('[Browser] Trakt auth:', authStatus.authenticated)
+    if (authStatus.authenticated) {
+      const [watchedMovies, watchedShows, moviePlayback, episodePlayback] = await Promise.all([
+        window.api.trakt.getWatchedMovies().catch((err: any) => { console.log('[Browser] getWatchedMovies failed:', err?.message); return null }),
+        window.api.trakt.getWatchedShows().catch((err: any) => { console.log('[Browser] getWatchedShows failed:', err?.message); return null }),
+        window.api.trakt.getPlaybackMovies().catch((err: any) => { console.log('[Browser] getPlaybackMovies failed:', err?.message); return null }),
+        window.api.trakt.getPlaybackEpisodes().catch((err: any) => { console.log('[Browser] getPlaybackEpisodes failed:', err?.message); return null }),
+      ])
+
+      console.log('[Browser] moviePlayback count:', moviePlayback?.length ?? 0)
+      console.log('[Browser] episodePlayback count:', episodePlayback?.length ?? 0)
+
+      if (watchedMovies || watchedShows) {
+        const ids = new Set<number>()
+        if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
+        if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
+        setTraktWatched(ids)
+      }
+
+      const pbItems: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }> = []
+      const infoMap = new Map<number, ContinueInfo>()
+
+      if (moviePlayback && Array.isArray(moviePlayback)) {
+        for (const p of moviePlayback) {
+          const tmdbId = p?.movie?.ids?.tmdb
+          if (!tmdbId) continue
+          const progress = (p.progress ?? 0) / 100
+          pbItems.push({ tmdbId, mediaType: 'movie', progress })
+          infoMap.set(tmdbId, { mediaType: 'movie', progress })
+        }
+      }
+
+      let episodeItems = episodePlayback
+      if (!episodeItems || !Array.isArray(episodeItems) || episodeItems.length === 0) {
+        console.log('[Browser] Falling back to /sync/playback for episodes')
+        const fallback = await window.api.trakt.getPlayback().catch((err: any) => { console.log('[Browser] getPlayback fallback failed:', err?.message); return null })
+        if (fallback && Array.isArray(fallback)) {
+          episodeItems = fallback.filter((p: any) => p.type === 'episode' || (p.show && p.episode))
+          console.log('[Browser] fallback episode count:', episodeItems.length)
+        }
+      }
+
+      if (episodeItems && Array.isArray(episodeItems)) {
+        const seenShows = new Map<number, { season: number; episode: number; progress: number; pausedAt?: string }>()
+        for (const p of episodeItems) {
+          const tmdbId = p?.show?.ids?.tmdb
+          if (!tmdbId) continue
+          const season = p?.episode?.season
+          const episode = p?.episode?.number
+          const progress = (p?.progress ?? 0) / 100
+          const pausedAt = p?.paused_at
+          if (season === undefined || episode === undefined) continue
+          const existing = seenShows.get(tmdbId)
+          if (!existing || (pausedAt && (!existing.pausedAt || pausedAt > existing.pausedAt))) {
+            seenShows.set(tmdbId, { season, episode, progress, pausedAt })
+          }
+        }
+        for (const [tmdbId, ep] of seenShows) {
+          pbItems.push({ tmdbId, mediaType: 'tv', progress: ep.progress, season: ep.season, episode: ep.episode })
+          infoMap.set(tmdbId, { mediaType: 'tv', progress: ep.progress, season: ep.season, episode: ep.episode })
+        }
+      }
+
+      setTraktPlayback(pbItems)
+      setContinueInfo(infoMap)
+
+      const cwPromises = pbItems.map(async (p) => {
+        try {
+          const detail = await window.api.tmdb.getDetails(p.mediaType, p.tmdbId)
+          if (!detail) return null
+          return {
+            id: detail.id,
+            title: detail.title || detail.name || '',
+            overview: detail.overview || '',
+            posterPath: detail.posterPath || null,
+            backdropPath: detail.backdropPath || null,
+            releaseDate: detail.releaseDate || '',
+            voteAverage: detail.voteAverage || 0,
+            mediaType: p.mediaType as 'movie' | 'tv',
+            genreIds: (detail.genres || []).map((g: any) => g.id),
+          }
+        } catch { return null }
+      })
+      const cwItems = (await Promise.all(cwPromises)).filter((x): x is MediaItem => x !== null)
+      if (cwItems.length > 0) {
+        setContinueWatching(cwItems)
+      }
+    }
+  }
+
+  const fetchTraktData = useCallback(() => fetchTraktDataRef.current!(), [])
 
   useEffect(() => {
     if (loadedRef.current) return
@@ -117,95 +212,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           } catch { /* genre rows are optional */ }
         }
 
-        const authStatus = await window.api.trakt.getAuthStatus()
-        console.log('[Browser] Trakt auth:', authStatus.authenticated)
-        if (authStatus.authenticated) {
-          const [watchedMovies, watchedShows, moviePlayback, episodePlayback] = await Promise.all([
-            window.api.trakt.getWatchedMovies().catch((err: any) => { console.log('[Browser] getWatchedMovies failed:', err?.message); return null }),
-            window.api.trakt.getWatchedShows().catch((err: any) => { console.log('[Browser] getWatchedShows failed:', err?.message); return null }),
-            window.api.trakt.getPlaybackMovies().catch((err: any) => { console.log('[Browser] getPlaybackMovies failed:', err?.message); return null }),
-            window.api.trakt.getPlaybackEpisodes().catch((err: any) => { console.log('[Browser] getPlaybackEpisodes failed:', err?.message); return null }),
-          ])
-
-          console.log('[Browser] moviePlayback count:', moviePlayback?.length ?? 0)
-          console.log('[Browser] episodePlayback count:', episodePlayback?.length ?? 0)
-
-          if (watchedMovies || watchedShows) {
-            const ids = new Set<number>()
-            if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
-            if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
-            setTraktWatched(ids)
-          }
-
-          const pbItems: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }> = []
-          const infoMap = new Map<number, ContinueInfo>()
-
-          if (moviePlayback && Array.isArray(moviePlayback)) {
-            for (const p of moviePlayback) {
-              const tmdbId = p?.movie?.ids?.tmdb
-              if (!tmdbId) continue
-              const progress = (p.progress ?? 0) / 100
-              pbItems.push({ tmdbId, mediaType: 'movie', progress })
-              infoMap.set(tmdbId, { mediaType: 'movie', progress })
-            }
-          }
-
-          let episodeItems = episodePlayback
-          if (!episodeItems || !Array.isArray(episodeItems) || episodeItems.length === 0) {
-            console.log('[Browser] Falling back to /sync/playback for episodes')
-            const fallback = await window.api.trakt.getPlayback().catch((err: any) => { console.log('[Browser] getPlayback fallback failed:', err?.message); return null })
-            if (fallback && Array.isArray(fallback)) {
-              episodeItems = fallback.filter((p: any) => p.type === 'episode' || (p.show && p.episode))
-              console.log('[Browser] fallback episode count:', episodeItems.length)
-            }
-          }
-
-          if (episodeItems && Array.isArray(episodeItems)) {
-            const seenShows = new Map<number, { season: number; episode: number; progress: number; pausedAt?: string }>()
-            for (const p of episodeItems) {
-              const tmdbId = p?.show?.ids?.tmdb
-              if (!tmdbId) continue
-              const season = p?.episode?.season
-              const episode = p?.episode?.number
-              const progress = (p?.progress ?? 0) / 100
-              const pausedAt = p?.paused_at
-              if (season === undefined || episode === undefined) continue
-              const existing = seenShows.get(tmdbId)
-              if (!existing || (pausedAt && (!existing.pausedAt || pausedAt > existing.pausedAt))) {
-                seenShows.set(tmdbId, { season, episode, progress, pausedAt })
-              }
-            }
-            for (const [tmdbId, ep] of seenShows) {
-              pbItems.push({ tmdbId, mediaType: 'tv', progress: ep.progress, season: ep.season, episode: ep.episode })
-              infoMap.set(tmdbId, { mediaType: 'tv', progress: ep.progress, season: ep.season, episode: ep.episode })
-            }
-          }
-
-          setTraktPlayback(pbItems)
-          setContinueInfo(infoMap)
-
-          const cwPromises = pbItems.map(async (p) => {
-            try {
-              const detail = await window.api.tmdb.getDetails(p.mediaType, p.tmdbId)
-              if (!detail) return null
-              return {
-                id: detail.id,
-                title: detail.title || detail.name || '',
-                overview: detail.overview || '',
-                posterPath: detail.posterPath || null,
-                backdropPath: detail.backdropPath || null,
-                releaseDate: detail.releaseDate || '',
-                voteAverage: detail.voteAverage || 0,
-                mediaType: p.mediaType as 'movie' | 'tv',
-                genreIds: (detail.genres || []).map((g: any) => g.id),
-              }
-            } catch { return null }
-          })
-          const cwItems = (await Promise.all(cwPromises)).filter((x): x is MediaItem => x !== null)
-          if (cwItems.length > 0) {
-            setContinueWatching(cwItems)
-          }
-        }
+        await fetchTraktData()
       } catch (err: any) {
         setError(err?.message || 'Failed to load data')
       } finally {
@@ -214,7 +221,12 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     }
 
     loadData()
-  }, [mediaTypeFilter])
+  }, [mediaTypeFilter, fetchTraktData])
+
+  useEffect(() => {
+    if (!loadedRef.current) return
+    fetchTraktData()
+  }, [refreshVersion, fetchTraktData])
 
   // Scroll to top when data loads (e.g. navigating back to Browser)
   useEffect(() => {

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './Sidebar.module.css'
 
-export type NavView = 'browser' | 'movies' | 'tv-shows' | 'sports' | 'settings'
+export type NavView = 'browser' | 'movies' | 'tv-shows' | 'sports' | 'youtube' | 'settings'
 
-export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'sports', 'settings']
+export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'sports', 'youtube', 'settings']
 
 interface SidebarProps {
   open: boolean
@@ -23,6 +23,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { view: 'browser' as NavView, label: 'Home', shortcut: '' },
     { view: 'movies' as NavView, label: 'Movies', shortcut: '' },
     { view: 'tv-shows' as NavView, label: 'TV Shows', shortcut: '' },
+    { view: 'youtube' as NavView, label: 'YouTube', shortcut: '' },
     // Sports entry removed – hidden until a reliable API is available
     { view: 'settings' as NavView, label: 'Settings', shortcut: '' },
     { view: null as NavView | null, label: 'Search', shortcut: 'S', isSearch: true },
@@ -123,6 +124,12 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="2" y="7" width="20" height="15" rx="2" ry="2"/>
                   <polyline points="17 2 12 7 7 2"/>
+                </svg>
+              )}
+              {item.view === 'youtube' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z"/>
+                  <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/>
                 </svg>
               )}
               {item.view === 'sports' && (

@@ -7,7 +7,6 @@ import SearchModal from './components/SearchModal/SearchModal'
 import Settings from './components/Settings/Settings'
 import Sidebar from './components/Sidebar/Sidebar'
 import SportsPage from './components/Sports/SportsPage'
-import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
@@ -16,7 +15,7 @@ import type { TorrentResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
-type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'sports' | 'free-search'
+type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'sports' | 'youtube' | 'free-search'
 
 interface PlayerInfo {
   tmdbId: number
@@ -55,6 +54,21 @@ export default function App() {
   const savedFocusRef = useRef<HTMLElement | null>(null)
   const prevModalCountRef = useRef(0)
   const { loadFromDisk, tmdbApiKey, sportsEnabled } = useSettingsStore()
+  const goBackRef = useRef<() => void>(() => {})
+
+  // Listen for Escape key from YouTube BrowserView to return focus
+  useEffect(() => {
+    goBackRef.current = goBack
+  })
+
+  useEffect(() => {
+    const cleanup = window.api.youtube.onFocusBack(() => {
+      if (view === 'youtube') {
+        goBackRef.current()
+      }
+    })
+    return cleanup
+  }, [view])
 
   const DEBRID_SERVICES = useMemo(() => ['real-debrid', 'torbox', 'premiumize', 'alldebrid'], [])
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
@@ -93,6 +107,12 @@ export default function App() {
   }, [modalCount])
 
   const navigate = useCallback((v: View) => {
+    if (v === 'youtube') {
+      window.api.youtube.show()
+    } else if (view === 'youtube') {
+      // Hide YouTube BrowserView when navigating away from YouTube
+      window.api.youtube.hide()
+    }
     historyRef.current = [...historyRef.current, view]
     setView(v)
   }, [view])
@@ -102,11 +122,17 @@ export default function App() {
     if (h.length > 0) {
       const prev = h[h.length - 1]
       historyRef.current = h.slice(0, -1)
+      if (view === 'youtube') {
+        window.api.youtube.hide()
+      }
       setView(prev)
     } else {
+      if (view === 'youtube') {
+        window.api.youtube.hide()
+      }
       setView('browser')
     }
-  }, [])
+  }, [view])
 
   const navigateSidebar = useCallback((v: NavView) => {
     if (v !== view) {
@@ -370,30 +396,30 @@ export default function App() {
     }
   }, [navigate, playTorrent, tryAutoPlayResult])
 
-  const handlePlayTrailer = useCallback(async (youtubeUrl: string) => {
-    setPlayerLoading(true)
-    setStreamError(null)
-    navigate('player')
-    try {
-      const res = await window.api.youtube.getStreamUrl(youtubeUrl)
-      if (!res.success || !res.url) throw new Error(res.error || 'No trailer stream found')
-      // YouTube direct URLs are already playable; skip the ffmpeg transcoding proxy
-      setPlayerInfo({
-        tmdbId: selectedMedia?.id || 0,
-        mediaType: selectedMedia?.mediaType || 'movie',
-        isTrailer: true,
-      })
-      setStreamUrl(res.url)
-    } catch (err: any) {
-      console.error('[App] Trailer playback failed:', err.message)
-      setStreamError(err?.message || 'Failed to load trailer')
-    } finally {
-      setPlayerLoading(false)
-    }
-  }, [navigate, selectedMedia])
+  const handlePlayYouTubeVideo = useCallback(async (video: any) => {
+    // Placeholder for the Webview approach
+    // We will implement the BrowserView logic in the main process
+    console.log('[App] Play YouTube Video (Webview):', video)
+    navigate('youtube')
+  }, [navigate])
 
   const handleContextMenu = useCallback((target: ContextTarget) => {
     setContextTarget(target)
+  }, [])
+
+  const handleResetProgress = useCallback(async (target: ContextTarget) => {
+    try {
+      const payload = target.type === 'movie'
+        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
+        : target.episode !== undefined
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          : target.season !== undefined
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      await window.api.trakt.markUnwatched(payload)
+      await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
+    } catch { /* ignore */ }
+    useMediaStore.getState().triggerRefresh()
   }, [])
 
   const handleMarkWatched = useCallback(async (target: ContextTarget) => {
@@ -407,6 +433,7 @@ export default function App() {
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markWatched(payload)
     } catch { /* ignore */ }
+    useMediaStore.getState().triggerRefresh()
   }, [])
 
   const handleMarkUnwatched = useCallback(async (target: ContextTarget) => {
@@ -420,6 +447,7 @@ export default function App() {
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markUnwatched(payload)
     } catch { /* ignore */ }
+    useMediaStore.getState().triggerRefresh()
   }, [])
 
   const handleShowSources = useCallback(async (target: ContextTarget) => {
@@ -486,6 +514,10 @@ export default function App() {
   // Global keyboard handler
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Disable Fynix keyboard handler when YouTube BrowserView is active
+      // BrowserView handles its own keyboard navigation
+      if (view === 'youtube') return
+      
       const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)
       
       if (e.key === 'Escape') {
@@ -567,7 +599,7 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'sports' ? 'sports' : 'browser'}
+        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'sports' ? 'sports' : view === 'youtube' ? 'youtube' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -587,7 +619,7 @@ export default function App() {
           <DetailView
             onBack={() => goBack()}
             onPlay={handlePlay}
-            onPlayTrailer={handlePlayTrailer}
+            onPlayTrailer={() => {}}
             onContextMenu={handleContextMenu}
           />
         </div>
@@ -610,10 +642,8 @@ export default function App() {
           <Settings onClose={() => goBack()} />
         </div>
       )}
-      {view === 'sports' && (
-        <div className="animate-fade">
-          <SportsPage onSearchTorrent={handleSportsTorrentSearch} />
-        </div>
+      {view === 'youtube' && (
+        <div className="animate-fade" style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
       )}
         {searchOpen && (
           <SearchModal
@@ -639,6 +669,7 @@ export default function App() {
           onMarkWatched={handleMarkWatched}
           onMarkUnwatched={handleMarkUnwatched}
           onShowSources={handleShowSources}
+          onResetProgress={handleResetProgress}
         />
       )}
       {virtualKeyboardOpen && (

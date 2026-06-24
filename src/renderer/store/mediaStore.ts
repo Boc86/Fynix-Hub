@@ -17,6 +17,7 @@ interface MediaState {
   traktPlayback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
   isLoading: boolean
   error: string | null
+  refreshVersion: number
   setTrending: (items: MediaItem[]) => void
   setPopularMovies: (items: MediaItem[]) => void
   setPopularTvShows: (items: MediaItem[]) => void
@@ -32,6 +33,7 @@ interface MediaState {
   setTraktPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+  triggerRefresh: () => void
 }
 
 export const useMediaStore = create<MediaState>((set) => ({
@@ -50,6 +52,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   traktPlayback: [],
   isLoading: false,
   error: null,
+  refreshVersion: 0,
 
   setTrending: (items) => set({ trending: items }),
   setPopularMovies: (items) => set({ popularMovies: items }),
@@ -72,4 +75,5 @@ export const useMediaStore = create<MediaState>((set) => ({
   setTraktPlayback: (items) => set({ traktPlayback: items }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
+  triggerRefresh: () => set((state) => ({ refreshVersion: state.refreshVersion + 1 })),
 }))

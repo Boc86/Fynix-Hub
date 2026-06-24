@@ -19,6 +19,12 @@ interface MediaInfo {
   episode?: number
   resumePosition?: number
   isTrailer?: boolean
+  // Segments can be provided by various add-ons (SponsorBlock, introDB, etc.)
+  segments?: {
+    type: 'intro' | 'recap' | 'intro-and-recap'
+    startMs: number | null
+    endMs: number | null
+  }[]
 }
 
 interface VideoPlayerProps {
@@ -159,10 +165,19 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   useEffect(() => {
     setSegments([])
     setActiveSkip(null)
-    // IntroDB is only used for TV shows; skip for movies and trailers
-    if (!mediaInfo || mediaInfo.isTrailer || mediaInfo.mediaType !== 'tv') return
-    const mi = mediaInfo
 
+    if (!mediaInfo || mediaInfo.isTrailer) return
+
+    if (mediaInfo.segments && mediaInfo.segments.length > 0) {
+      // Generic segments format: { type: 'intro' | 'recap', startMs, endMs }
+      setSegments(mediaInfo.segments)
+      return
+    }
+
+    // IntroDB is only used for TV shows
+    if (mediaInfo.mediaType !== 'tv') return
+
+    const mi = mediaInfo
     let cancelled = false
     async function fetchSegments() {
       try {
@@ -177,7 +192,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     }
     fetchSegments()
     return () => { cancelled = true }
-  }, [mediaInfo?.tmdbId, mediaInfo?.season, mediaInfo?.episode])
+  }, [mediaInfo?.tmdbId, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.segments])
 
   useEffect(() => {
     if (!mediaInfo) return

@@ -57,15 +57,6 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('youtube:get-stream-url', async (_event, videoUrl) => {
-    try {
-      const { url, fileType } = await YoutubeService.getStreamUrl(videoUrl)
-      return { success: true, url, fileType }
-    } catch (err: any) {
-      return { success: false, error: err.message }
-    }
-  })
-
   ipcMain.handle('app:select-file', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return { canceled: true, filePaths: [] }

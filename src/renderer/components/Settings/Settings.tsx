@@ -24,14 +24,15 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'sports' | 'advanced'
+type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'advanced'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
   { id: 'connections', label: 'Connections', shortcut: '2' },
   { id: 'indexers', label: 'Indexers', shortcut: '3' },
-  // { id: 'sports', label: 'Sports', shortcut: '4' }, // hidden until API available
-  { id: 'advanced', label: 'Advanced', shortcut: '5' },
+  { id: 'youtube', label: 'YouTube', shortcut: '4' },
+  // { id: 'sports', label: 'Sports', shortcut: '5' }, // hidden until API available
+  { id: 'advanced', label: 'Advanced', shortcut: '6' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -50,6 +51,9 @@ export default function Settings({ onClose }: SettingsProps) {
   const [trackerRefreshCount, setTrackerRefreshCount] = useState(0)
   const [trackerRefreshError, setTrackerRefreshError] = useState('')
   const [clearCacheState, setClearCacheState] = useState<'idle' | 'clearing' | 'done' | 'error'>('idle')
+  const [tizentubeVersion, setTizentubeVersion] = useState<string | null>(null)
+  const [tizentubeStatus, setTizentubeStatus] = useState<string>('')
+  const [tizentubeUpdating, setTizentubeUpdating] = useState(false)
 
   const [builtInIndexers, setBuiltInIndexers] = useState<BuiltInDefinition[]>([])
   const [localEnabledIndexers, setLocalEnabledIndexers] = useState<string[]>(store.enabledIndexers)
@@ -81,6 +85,13 @@ export default function Settings({ onClose }: SettingsProps) {
         }
       }
     }, 100)
+  }, [])
+
+  // Load TizenTube version on mount
+  useEffect(() => {
+    window.api.tizentube.getVersion().then(v => {
+      if (v) setTizentubeVersion(v)
+    }).catch(() => {})
   }, [])
 
   const toggleLang = (lang: string) => {
@@ -980,6 +991,42 @@ export default function Settings({ onClose }: SettingsProps) {
           </div>
         )
 
+      case 'youtube':
+        return (
+          <div className={styles.tabContent}>
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>TizenTube</h3>
+              <p className={styles.settingDesc}>Ad-blocking, SponsorBlock, and enhancements. Click the Settings gear icon inside the YouTube player to configure.</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={styles.toggle}
+                  disabled={tizentubeUpdating}
+                  onClick={async () => {
+                    setTizentubeUpdating(true)
+                    setTizentubeStatus('Checking...')
+                    const result = await window.api.tizentube.update()
+                    if (result.success) {
+                      setTizentubeVersion(result.version || 'unknown')
+                      setTizentubeStatus(`Updated to v${result.version}`)
+                    } else {
+                      setTizentubeStatus(`Failed: ${result.error || 'unknown error'}`)
+                    }
+                    setTizentubeUpdating(false)
+                  }}
+                >
+                  {tizentubeUpdating ? 'Updating...' : 'Check & Update TizenTube'}
+                </button>
+              </div>
+              {tizentubeVersion && (
+                <p className={styles.settingDesc}>Current version: v{tizentubeVersion}</p>
+              )}
+              {tizentubeStatus && (
+                <p className={styles.settingDesc}>{tizentubeStatus}</p>
+              )}
+            </div>
+          </div>
+        )
       case 'sports':
         return (
           <div className={styles.tabContent}>
@@ -1098,36 +1145,6 @@ export default function Settings({ onClose }: SettingsProps) {
               >
                 {clearCacheState === 'clearing' ? 'Clearing...' : 'Clear Image Cache'}
               </button>
-            </div>
-
-            <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>YouTube Cookies</h3>
-              <p className={styles.settingDesc}>
-                Optional cookies.txt file for YouTube trailer playback. Export your cookies with a browser extension like "Get cookies.txt LOCALLY" while signed into YouTube.
-              </p>
-              <div className={styles.cookiesRow}>
-                <span className={styles.cookiesPath}>{store.youtubeCookiesPath || 'No cookies file selected'}</span>
-                <button
-                  tabIndex={0}
-                  className={styles.connectBtn}
-                  onClick={async () => {
-                    const result = await window.api.selectFile({
-                      properties: ['openFile'],
-                      filters: [{ name: 'Cookies', extensions: ['txt'] }, { name: 'All Files', extensions: ['*'] }],
-                    })
-                    if (!result.canceled && result.filePaths?.[0]) {
-                      store.setYoutubeCookiesPath(result.filePaths[0])
-                    }
-                  }}
-                >
-                  Select cookies.txt
-                </button>
-                {store.youtubeCookiesPath && (
-                  <button tabIndex={0} className={styles.disconnectBtn} onClick={() => store.setYoutubeCookiesPath('')}>
-                    Clear
-                  </button>
-                )}
-              </div>
             </div>
           </div>
         )

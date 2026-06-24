@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, BrowserView } from 'electron'
 import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
 import * as TorrentSearchService from './services/torrent-search.service'
+import { TizenTubeService } from './services/tizentube.service'
 
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('in-process-gpu')
@@ -10,6 +11,7 @@ declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
 
 let mainWindow: BrowserWindow | null = null
+let youtubeView: BrowserView | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -41,6 +43,136 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  mainWindow.on('resize', () => {
+    if (youtubeView && mainWindow) {
+      const { width, height } = mainWindow.getContentBounds()
+      youtubeView.setBounds({ x: 0, y: 0, width, height })
+    }
+  })
+}
+
+function createYouTubeView() {
+  if (youtubeView || !mainWindow) return
+
+  youtubeView = new BrowserView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+
+  // Spoof User-Agent to Android TV to get youtube.com/tv interface
+  const tvUserAgent = 'Mozilla/5.0 (Linux; Android 11; SHIELD Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  youtubeView.webContents.setUserAgent(tvUserAgent)
+
+  // Also spoof User-Agent at session level for all requests
+  youtubeView.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ['*://*.youtube.com/*'] },
+    (details, callback) => {
+      details.requestHeaders['User-Agent'] = tvUserAgent
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
+
+  // Block ads — catch known ad domains
+  youtubeView.webContents.session.webRequest.onBeforeRequest(
+    {
+      urls: [
+        '*://*.doubleclick.net/*',
+        '*://*.googlesyndication.com/*',
+        '*://*.googleadservices.com/*',
+        '*://*.google-analytics.com/*',
+        '*://*.googletagmanager.com/*',
+        '*://*.googletagservices.com/*',
+        '*://*.anchor.fm/*',
+        '*://*.adservice.google.com/*',
+        '*://*.pagead2.googlesyndication.com/*',
+        '*://*.adsafeprotected.com/*',
+        '*://*.serving-sys.com/*',
+        '*://*.adnxs.com/*',
+        '*://*.rubiconproject.com/*',
+        '*://*.pubmatic.com/*',
+        '*://*.openx.net/*',
+        '*://*.casalmedia.com/*',
+        '*://*.moatads.com/*',
+        '*://*.scorecardresearch.com/*',
+      ]
+    },
+    (details, callback) => {
+      callback({ cancel: true })
+    }
+  )
+
+  mainWindow.addBrowserView(youtubeView)
+
+  const { width, height } = mainWindow.getContentBounds()
+  youtubeView.setBounds({ x: 0, y: 0, width, height })
+
+  // Focus the BrowserView so it receives keyboard input
+  youtubeView.webContents.focus()
+
+  // Inject TizenTube on did-finish-load
+  let tizentubeInjected = false
+  youtubeView.webContents.on('did-finish-load', () => {
+    youtubeView?.webContents.focus()
+
+    if (tizentubeInjected) return
+    tizentubeInjected = true
+
+    const scripts = TizenTubeService.getScripts()
+    for (const script of scripts) {
+      const wrapped = `try{\n${script}\n}catch(e){console.error('[TizenTube]',e)}`
+      youtubeView?.webContents.executeJavaScript(wrapped).catch((e: any) =>
+        console.error('[YouTubeView] TizenTube injection failed:', e)
+      )
+    }
+  })
+
+  // Intercept keyboard events
+  let isSyntheticEscape = false
+  youtubeView.webContents.on('before-input-event', (event, input) => {
+    // Escape → exit YouTube entirely
+    if (input.key === 'Escape' && input.type === 'keyDown' && !isSyntheticEscape) {
+      event.preventDefault()
+      mainWindow?.webContents.send('youtube:focus-back')
+    }
+    // Backspace → navigate back within YouTube TV
+    if ((input.key === 'Backspace' || input.key === 'BrowserBack') && input.type === 'keyDown') {
+      event.preventDefault()
+      isSyntheticEscape = true
+      youtubeView?.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      youtubeView?.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      setTimeout(() => { isSyntheticEscape = false }, 100)
+    }
+  })
+
+  youtubeView.webContents.loadURL('https://www.youtube.com/tv')
+}
+
+function destroyYouTubeView() {
+  if (youtubeView && mainWindow) {
+    try {
+      mainWindow.removeBrowserView(youtubeView)
+    } catch (e) {
+      console.error('[YouTubeView] removeBrowserView failed:', e)
+    }
+    try {
+      if (typeof youtubeView.destroy === 'function') {
+        youtubeView.destroy()
+      }
+    } catch (e) {
+      console.error('[YouTubeView] destroy failed:', e)
+    }
+    youtubeView = null
+    // Focus workaround for Wayland — toggle alwaysOnTop to force window to front
+    mainWindow.setAlwaysOnTop(true)
+    mainWindow.moveTop()
+    mainWindow.focus()
+    mainWindow.webContents.focus()
+    setTimeout(() => mainWindow?.setAlwaysOnTop(false), 100)
+  }
 }
 
 app.whenReady().then(async () => {
@@ -63,4 +195,25 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+ipcMain.on('youtube:show', () => {
+  createYouTubeView()
+  youtubeView?.webContents.focus()
+})
+
+ipcMain.on('youtube:hide', () => {
+  destroyYouTubeView()
+})
+
+ipcMain.handle('tizentube:check-updates', async () => {
+  return TizenTubeService.checkForUpdates()
+})
+
+ipcMain.handle('tizentube:update', async () => {
+  return TizenTubeService.updateScripts()
+})
+
+ipcMain.handle('tizentube:get-version', async () => {
+  return TizenTubeService.getVersion()
 })

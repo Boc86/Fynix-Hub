@@ -26,6 +26,9 @@ interface SettingsState {
   enabledIndexers: string[]
   customIndexers: CustomIndexer[]
   youtubeCookiesPath: string
+  sponsorBlockEnabled: boolean
+  sponsorBlockCategories: string[]
+  youtubePreferredQuality: string
   sportsEnabled: boolean
   sportsDbApiKey: string
   sportsSelected: string[]
@@ -50,6 +53,9 @@ interface SettingsState {
   setEnabledIndexers: (ids: string[]) => void
   setCustomIndexers: (indexers: CustomIndexer[]) => void
   setYoutubeCookiesPath: (path: string) => void
+  setSponsorBlockEnabled: (enabled: boolean) => void
+  setSponsorBlockCategories: (categories: string[]) => void
+  setYoutubePreferredQuality: (quality: string) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsDbApiKey: (key: string) => void
   setSportsSelected: (sports: string[]) => void
@@ -78,6 +84,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   enabledIndexers: DEFAULT_ENABLED_INDEXERS,
   customIndexers: [],
   youtubeCookiesPath: '',
+  sponsorBlockEnabled: true,
+  sponsorBlockCategories: ['sponsor', 'intro', 'outro', 'interaction', 'selfpromo', 'preview', 'music_offtopic', 'poi_highlight'],
+  youtubePreferredQuality: '1080p',
   sportsEnabled: false,
   sportsDbApiKey: '',
   sportsSelected: [],
@@ -102,6 +111,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setEnabledIndexers: (ids) => { set({ enabledIndexers: ids }); get().saveToDisk() },
   setCustomIndexers: (indexers) => { set({ customIndexers: indexers }); get().saveToDisk() },
   setYoutubeCookiesPath: (path) => { set({ youtubeCookiesPath: path }); get().saveToDisk() },
+  setSponsorBlockEnabled: (enabled) => { set({ sponsorBlockEnabled: enabled }); get().saveToDisk() },
+  setSponsorBlockCategories: (categories) => { set({ sponsorBlockCategories: categories }); get().saveToDisk() },
+  setYoutubePreferredQuality: (quality) => { set({ youtubePreferredQuality: quality }); get().saveToDisk() },
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsDbApiKey: (key) => { set({ sportsDbApiKey: key }); get().saveToDisk() },
   setSportsSelected: (sports) => { set({ sportsSelected: sports }); get().saveToDisk() },
@@ -145,6 +157,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('enabledIndexers', state.enabledIndexers),
         window.api.settings.set('customIndexers', state.customIndexers),
         window.api.settings.set('youtubeCookiesPath', state.youtubeCookiesPath),
+        window.api.settings.set('sponsorBlockEnabled', state.sponsorBlockEnabled),
+        window.api.settings.set('sponsorBlockCategories', state.sponsorBlockCategories),
+        window.api.settings.set('youtubePreferredQuality', state.youtubePreferredQuality),
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsDbApiKey', state.sportsDbApiKey),
         window.api.settings.set('sportsSelected', state.sportsSelected),

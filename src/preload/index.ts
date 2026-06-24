@@ -8,6 +8,17 @@ const api = {
   youtube: {
     getStreamUrl: (videoUrl: string): Promise<{ success: boolean; url?: string; fileType?: string; error?: string }> =>
       ipcRenderer.invoke('youtube:get-stream-url', videoUrl),
+    show: () => ipcRenderer.send('youtube:show'),
+    hide: () => ipcRenderer.send('youtube:hide'),
+    onFocusBack: (callback: () => void) => {
+      ipcRenderer.on('youtube:focus-back', callback)
+      return () => ipcRenderer.removeListener('youtube:focus-back', callback)
+    },
+  },
+  tizentube: {
+    checkUpdates: () => ipcRenderer.invoke('tizentube:check-updates'),
+    update: () => ipcRenderer.invoke('tizentube:update'),
+    getVersion: () => ipcRenderer.invoke('tizentube:get-version'),
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

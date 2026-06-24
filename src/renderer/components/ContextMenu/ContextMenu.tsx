@@ -15,15 +15,17 @@ interface ContextMenuProps {
   onMarkWatched: (target: ContextTarget) => void
   onMarkUnwatched: (target: ContextTarget) => void
   onShowSources: (target: ContextTarget) => void
+  onResetProgress: (target: ContextTarget) => void
 }
 
-export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwatched, onShowSources }: ContextMenuProps) {
+export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwatched, onShowSources, onResetProgress }: ContextMenuProps) {
   const [highlightedIdx, setHighlightedIdx] = useState(0)
   const btnRefs = useRef<HTMLButtonElement[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
 
   const typeLabel = target.type === 'movie' ? 'Movie' : target.type === 'tv' ? 'TV Show' : target.type === 'season' ? 'Season' : 'Episode'
   const showSourcesItem = target.type === 'movie' || target.type === 'episode'
+  const itemCount = (showSourcesItem ? 4 : 3)
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -35,7 +37,7 @@ export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwa
   }, [onClose])
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    const count = showSourcesItem ? 3 : 2
+    const count = itemCount
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
       e.preventDefault()
       setHighlightedIdx((prev) => (prev + 1) % count)
@@ -90,11 +92,22 @@ export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwa
             </svg>
             Mark Unwatched
           </button>
+          <button
+            ref={(el) => { btnRefs.current[2] = el! }}
+            tabIndex={-1}
+            className={`${styles.menuBtn} ${highlightedIdx === 2 ? styles.focused : ''}`}
+            onClick={() => handleBtn(2, () => onResetProgress(target))}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            Reset Progress
+          </button>
           {showSourcesItem && (
             <button
-              ref={(el) => { btnRefs.current[2] = el! }}
+              ref={(el) => { btnRefs.current[3] = el! }}
               tabIndex={-1}
-              className={`${styles.menuBtn} ${highlightedIdx === 2 ? styles.focused : ''}`}
+              className={`${styles.menuBtn} ${highlightedIdx === 3 ? styles.focused : ''}`}
               onClick={() => handleBtn(2, () => onShowSources(target))}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
