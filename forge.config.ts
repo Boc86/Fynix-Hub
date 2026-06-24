@@ -24,19 +24,7 @@ const config: ForgeConfig = {
         runtime: 'org.freedesktop.Platform',
         runtimeVersion: '24.08',
         sdk: 'org.freedesktop.Sdk',
-        modules: [
-          {
-            name: 'ffmpeg',
-            buildsystem: 'simple',
-            buildcommands: [],
-            sources: [
-              {
-                type: 'shell',
-                commands: ['echo "ffmpeg provided by runtime"']
-              }
-            ]
-          }
-        ],
+        modules: [],
         finishArgs: [
           '--share=network',
           '--share=ipc',
