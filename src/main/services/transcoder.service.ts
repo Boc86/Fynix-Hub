@@ -25,10 +25,9 @@ export function startProxy(sourceUrl: string): Promise<{ proxyUrl: string }> {
 
       const ffmpeg = spawn('ffmpeg', [
         '-i', sourceUrl,
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-tune', 'zerolatency',
-        '-c:a', 'aac',
+        '-map', '0:v:0?',
+        '-map', '0:a:0?',
+        '-c', 'copy',
         '-f', 'mp4',
         '-movflags', 'frag_keyframe+empty_moov',
         '-loglevel', 'error',
