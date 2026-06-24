@@ -8,3 +8,6 @@ out/
 .env
 .DS_Store
 Thumbs.db
+build.log
+start.log
+flatpak-tmp/

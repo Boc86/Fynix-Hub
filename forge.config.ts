@@ -9,18 +9,29 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'Fynix Hub',
     executableName: 'fynix-hub',
-    asar: true,
+    asar: {
+      unpack: '*.node',
+    },
+    ignore: (file: string) => {
+      if (!file) return false
+      if (file.startsWith('/.vite')) return false
+      if (file.startsWith('/node_modules')) return false
+      return true
+    },
   },
   makers: [
-    new MakerSquirrel({}),
-    new MakerDeb({}),
-    new MakerRpm({}),
+    // new MakerSquirrel({}),
+    // new MakerDeb({}),
+    // new MakerRpm({}),
     new MakerFlatpak({
       options: {
         categories: ['Video', 'AudioVideo'],
         mimeType: ['video/mp4', 'video/x-matroska'],
         description: 'Fynix Hub - Media Hub with Netflix-like experience',
         id: 'com.fynix.hub',
+        icon: '/home/boc/Documents/Fynix Media Hub/fynix-hub/assets/FLB.png',
+        base: 'org.electronjs.Electron2.BaseApp',
+        baseVersion: '24.08',
         runtime: 'org.freedesktop.Platform',
         runtimeVersion: '24.08',
         sdk: 'org.freedesktop.Sdk',
