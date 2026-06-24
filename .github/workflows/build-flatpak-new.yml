@@ -87,6 +87,10 @@ jobs:
             flatpak build-import-bundle repo "$BUNDLE"
             flatpak build-update-repo --generate-static-deltas repo
           fi
+          
+          echo "--- Debug: Listing repo contents ---"
+          ls -R repo
+          echo "--- End Debug ---"
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
