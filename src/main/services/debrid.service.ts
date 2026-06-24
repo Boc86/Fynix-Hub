@@ -1,5 +1,12 @@
 import * as CacheService from './cache.service'
 
+class CachedCheckFailedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CachedCheckFailedError'
+  }
+}
+
 const REAL_DEBRID_BASE = 'https://api.real-debrid.com/rest/1.0'
 const TORBOX_BASE = 'https://api.torbox.app/v1/api'
 const PREMIUMIZE_BASE = 'https://www.premiumize.me/api'
@@ -85,70 +92,38 @@ export async function realDebridCheckCached(hashes: string[], magnets?: string[]
   if (!realDebridKey) return {}
 
   const result: Record<string, boolean> = {}
-  const toCheck = hashes.slice(0, 8)
-  const BATCH = 2
+  const toCheck = hashes.slice(0, 20)
+  const BATCH = 10
   for (let i = 0; i < toCheck.length; i += BATCH) {
     const batch = toCheck.slice(i, i + BATCH)
-    const out = await Promise.allSettled(batch.map(async (hash, idx) => {
-      const magnetUri = magnets?.[i + idx] || `magnet:?xt=urn:btih:${hash.toUpperCase()}`
+    const out = await Promise.allSettled(batch.map(async (hash) => {
       try {
-        const addForm = new URLSearchParams({ magnet: magnetUri })
-        const addRes = await fetch(`${REAL_DEBRID_BASE}/torrents/addMagnet`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${realDebridKey}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: addForm.toString(),
-        })
-        if (addRes.status === 429) {
-          console.log(`[Debrid] hash ${hash.slice(0, 8)}: rate limited`)
-          return { hash, cached: false, rateLimited: true }
-        }
-        if (!addRes.ok) {
-          console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: ${addRes.status} (not cached)`)
-          return { hash, cached: false }
-        }
-        const addData = await addRes.json()
-        const torrentId = addData.id as string
-        await fetch(`${REAL_DEBRID_BASE}/torrents/selectFiles/${torrentId}`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${realDebridKey}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({ files: 'all' }).toString(),
-        }).catch(() => {})
-        const infoRes = await fetch(`${REAL_DEBRID_BASE}/torrents/info/${torrentId}`, {
+        const infoRes = await fetch(`${REAL_DEBRID_BASE}/torrents/instantAvailability/${hash}`, {
           headers: { Authorization: `Bearer ${realDebridKey}` },
         })
-        let cached = false
-        if (infoRes.ok) {
-          const info = await infoRes.json() as any
-          cached = info.status === 'downloaded' && info.links?.length > 0
-          if (cached) console.log(`[Debrid] hash ${hash.slice(0, 8)}: CACHED`)
+        if (!infoRes.ok) {
+          console.log(`[Debrid] instantAvailability ${hash.slice(0, 8)}: ${infoRes.status}`)
+          return { hash, cached: false }
         }
-        if (!cached) {
-          await fetch(`${REAL_DEBRID_BASE}/torrents/delete/${torrentId}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${realDebridKey}` },
-          }).catch(() => {})
+        const data = await infoRes.json() as any
+        // Real-Debrid instantAvailability returns { hash: { rd: [{ filename, filesize }] } } when cached
+        const variants = data?.[hash.toUpperCase()]
+        const cached = !!(variants?.rd?.length || variants?.[hash.toUpperCase()]?.rd?.length)
+        if (cached) {
+          console.log(`[Debrid] hash ${hash.slice(0, 8)}: CACHED`)
         }
         return { hash, cached }
       } catch (e: any) {
-        console.log(`[Debrid] hash ${hash.slice(0, 8)}: error ${e.message}`)
+        console.log(`[Debrid] hash ${hash.slice(0, 8)}: instantAvailability error ${e.message}`)
         return { hash, cached: false }
       }
     }))
-    let rateLimited = false
     for (const s of out) {
       if (s.status === 'fulfilled') {
         result[s.value.hash] = s.value.cached
-        if (s.value.rateLimited) rateLimited = true
       }
     }
-    if (rateLimited) break
-    if (i + BATCH < toCheck.length) await new Promise(r => setTimeout(r, 1000))
+    if (i + BATCH < toCheck.length) await new Promise(r => setTimeout(r, 200))
   }
   const cachedCount = Object.values(result).filter(Boolean).length
   console.log(`[Debrid] cached: ${cachedCount}/${hashes.length}`)
@@ -210,9 +185,17 @@ async function waitForRealDebridReady(torrentId: string, maxPollMs = 60000): Pro
 }
 
 export async function realDebridAddAndWait(magnet: string): Promise<string> {
-  const added = await realDebridAddMagnet(magnet)
-  await realDebridSelectFiles(added.id)
-  return waitForRealDebridReady(added.id)
+  try {
+    const added = await realDebridAddMagnet(magnet)
+    if (!added?.id) throw new Error('Real-Debrid: no torrent ID returned')
+    await realDebridSelectFiles(added.id)
+    return waitForRealDebridReady(added.id)
+  } catch (err: any) {
+    if (err?.message?.includes('451')) {
+      throw new CachedCheckFailedError('Real-Debrid reports this torrent is unavailable (451). Try using a different debrid service or direct torrent.')
+    }
+    throw err
+  }
 }
 
 // --- Real-Debrid OAuth (device-code flow) ---

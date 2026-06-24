@@ -354,6 +354,10 @@ export async function registerIpcHandlers(): Promise<void> {
       return { url }
     } catch (err: any) {
       console.error('[Handler] debrid:add-and-wait failed:', err.message)
+      // If it's a known cached-check failure, we can return a specific error
+      if (err.name === 'CachedCheckFailedError' || err.message.includes('451')) {
+         throw new Error('This torrent is not currently available on the debrid service. Try a different source.')
+      }
       throw err
     }
   })

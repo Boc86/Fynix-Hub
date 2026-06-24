@@ -9,6 +9,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "make:flatpak": "electron-forge make --platform=linux --arch=x64",
+    "setup:ffmpeg": "bash scripts/setup-ffmpeg.sh",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

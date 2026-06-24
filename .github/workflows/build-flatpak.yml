@@ -1,0 +1,147 @@
+name: Build & Deploy Flatpak
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download static ffmpeg
+        run: bash scripts/setup-ffmpeg.sh
+
+      - name: Install Flatpak SDK & runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp//24.08 || true
+
+      - name: Build Flatpak bundle
+        run: TMPDIR=/var/tmp npm run make:flatpak
+
+      - name: Get version
+        id: version
+        run: echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: out/make/flatpak/x86_64/*.flatpak
+
+      - name: Import GPG key
+        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --import --batch --passphrase "$GPG_PASSPHRASE" || true
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpg-connect-agent reloadagent /bye || true
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Build OSTree repo
+        run: |
+          BUNDLE=$(find out/make -name "*.flatpak" | head -1)
+          echo "Bundle: $BUNDLE"
+
+          ostree init --mode=archive-z2 --repo=repo
+
+          if [ -n "${{ secrets.GPG_KEY_ID }}" ]; then
+            GPG_KEY_ID="${{ secrets.GPG_KEY_ID }}"
+            KEYGRIP=$(gpg --list-secret-keys --with-keygrip "$GPG_KEY_ID" 2>/dev/null | grep Keygrip | head -1 | awk '{print $3}') || true
+            if [ -n "$KEYGRIP" ]; then
+              echo "${{ secrets.GPG_PASSPHRASE }}" | /usr/lib/gnupg2/gpg-preset-passphrase --preset "$KEYGRIP" 2>/dev/null || true
+            fi
+            flatpak build-import --gpg-sign="$GPG_KEY_ID" repo "$BUNDLE"
+            flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas repo
+          else
+            flatpak build-import repo "$BUNDLE"
+            flatpak build-update-repo --generate-static-deltas repo
+          fi
+
+      - name: Copy flatpakrepo file
+        run: cp com.fynix.hub.flatpakrepo repo/repo.flatpakrepo
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo
+
+  deploy-pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download flatpak bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: bundle
+
+      - name: Get version from build
+        id: meta
+        run: echo "version=${{ needs.build.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        id: check
+        run: |
+          if git rev-parse "${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.version }}
+          name: "Fynix Hub ${{ steps.meta.outputs.version }}"
+          files: |
+            bundle/*.flatpak
+            com.fynix.hub.flatpakrepo
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

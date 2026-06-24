@@ -1,12 +1,36 @@
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn, execSync, type ChildProcess } from 'child_process'
 import * as http from 'http'
+import * as path from 'path'
+import * as fs from 'fs'
 
 let server: http.Server | null = null
 let ffmpegProcess: ChildProcess | null = null
 
+function getFfmpegPath(): string {
+  const bundled = path.join(process.resourcesPath, 'app', 'bin', 'ffmpeg')
+  if (fs.existsSync(bundled)) return bundled
+  return 'ffmpeg'
+}
+
+function probeVideoCodec(sourceUrl: string, ffmpegBin: string): string | null {
+  try {
+    const output = execSync(
+      `"${ffmpegBin}" -i "${sourceUrl}" -hide_banner -loglevel info -f null -`,
+      { encoding: 'utf-8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] }
+    )
+    const match = output.match(/Video:\s*(\w+)/)
+    return match ? match[1].toLowerCase() : null
+  } catch (err: any) {
+    const stderr = err.stderr || ''
+    const match = stderr.match(/Video:\s*(\w+)/)
+    return match ? match[1].toLowerCase() : null
+  }
+}
+
 export function isAvailable(): boolean {
   try {
-    require('child_process').execSync('which ffmpeg', { stdio: 'ignore' })
+    const ffmpegBin = getFfmpegPath()
+    execSync(`"${ffmpegBin}" -version`, { stdio: 'ignore' })
     return true
   } catch {
     return false
@@ -17,22 +41,45 @@ export function startProxy(sourceUrl: string): Promise<{ proxyUrl: string }> {
   stopProxy()
 
   return new Promise((resolve, reject) => {
+    const ffmpegBin = getFfmpegPath()
+
     const srv = http.createServer((req, res) => {
       if (ffmpegProcess) {
         ffmpegProcess.kill('SIGTERM')
         ffmpegProcess = null
       }
 
-      const ffmpeg = spawn('ffmpeg', [
+      const codec = probeVideoCodec(sourceUrl, ffmpegBin)
+      const needsReencode = codec && !['h264', 'avc', 'vp8', 'vp9', 'av1'].includes(codec)
+
+      console.log(`[Transcoder] Detected video codec: ${codec}, re-encode: ${needsReencode}`)
+
+      const args: string[] = [
         '-i', sourceUrl,
         '-map', '0:v:0?',
         '-map', '0:a:0?',
-        '-c', 'copy',
+      ]
+
+      if (needsReencode) {
+        args.push(
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-tune', 'zerolatency',
+          '-crf', '23',
+        )
+      } else {
+        args.push('-c:v', 'copy')
+      }
+
+      args.push(
+        '-c:a', 'aac',
         '-f', 'mp4',
-        '-movflags', 'frag_keyframe+empty_moov',
+        '-movflags', 'frag_keyframe+empty_moov+delay_moov',
         '-loglevel', 'error',
         'pipe:1',
-      ], { stdio: ['ignore', 'pipe', 'pipe'] })
+      )
+
+      const ffmpeg = spawn(ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
 
       ffmpegProcess = ffmpeg
 

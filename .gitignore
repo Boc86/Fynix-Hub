@@ -2,6 +2,7 @@ node_modules/
 dist/
 .vite/
 out/
+bin/ffmpeg
 *.db
 *.db-wal
 *.db-shm
@@ -11,3 +12,5 @@ Thumbs.db
 build.log
 start.log
 flatpak-tmp/
+build_debug.log
+build_icon_obj.log
