@@ -57,8 +57,11 @@ jobs:
           path: out/make/flatpak/x86_64/*.flatpak
 
       - name: Import GPG key
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
         run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "GPG_PRIVATE_KEY is empty, skipping key import."
+            exit 0
+          fi
           echo "$GPG_PRIVATE_KEY" | gpg --import --batch --passphrase "$GPG_PASSPHRASE" || true
           echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
           gpg-connect-agent reloadagent /bye || true
@@ -73,11 +76,10 @@ jobs:
 
           ostree init --mode=archive-z2 --repo=repo
 
-          if [ -n "${{ secrets.GPG_KEY_ID }}" ]; then
-            GPG_KEY_ID="${{ secrets.GPG_KEY_ID }}"
+          if [ -n "$GPG_KEY_ID" ]; then
             KEYGRIP=$(gpg --list-secret-keys --with-keygrip "$GPG_KEY_ID" 2>/dev/null | grep Keygrip | head -1 | awk '{print $3}') || true
             if [ -n "$KEYGRIP" ]; then
-              echo "${{ secrets.GPG_PASSPHRASE }}" | /usr/lib/gnupg2/gpg-preset-passphrase --preset "$KEYGRIP" 2>/dev/null || true
+              echo "$GPG_PASSPHRASE" | /usr/lib/gnupg2/gpg-preset-passphrase --preset "$KEYGRIP" 2>/dev/null || true
             fi
             flatpak build-import --gpg-sign="$GPG_KEY_ID" repo "$BUNDLE"
             flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas repo
@@ -85,6 +87,9 @@ jobs:
             flatpak build-import repo "$BUNDLE"
             flatpak build-update-repo --generate-static-deltas repo
           fi
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Copy flatpakrepo file
         run: cp com.fynix.hub.flatpakrepo repo/repo.flatpakrepo
