@@ -81,10 +81,10 @@ jobs:
             if [ -n "$KEYGRIP" ]; then
               echo "$GPG_PASSPHRASE" | /usr/lib/gnupg2/gpg-preset-passphrase --preset "$KEYGRIP" 2>/dev/null || true
             fi
-            flatpak build-import --gpg-sign="$GPG_KEY_ID" repo "$BUNDLE"
+            flatpak build-import-bundle --gpg-sign="$GPG_KEY_ID" repo "$BUNDLE"
             flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas repo
           else
-            flatpak build-import repo "$BUNDLE"
+            flatpak build-import-bundle repo "$BUNDLE"
             flatpak build-update-repo --generate-static-deltas repo
           fi
         env:
