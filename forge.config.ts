@@ -36,6 +36,16 @@ const config: ForgeConfig = {
         runtimeVersion: '24.08',
         sdk: 'org.freedesktop.Sdk',
         modules: [],
+        'add-extensions': {
+          'org.freedesktop.Platform.ffmpeg': {
+            version: '24.08',
+            directory: 'lib/ffmpeg',
+            'add-ld-path': 'lib',
+            'merge-dirs': 'lib/ffmpeg',
+            subdirectories: true,
+            'no-autodownload': false,
+          },
+        },
         finishArgs: [
           '--share=network',
           '--share=ipc',
