@@ -8,6 +8,7 @@ import Settings from './components/Settings/Settings'
 import Sidebar from './components/Sidebar/Sidebar'
 import SportsPage from './components/Sports/SportsPage'
 import ContextMenu from './components/ContextMenu/ContextMenu'
+import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
@@ -31,6 +32,8 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [torrentSearchOpen, setTorrentSearchOpen] = useState(false)
+  const [torrentSearchTitle, setTorrentSearchTitle] = useState('')
+  const [torrentSearchYear, setTorrentSearchYear] = useState<number | undefined>()
   const [freeSearchOpen, setFreeSearchOpen] = useState(false)
   const [freeSearchQuery, setFreeSearchQuery] = useState('')
 
@@ -349,6 +352,9 @@ export default function App() {
 
     const { autoPlayTorrent, maxTorrentSize } = useSettingsStore.getState()
     if (!autoPlayTorrent) {
+      const isEpisode = selected.mediaType === 'tv' && episode !== null
+      setTorrentSearchTitle(isEpisode ? `${selected.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : selected.title)
+      setTorrentSearchYear(selected.releaseDate ? parseInt(selected.releaseDate.slice(0, 4)) : undefined)
       setTorrentSearchOpen(true)
       return
     }
@@ -452,6 +458,8 @@ export default function App() {
 
   const handleShowSources = useCallback(async (target: ContextTarget) => {
     if (target.type === 'episode') {
+      setTorrentSearchTitle(`${target.title} S${String(target.season).padStart(2, '0')}E${String(target.episode).padStart(2, '0')}`)
+      setTorrentSearchYear(undefined)
       await runTorrentSearch({
         title: `${target.title} S${String(target.season).padStart(2, '0')}E${String(target.episode).padStart(2, '0')}`,
         type: 'episode',
@@ -459,6 +467,8 @@ export default function App() {
         episode: target.episode,
       })
     } else {
+      setTorrentSearchTitle(target.title)
+      setTorrentSearchYear(undefined)
       await runTorrentSearch({
         title: target.title,
         type: 'movie',
@@ -470,6 +480,8 @@ export default function App() {
   const handleSportsTorrentSearch = useCallback(async (title: string, year?: number) => {
     setSportsSearchTitle(title)
     setSportsSearchYear(year)
+    setTorrentSearchTitle(title)
+    setTorrentSearchYear(year)
     await runTorrentSearch({ title, type: 'movie' })
     setTorrentSearchOpen(true)
   }, [runTorrentSearch])
@@ -675,6 +687,17 @@ export default function App() {
       {virtualKeyboardOpen && (
         <VirtualKeyboard inputElement={keyboardInputRef.current as HTMLInputElement | HTMLTextAreaElement | null} onClose={() => setVirtualKeyboardOpen(false)} />
       )}
+        {torrentSearchOpen && (
+          <TorrentSearch
+            title={torrentSearchTitle}
+            year={torrentSearchYear}
+            results={torrentResults}
+            cachedMap={torrentCachedMap}
+            loading={torrentSearching}
+            onSelect={startPlayback}
+            onClose={() => { setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}) }}
+          />
+        )}
         {freeSearchOpen && (
           <TorrentSearch
             title={freeSearchQuery}
@@ -683,7 +706,7 @@ export default function App() {
             cachedMap={torrentCachedMap}
             loading={torrentSearching}
             onSelect={startPlayback}
-            onClose={() => { setFreeSearchOpen(false); setFreeSearchQuery(''); setTorrentResults([]); setTorrentSearchOpen(false) }}
+            onClose={() => { setFreeSearchOpen(false); setFreeSearchQuery(''); setTorrentResults([]); setTorrentCachedMap({}); setTorrentSearchOpen(false) }}
           />
         )}
     </Layout>
