@@ -5,6 +5,17 @@ import { MakerRpm } from '@electron-forge/maker-rpm'
 import { MakerFlatpak } from '@electron-forge/maker-flatpak'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 
+const ffmpegExtension = {
+  'org.freedesktop.Platform.ffmpeg': {
+    version: '24.08',
+    directory: 'lib/ffmpeg',
+    'add-ld-path': 'lib',
+    'merge-dirs': 'lib/ffmpeg',
+    subdirectories: true,
+    'no-autodownload': false,
+  },
+}
+
 const config: ForgeConfig = {
   packagerConfig: {
     name: 'Fynix Hub',
@@ -17,6 +28,18 @@ const config: ForgeConfig = {
       if (file.startsWith('/.vite')) return false
       if (file.startsWith('/node_modules')) return false
       return true
+    },
+  },
+  hooks: {
+    preMake: async () => {
+      const nestedFsExtra = require('@malept/flatpak-bundler/node_modules/fs-extra')
+      const origWriteJson = nestedFsExtra.writeJson
+      nestedFsExtra.writeJson = async function patchedWriteJson (file, obj, opts, ...rest) {
+        if (file.endsWith('manifest.json') && obj && obj.id === 'com.fynix.hub') {
+          obj['add-extensions'] = ffmpegExtension
+        }
+        return origWriteJson.call(nestedFsExtra, file, obj, opts, ...rest)
+      }
     },
   },
   makers: [
@@ -36,16 +59,6 @@ const config: ForgeConfig = {
         runtimeVersion: '24.08',
         sdk: 'org.freedesktop.Sdk',
         modules: [],
-        'add-extensions': {
-          'org.freedesktop.Platform.ffmpeg': {
-            version: '24.08',
-            directory: 'lib/ffmpeg',
-            'add-ld-path': 'lib',
-            'merge-dirs': 'lib/ffmpeg',
-            subdirectories: true,
-            'no-autodownload': false,
-          },
-        },
         finishArgs: [
           '--share=network',
           '--share=ipc',
