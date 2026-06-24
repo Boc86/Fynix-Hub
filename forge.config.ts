@@ -4,6 +4,7 @@ import { MakerDeb } from '@electron-forge/maker-deb'
 import { MakerRpm } from '@electron-forge/maker-rpm'
 import { MakerFlatpak } from '@electron-forge/maker-flatpak'
 import { VitePlugin } from '@electron-forge/plugin-vite'
+import path from 'path'
 
 const ffmpegExtension = {
   'org.freedesktop.Platform.ffmpeg': {
@@ -51,10 +52,10 @@ const config: ForgeConfig = {
         description: 'Fynix Hub - Media Hub with Netflix-like experience',
         id: 'com.fynix.hub',
         icon: {
-          '512x512': '/home/boc/Documents/Fynix Media Hub/fynix-hub/assets/FLB-512.png',
-          '256x256': '/home/boc/Documents/Fynix Media Hub/fynix-hub/assets/FLB-256.png',
-          '128x128': '/home/boc/Documents/Fynix Media Hub/fynix-hub/assets/FLB-128.png',
-          '64x64': '/home/boc/Documents/Fynix Media Hub/fynix-hub/assets/FLB-64.png',
+          '512x512': path.join(__dirname, 'assets/FLB-512.png'),
+          '256x256': path.join(__dirname, 'assets/FLB-256.png'),
+          '128x128': path.join(__dirname, 'assets/FLB-128.png'),
+          '64x64': path.join(__dirname, 'assets/FLB-64.png'),
         },
         base: 'org.electronjs.Electron2.BaseApp',
         baseVersion: '24.08',
