@@ -8,5 +8,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
     },
   },
-  build: {},
+  build: {
+    outDir: path.resolve(__dirname, '.vite/renderer/main_window'),
+  },
 })
