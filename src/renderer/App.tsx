@@ -713,9 +713,14 @@ export default function App() {
           <SearchModal
             onClose={() => setSearchOpen(false)}
             keyboardOpen={virtualKeyboardOpen}
-            onSelect={(media) => {
+            onSelect={async (media) => {
               setSearchOpen(false)
-              useMediaStore.getState().setSelectedMedia(media as any)
+              try {
+                const detail = await window.api.tmdb.getDetails(media.mediaType, media.id)
+                useMediaStore.getState().setSelectedMedia(detail)
+              } catch {
+                useMediaStore.getState().setSelectedMedia(media as any)
+              }
               navigate('detail')
             }}
             onFreeSearch={(query) => {

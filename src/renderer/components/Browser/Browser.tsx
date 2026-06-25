@@ -377,8 +377,13 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
             focusedHeroAction={focusedHeroAction}
             playRef={heroPlayRef}
             infoRef={heroInfoRef}
-            onPlay={() => {
-              useMediaStore.getState().setSelectedMedia(trending[0] as any)
+            onPlay={async () => {
+              try {
+                const detail = await window.api.tmdb.getDetails(trending[0].mediaType, trending[0].id)
+                useMediaStore.getState().setSelectedMedia(detail)
+              } catch {
+                useMediaStore.getState().setSelectedMedia(trending[0] as any)
+              }
               onPlay()
             }}
             onInfo={async () => {
