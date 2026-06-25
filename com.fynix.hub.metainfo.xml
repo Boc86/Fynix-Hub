@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component type="desktop-application">
+  <id>com.fynix.hub</id>
+  <name>Fynix Hub</name>
+  <summary>Media Hub with Netflix-like experience</summary>
+  <description>
+    <p>Fynix Hub is a media center application that lets you stream movies and TV shows with Real-Debrid integration. Features a Netflix-like interface, remote control support, and seamless torrent streaming.</p>
+  </description>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>MIT</project_license>
+  <developer_name>Boc</developer_name>
+  <url type="homepage">https://github.com/Boc86/Fynix-Hub</url>
+  <url type="bugtracker">https://github.com/Boc86/Fynix-Hub/issues</url>
+  <url type="donation">https://github.com/sponsors/Boc86</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <releases>
+    <release version="1.1.0" date="2026-06-25"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+  <launchable type="desktop-id">com.fynix.hub.desktop</launchable>
+</component>

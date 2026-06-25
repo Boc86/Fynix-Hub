@@ -5,6 +5,7 @@ import { MakerRpm } from '@electron-forge/maker-rpm'
 import { MakerFlatpak } from '@electron-forge/maker-flatpak'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import path from 'path'
+import fs from 'fs-extra'
 
 const ffmpegExtension = {
   'org.freedesktop.Platform.ffmpeg': {
@@ -39,6 +40,23 @@ const config: ForgeConfig = {
       nestedFsExtra.writeJson = async function patchedWriteJson (file, obj, opts, ...rest) {
         if (file.endsWith('manifest.json') && obj && obj.id === 'com.fynix.hub') {
           obj['add-extensions'] = ffmpegExtension
+
+          const metainfoSrc = path.join(__dirname, 'com.fynix.hub.metainfo.xml')
+          const metainfoDest = path.join(path.dirname(file), 'com.fynix.hub.metainfo.xml')
+          await fs.copy(metainfoSrc, metainfoDest)
+
+          if (!obj.modules) obj.modules = []
+          obj.modules.push({
+            name: 'metainfo',
+            buildsystem: 'simple',
+            'build-commands': [
+              'install -Dm644 com.fynix.hub.metainfo.xml /app/share/metainfo/com.fynix.hub.metainfo.xml'
+            ],
+            sources: [{
+              type: 'file',
+              path: 'com.fynix.hub.metainfo.xml'
+            }]
+          })
         }
         return origWriteJson.call(nestedFsExtra, file, obj, opts, ...rest)
       }
