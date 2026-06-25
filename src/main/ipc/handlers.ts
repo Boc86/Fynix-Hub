@@ -12,6 +12,7 @@ import * as MpvService from '../services/mpv.service'
 import * as TranscoderService from '../services/transcoder.service'
 import * as FanartService from '../services/fanart.service'
 import * as IndexerCatalogService from '../services/indexer-catalog.service'
+import * as IntroDBService from "../services/introdb.service";
 import * as YoutubeService from '../services/youtube.service'
 import * as SportsApiService from '../services/sportsapi.service'
 
@@ -320,9 +321,8 @@ export async function registerIpcHandlers(): Promise<void> {
       throw err
     }
   })
-
-  ipcMain.handle('intros:get-segments', async (_event, params) => {
-    return IntrosService.getSegments(params)
+  ipcMain.handle("intros:get-segments", async (_event, params) => {
+    return IntroDBService.getSegments(params)
   })
 
   ipcMain.handle('debrid:get-status', (_event, service) => {

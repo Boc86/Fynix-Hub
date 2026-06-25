@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useMemo, useState } from 'react'
 import styles from './ContextMenu.module.css'
 
 export interface ContextTarget {
@@ -16,16 +16,56 @@ interface ContextMenuProps {
   onMarkUnwatched: (target: ContextTarget) => void
   onShowSources: (target: ContextTarget) => void
   onResetProgress: (target: ContextTarget) => void
+  onDropShow: (target: ContextTarget) => void
 }
 
-export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwatched, onShowSources, onResetProgress }: ContextMenuProps) {
+interface MenuItem {
+  label: string
+  icon: string
+  action: () => void
+}
+
+export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwatched, onShowSources, onResetProgress, onDropShow }: ContextMenuProps) {
   const [highlightedIdx, setHighlightedIdx] = useState(0)
   const btnRefs = useRef<HTMLButtonElement[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
 
   const typeLabel = target.type === 'movie' ? 'Movie' : target.type === 'tv' ? 'TV Show' : target.type === 'season' ? 'Season' : 'Episode'
-  const showSourcesItem = target.type === 'movie' || target.type === 'episode'
-  const itemCount = (showSourcesItem ? 4 : 3)
+
+  const items = useMemo(() => {
+    const result: MenuItem[] = [
+      {
+        label: 'Mark Watched',
+        icon: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+        action: () => onMarkWatched(target),
+      },
+      {
+        label: 'Mark Unwatched',
+        icon: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+        action: () => onMarkUnwatched(target),
+      },
+      {
+        label: 'Reset Progress',
+        icon: 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z',
+        action: () => onResetProgress(target),
+      },
+    ]
+    if (target.type === 'tv') {
+      result.push({
+        label: 'Drop Show',
+        icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
+        action: () => onDropShow(target),
+      })
+    }
+    if (target.type === 'movie' || target.type === 'episode') {
+      result.push({
+        label: 'Show Sources',
+        icon: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
+        action: () => onShowSources(target),
+      })
+    }
+    return result
+  }, [target, onMarkWatched, onMarkUnwatched, onResetProgress, onDropShow, onShowSources])
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -37,7 +77,7 @@ export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwa
   }, [onClose])
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    const count = itemCount
+    const count = items.length
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
       e.preventDefault()
       setHighlightedIdx((prev) => (prev + 1) % count)
@@ -70,52 +110,20 @@ export default function ContextMenu({ target, onClose, onMarkWatched, onMarkUnwa
           )}
         </div>
         <div className={styles.actions}>
-          <button
-            ref={(el) => { btnRefs.current[0] = el! }}
-            tabIndex={-1}
-            className={`${styles.menuBtn} ${highlightedIdx === 0 ? styles.focused : ''}`}
-            onClick={() => handleBtn(0, () => onMarkWatched(target))}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-            </svg>
-            Mark Watched
-          </button>
-          <button
-            ref={(el) => { btnRefs.current[1] = el! }}
-            tabIndex={-1}
-            className={`${styles.menuBtn} ${highlightedIdx === 1 ? styles.focused : ''}`}
-            onClick={() => handleBtn(1, () => onMarkUnwatched(target))}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-            </svg>
-            Mark Unwatched
-          </button>
-          <button
-            ref={(el) => { btnRefs.current[2] = el! }}
-            tabIndex={-1}
-            className={`${styles.menuBtn} ${highlightedIdx === 2 ? styles.focused : ''}`}
-            onClick={() => handleBtn(2, () => onResetProgress(target))}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-            </svg>
-            Reset Progress
-          </button>
-          {showSourcesItem && (
+          {items.map((item, idx) => (
             <button
-              ref={(el) => { btnRefs.current[3] = el! }}
+              key={item.label}
+              ref={(el) => { btnRefs.current[idx] = el! }}
               tabIndex={-1}
-              className={`${styles.menuBtn} ${highlightedIdx === 3 ? styles.focused : ''}`}
-              onClick={() => handleBtn(2, () => onShowSources(target))}
+              className={`${styles.menuBtn} ${highlightedIdx === idx ? styles.focused : ''}`}
+              onClick={() => handleBtn(idx, item.action)}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+                <path d={item.icon}/>
               </svg>
-              Show Sources
+              {item.label}
             </button>
-          )}
+          ))}
         </div>
       </div>
     </div>

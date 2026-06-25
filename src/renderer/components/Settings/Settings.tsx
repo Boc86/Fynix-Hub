@@ -24,7 +24,7 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'advanced'
+type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
@@ -33,6 +33,7 @@ const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'youtube', label: 'YouTube', shortcut: '4' },
   // { id: 'sports', label: 'Sports', shortcut: '5' }, // hidden until API available
   { id: 'advanced', label: 'Advanced', shortcut: '6' },
+  { id: 'remote', label: 'Remote', shortcut: '7' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -45,6 +46,9 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localSportsEnabled, setLocalSportsEnabled] = useState(store.sportsEnabled)
   const [localSportsKey, setLocalSportsKey] = useState(store.sportsDbApiKey)
   const [localSportsSelected, setLocalSportsSelected] = useState<string[]>(store.sportsSelected)
+  const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
+  const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
+  const [capturingKey, setCapturingKey] = useState<string | null>(null)
   const [availableSports, setAvailableSports] = useState<Array<{ id: string; name: string }>>([])
   const [saved, setSaved] = useState(false)
   const [trackerRefreshState, setTrackerRefreshState] = useState<'idle' | 'refreshing' | 'done' | 'error'>('idle')
@@ -93,6 +97,26 @@ export default function Settings({ onClose }: SettingsProps) {
       if (v) setTizentubeVersion(v)
     }).catch(() => {})
   }, [])
+
+  const captureKey = (action: string) => {
+    setCapturingKey(action)
+    setTimeout(() => setCapturingKey(null), 5000)
+  }
+
+  useEffect(() => {
+    if (!capturingKey) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      setLocalRemoteMapping((prev) => ({ ...prev, [capturingKey]: e.code }))
+      setCapturingKey(null)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [capturingKey])
 
   const toggleLang = (lang: string) => {
     setLocalLangs(prev => prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang])
@@ -248,18 +272,21 @@ export default function Settings({ onClose }: SettingsProps) {
       window.api.settings.set('customIndexers', localCustomIndexers),
       window.api.settings.set('sportsEnabled', localSportsEnabled),
       window.api.settings.set('sportsDbApiKey', localSportsKey),
-      window.api.settings.set('sportsSelected', localSportsSelected),
-    ])
-    store.setTmdbApiKey(localTmdb)
+       window.api.settings.set('sportsSelected', localSportsSelected),
+       window.api.settings.set('introDbApiKey', localIntroDb),
+     ])
+     store.setTmdbApiKey(localTmdb)
     store.setFanartApiKey(localFanart)
     store.setPreferredLanguages(localLangs)
     store.setPreferredResolutions(localRes)
     store.setEnabledIndexers(localEnabledIndexers)
     store.setCustomIndexers(localCustomIndexers)
     store.setSportsEnabled(localSportsEnabled)
-    store.setSportsDbApiKey(localSportsKey)
-    store.setSportsSelected(localSportsSelected)
-    await store.saveToDisk()
+     store.setSportsDbApiKey(localSportsKey)
+     store.setSportsSelected(localSportsSelected)
+     store.setIntroDbApiKey(localIntroDb)
+     await store.saveToDisk()
+     store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -365,19 +392,31 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </div>
 
-            <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Fanart.tv API</h3>
-              <p className={styles.settingDesc}>API key for clearlogo artwork on hero banners and player overlays</p>
-              <input
-                type="password"
-                className={styles.input}
-                placeholder="Enter Fanart.tv API Key"
-                value={localFanart}
-                onChange={(e) => setLocalFanart(e.target.value)}
-              />
-            </div>
-
-            <div className={styles.settingGroup}>
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>Fanart.tv API</h3>
+               <p className={styles.settingDesc}>API key for clearlogo artwork on hero banners and player overlays</p>
+               <input
+                 type="password"
+                 className={styles.input}
+                 placeholder="Enter Fanart.tv API Key"
+                 value={localFanart}
+                 onChange={(e) => setLocalFanart(e.target.value)}
+               />
+             </div>
+ 
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>IntroDB API</h3>
+               <p className={styles.settingDesc}>API key for automatically skipping intros and recaps in TV shows</p>
+               <input
+                 type="password"
+                 className={styles.input}
+                 placeholder="Enter IntroDB API Key"
+                 value={localIntroDb}
+                 onChange={(e) => setLocalIntroDb(e.target.value)}
+               />
+             </div>
+ 
+             <div className={styles.settingGroup}>
               <h3 className={styles.settingTitle}>Preferred Languages</h3>
               <p className={styles.settingDesc}>Filter torrent results by language</p>
               <div className={styles.toggleGrid}>
@@ -1087,10 +1126,52 @@ export default function Settings({ onClose }: SettingsProps) {
           </div>
         )
 
-      case 'advanced':
-        return (
-          <div className={styles.tabContent}>
-            <div className={styles.settingGroup}>
+case 'remote':
+         return (
+           <div className={styles.tabContent}>
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>Remote Control Configuration</h3>
+               <p className={styles.settingDesc}>Click 'Capture' for an action, then press the corresponding button on your remote within 5 seconds.</p>
+             </div>
+
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>Back</h3>
+               <p className={styles.settingDesc}>Keycode: {localRemoteMapping['back'] ?? 'Not set'}</p>
+               <button tabIndex={0} className={styles.connectBtn} onClick={() => captureKey('back')}>
+                 {capturingKey === 'back' ? 'Press button on remote...' : 'Capture Back'}
+               </button>
+             </div>
+
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>Home</h3>
+               <p className={styles.settingDesc}>Keycode: {localRemoteMapping['home'] ?? 'Not set'}</p>
+               <button tabIndex={0} className={styles.connectBtn} onClick={() => captureKey('home')}>
+                 {capturingKey === 'home' ? 'Press button on remote...' : 'Capture Home'}
+               </button>
+             </div>
+
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>Search</h3>
+               <p className={styles.settingDesc}>Keycode: {localRemoteMapping['search'] ?? 'Not set'}</p>
+               <button tabIndex={0} className={styles.connectBtn} onClick={() => captureKey('search')}>
+                 {capturingKey === 'search' ? 'Press button on remote...' : 'Capture Search'}
+               </button>
+             </div>
+
+             <div className={styles.settingGroup}>
+               <h3 className={styles.settingTitle}>Context Menu</h3>
+               <p className={styles.settingDesc}>Keycode: {localRemoteMapping['contextMenu'] ?? 'Not set'}</p>
+               <button tabIndex={0} className={styles.connectBtn} onClick={() => captureKey('contextMenu')}>
+                 {capturingKey === 'contextMenu' ? 'Press button on remote...' : 'Capture Context Menu'}
+               </button>
+             </div>
+           </div>
+         )
+
+case 'advanced':
+         return (
+           <div className={styles.tabContent}>
+             <div className={styles.settingGroup}>
               <h3 className={styles.settingTitle}>Trackers</h3>
               <p className={styles.settingDesc}>Announce trackers added to magnet links. The list auto-refreshes daily from ngosang/trackerslist.</p>
               {trackerRefreshState === 'error' && (

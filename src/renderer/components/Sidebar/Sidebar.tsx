@@ -152,13 +152,13 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
         ))}
 
         <div className={styles.windowControls}>
-          <button className={styles.controlBtn} onClick={() => window.api.window.minimize()} title="Minimize">
+          <button className={styles.controlBtn} onClick={() => window.api.window.minimize()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.minimize(); }} } tabIndex={0} title="Minimize">
             <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="2" fill="currentColor"/></svg>
           </button>
-          <button className={styles.controlBtn} onClick={() => window.api.window.maximize()} title="Maximize">
+          <button className={styles.controlBtn} onClick={() => window.api.window.maximize()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.maximize(); }} } tabIndex={0} title="Maximize">
             <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
           </button>
-          <button className={`${styles.controlBtn} ${styles.closeBtn}`} onClick={() => window.api.window.close()} title="Close">
+          <button className={`${styles.controlBtn} ${styles.closeBtn}`} onClick={() => window.api.window.close()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.close(); }} } tabIndex={0} title="Close">
             <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2"/></svg>
           </button>
         </div>

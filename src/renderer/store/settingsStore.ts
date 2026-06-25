@@ -32,7 +32,9 @@ interface SettingsState {
   sportsEnabled: boolean
   sportsDbApiKey: string
   sportsSelected: string[]
-
+  introDbApiKey: string
+  remoteMapping: Record<string, string>
+ 
   setTmdbApiKey: (key: string) => void
   setFanartApiKey: (key: string) => void
   setTraktConnected: (connected: boolean) => void
@@ -59,6 +61,8 @@ interface SettingsState {
   setSportsEnabled: (enabled: boolean) => void
   setSportsDbApiKey: (key: string) => void
   setSportsSelected: (sports: string[]) => void
+  setIntroDbApiKey: (key: string) => void
+  setRemoteMapping: (mapping: Record<string, string>) => void
   loadFromDisk: () => Promise<void>
   saveToDisk: () => Promise<void>
 }
@@ -90,6 +94,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   sportsEnabled: false,
   sportsDbApiKey: '',
   sportsSelected: [],
+  introDbApiKey: '',
+  remoteMapping: {} as Record<string, string>,
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
   setFanartApiKey: (key) => set({ fanartApiKey: key }),
@@ -117,6 +123,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsDbApiKey: (key) => { set({ sportsDbApiKey: key }); get().saveToDisk() },
   setSportsSelected: (sports) => { set({ sportsSelected: sports }); get().saveToDisk() },
+  setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
+  setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
 
   loadFromDisk: async () => {
     try {
@@ -163,6 +171,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsDbApiKey', state.sportsDbApiKey),
         window.api.settings.set('sportsSelected', state.sportsSelected),
+        window.api.settings.set('introDbApiKey', state.introDbApiKey),
+        window.api.settings.set('remoteMapping', state.remoteMapping),
       ])
     } catch { /* ignore */ }
   },

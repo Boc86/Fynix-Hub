@@ -65,13 +65,58 @@ export default function App() {
   })
 
   useEffect(() => {
-    const cleanup = window.api.youtube.onFocusBack(() => {
+    return window.api.youtube.onFocusBack(() => {
       if (view === 'youtube') {
         goBackRef.current()
       }
     })
-    return cleanup
   }, [view])
+
+  useEffect(() => {
+    const unsubscribe = window.api.onRemoteAction((action) => {
+      if (action === 'home') {
+        window.api.youtube.hide()
+        setView('browser')
+      } else if (action === 'back') {
+        if (searchOpen) {
+          setSearchOpen(false)
+        } else if (sidebarOpen) {
+          setSidebarOpen(false)
+        } else if (contextTarget) {
+          setContextTarget(null)
+        } else if (view === 'browser') {
+          setSidebarOpen((prev) => !prev)
+        } else {
+          goBack()
+        }
+      } else if (action === 'search') {
+        if (!searchOpen && !sidebarOpen) {
+          savedFocusRef.current = document.activeElement as HTMLElement
+          setSearchOpen(true)
+        }
+      } else if (action === 'contextMenu') {
+        if (!contextTarget) {
+          if (view === 'browser' || view === 'movies' || view === 'tv-shows') {
+            const el = document.activeElement
+            if (el) {
+              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+            }
+          } else {
+            savedFocusRef.current = document.activeElement as HTMLElement
+            const media = useMediaStore.getState().selectedMedia
+            if (media) {
+              setContextTarget({
+                type: media.mediaType || 'movie',
+                tmdbId: media.id,
+                title: media.title,
+              })
+            }
+          }
+        }
+      }
+    })
+    return unsubscribe
+  }, [view, searchOpen, sidebarOpen, contextTarget])
 
   const DEBRID_SERVICES = useMemo(() => ['real-debrid', 'torbox', 'premiumize', 'alldebrid'], [])
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
@@ -477,6 +522,13 @@ export default function App() {
     setTorrentSearchOpen(true)
   }, [runTorrentSearch])
 
+  const handleDropShow = useCallback(async (target: ContextTarget) => {
+    try {
+      await window.api.trakt.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
+    } catch { /* ignore */ }
+    useMediaStore.getState().triggerRefresh()
+  }, [])
+
   const handleSportsTorrentSearch = useCallback(async (title: string, year?: number) => {
     setSportsSearchTitle(title)
     setSportsSearchYear(year)
@@ -567,7 +619,7 @@ export default function App() {
       }
       
       // 's' key opens search from any view (except when typing or search already open)
-      if (e.key === 's' && !searchOpen && !sidebarOpen && !isTyping) {
+      if ((e.key === 's' || e.code === 'KeyS') && !searchOpen && !sidebarOpen && !isTyping) {
         e.preventDefault()
         savedFocusRef.current = e.target as HTMLElement
         setSearchOpen(true)
@@ -577,14 +629,14 @@ export default function App() {
       // Enter on text input - show virtual keyboard
       if (e.key === 'Enter' && isTyping && !virtualKeyboardOpen) {
         e.preventDefault()
-        keyboardInputRef.current = e.target as HTMLElement
+        keyboardInputRef.current = e.target as HTMLInputElement
         savedFocusRef.current = e.target as HTMLElement
         setVirtualKeyboardOpen(true)
         return
       }
-
+      
       // 'c' key - context menus
-      if (e.key === 'c' && !isTyping && !contextTarget) {
+      if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget) {
         e.preventDefault()
         savedFocusRef.current = e.target as HTMLElement
         const media = useMediaStore.getState().selectedMedia
@@ -682,6 +734,7 @@ export default function App() {
           onMarkUnwatched={handleMarkUnwatched}
           onShowSources={handleShowSources}
           onResetProgress={handleResetProgress}
+          onDropShow={handleDropShow}
         />
       )}
       {virtualKeyboardOpen && (

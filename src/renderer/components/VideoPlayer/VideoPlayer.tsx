@@ -170,7 +170,14 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
 
     if (mediaInfo.segments && mediaInfo.segments.length > 0) {
       // Generic segments format: { type: 'intro' | 'recap', startMs, endMs }
-      setSegments(mediaInfo.segments)
+      setSegments(mediaInfo.segments.map(s => ({
+        type: s.type as any,
+        startMs: s.startMs,
+        endMs: s.endMs,
+        durationMs: s.endMs && s.startMs ? s.endMs - s.startMs : null,
+        startsAtBeginning: s.startMs === 0,
+        endsAtMediaEnd: false,
+      })))
       return
     }
 

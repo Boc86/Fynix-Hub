@@ -3,6 +3,8 @@ import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
 import * as TorrentSearchService from './services/torrent-search.service'
 import { TizenTubeService } from './services/tizentube.service'
+import { setupCursorHide } from "./utils/cursorUtils";
+import { setupRemoteControl } from "./utils/remoteControl";
 
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('in-process-gpu')
@@ -21,6 +23,7 @@ function createWindow(): void {
     minHeight: 720,
     fullscreen: true,
     backgroundColor: '#141414',
+    icon: path.join(__dirname, "../../assets/FLB-512.png"),
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
     webPreferences: {
@@ -39,6 +42,9 @@ function createWindow(): void {
       path.resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
     )
   }
+  setupRemoteControl(mainWindow.webContents, mainWindow)
+  setupCursorHide(mainWindow)
+  mainWindow.maximize()
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -106,7 +112,9 @@ function createYouTubeView() {
   )
 
   mainWindow.addBrowserView(youtubeView)
-
+ 
+  setupRemoteControl(youtubeView.webContents, mainWindow)
+ 
   const { width, height } = mainWindow.getContentBounds()
   youtubeView.setBounds({ x: 0, y: 0, width, height })
 
@@ -159,11 +167,13 @@ function destroyYouTubeView() {
       console.error('[YouTubeView] removeBrowserView failed:', e)
     }
     try {
-      if (typeof youtubeView.destroy === 'function') {
-        youtubeView.destroy()
+      // @ts-ignore
+      if (typeof youtubeView.webContents.close === 'function') {
+        // @ts-ignore
+        youtubeView.webContents.close()
       }
     } catch (e) {
-      console.error('[YouTubeView] destroy failed:', e)
+      console.error('[YouTubeView] close failed:', e)
     }
     youtubeView = null
     // Focus workaround for Wayland — toggle alwaysOnTop to force window to front

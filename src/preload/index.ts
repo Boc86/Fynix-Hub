@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
     getVersion: () => ipcRenderer.invoke('app:get-version'),
+    onRemoteAction: (callback: (action: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
+      ipcRenderer.on('remote:action', handler)
+      return () => { ipcRenderer.removeListener('remote:action', handler) }
+    },
     writeDebugFile: (data: unknown) => ipcRenderer.invoke('app:write-debug-file', data),
     clearImageCache: () => ipcRenderer.invoke('app:clear-image-cache'),
     selectFile: (options: any) => ipcRenderer.invoke('app:select-file', options),
@@ -12,7 +17,7 @@ const api = {
     hide: () => ipcRenderer.send('youtube:hide'),
     onFocusBack: (callback: () => void) => {
       ipcRenderer.on('youtube:focus-back', callback)
-      return () => ipcRenderer.removeListener('youtube:focus-back', callback)
+      return () => { ipcRenderer.removeListener('youtube:focus-back', callback) }
     },
   },
   tizentube: {
