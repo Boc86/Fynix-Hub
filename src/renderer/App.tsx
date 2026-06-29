@@ -6,7 +6,7 @@ import VideoPlayer from './components/VideoPlayer/VideoPlayer'
 import SearchModal from './components/SearchModal/SearchModal'
 import Settings from './components/Settings/Settings'
 import Sidebar from './components/Sidebar/Sidebar'
-import SportsPage from './components/Sports/SportsPage'
+
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
@@ -16,7 +16,7 @@ import type { TorrentResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
-type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'sports' | 'youtube' | 'free-search'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search'
 
 interface PlayerInfo {
   tmdbId: number
@@ -47,16 +47,21 @@ export default function App() {
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | undefined>()
   const [playerLoading, setPlayerLoading] = useState(false)
   const [genreType, setGenreType] = useState<'movie' | 'tv' | undefined>()
-  const [sportsSearchTitle, setSportsSearchTitle] = useState<string>('')
-  const [sportsSearchYear, setSportsSearchYear] = useState<number | undefined>()
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
   const autoPlayIndexRef = useRef(0)
   const currentInfoHashRef = useRef<string | null>(null)
+  const resumePositionRef = useRef<number | undefined>(undefined)
+  const resumeDurationRef = useRef<number>(3600) // default 1h estimate
+  const searchSessionRef = useRef(0)
+  const searchInfoHashesRef = useRef<Set<string>>(new Set())
+  const searchRunningRef = useRef(false)
+  const torrentSearchOpenRef = useRef(false)
+  const viewRef = useRef<View>('browser')
   const historyRef = useRef<View[]>([])
   const keyboardInputRef = useRef<HTMLElement | null>(null)
   const savedFocusRef = useRef<HTMLElement | null>(null)
   const prevModalCountRef = useRef(0)
-  const { loadFromDisk, tmdbApiKey, sportsEnabled } = useSettingsStore()
+  const { loadFromDisk, tmdbApiKey } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
 
   // Listen for Escape key from YouTube BrowserView to return focus
@@ -71,6 +76,12 @@ export default function App() {
       }
     })
   }, [view])
+
+  const accentColor = useSettingsStore((s) => s.accentColor)
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', accentColor)
+    document.documentElement.style.setProperty('--accent-hover', accentColor + '80')
+  }, [accentColor])
 
   useEffect(() => {
     const unsubscribe = window.api.onRemoteAction((action) => {
@@ -128,10 +139,30 @@ export default function App() {
     loadFromDisk()
   }, [])
 
-  // Stop transcoder when leaving player view
+  // Keep resumePositionRef and resumeDurationRef in sync with playerInfo
+  useEffect(() => {
+    resumePositionRef.current = playerInfo?.resumePosition
+    if (playerInfo?.resumePosition && playerInfo.resumePosition > 0) {
+      const sm = useMediaStore.getState().selectedMedia
+      const runtime = (sm as any)?.runtime
+      if (playerInfo.mediaType === 'movie' && typeof runtime === 'number' && runtime > 0) {
+        resumeDurationRef.current = runtime * 60 // minutes → seconds
+      } else if (playerInfo.mediaType === 'tv') {
+        resumeDurationRef.current = 1800 // 30 min default for TV
+      } else {
+        resumeDurationRef.current = 7200 // 2h fallback
+      }
+    }
+  }, [playerInfo?.resumePosition])
+
+  // Stop mpv and clean up torrent when leaving player view
   useEffect(() => {
     if (view !== 'player') {
-      window.api.transcoder.stop().catch(() => {})
+      window.api.mpv.stop().catch(() => {})
+      if (currentInfoHashRef.current) {
+        window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
+        currentInfoHashRef.current = null
+      }
     }
   }, [view])
 
@@ -153,6 +184,10 @@ export default function App() {
     }
     prevModalCountRef.current = modalCount
   }, [modalCount])
+
+  // Keep refs in sync with state for useCallback guards (refs are always current)
+  useEffect(() => { torrentSearchOpenRef.current = torrentSearchOpen }, [torrentSearchOpen])
+  useEffect(() => { viewRef.current = view }, [view])
 
   const navigate = useCallback((v: View) => {
     if (v === 'youtube') {
@@ -209,6 +244,12 @@ export default function App() {
     season?: number
     episode?: number
   }) => {
+    // Re-entry guard: prevent concurrent searches
+    if (searchRunningRef.current) {
+      window.api.log('[App] runTorrentSearch blocked — search already running')
+      return
+    }
+    searchRunningRef.current = true
     setTorrentSearching(true)
     setTorrentResults([])
     setTorrentCachedMap({})
@@ -281,6 +322,7 @@ export default function App() {
 
     const [indexerResult] = await Promise.allSettled([indexerPromise, debridPromise])
     const finalResults = indexerResult.status === 'fulfilled' ? indexerResult.value : []
+    searchRunningRef.current = false
     setTorrentSearching(false)
     window.api.writeDebugFile({
       phase: 'search-complete',
@@ -292,52 +334,66 @@ export default function App() {
     }).catch(() => {})
   }, [DEBRID_SERVICES])
 
-  // Run torrent search whenever the modal opens with selected media
+  // Run torrent search whenever the modal opens. Read selectedMedia from the store
+  // inside the effect (not as a dep) to avoid re-triggering the search when the
+  // detail view finishes loading and updates selectedMedia while the modal is open.
   useEffect(() => {
-    if (!torrentSearchOpen || !selectedMedia) return
-    const isEpisode = selectedMedia.mediaType === 'tv' && storeEpisode !== null
+    if (!torrentSearchOpen) return
+    // Re-entry guard: if a search is already in-flight, don't start another
+    if (searchRunningRef.current) {
+      window.api.log('[App] search effect blocked — search already running')
+      return
+    }
+    const media = useMediaStore.getState().selectedMedia
+    if (!media) return
+    const season = useMediaStore.getState().selectedSeason
+    const episode = useMediaStore.getState().selectedEpisode
+    const isEpisode = media.mediaType === 'tv' && episode !== null
     runTorrentSearch({
       title: isEpisode
-        ? `${selectedMedia.title} S${String(storeSeason).padStart(2, '0')}E${String(storeEpisode).padStart(2, '0')}`
-        : selectedMedia.title,
-      year: selectedMedia.releaseDate ? parseInt(selectedMedia.releaseDate.slice(0, 4)) : undefined,
+        ? `${media.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
+        : media.title,
+      year: media.releaseDate ? parseInt(media.releaseDate.slice(0, 4)) : undefined,
       type: isEpisode ? 'episode' : 'movie',
-      season: isEpisode ? storeSeason : undefined,
-      episode: isEpisode ? storeEpisode ?? undefined : undefined,
+      season: isEpisode ? season : undefined,
+      episode: isEpisode ? episode ?? undefined : undefined,
     })
-  }, [torrentSearchOpen, selectedMedia, storeSeason, storeEpisode, runTorrentSearch])
-
-  const maybeTranscode = useCallback(async (url: string): Promise<string> => {
-    try {
-      const avail = await window.api.transcoder.isAvailable()
-      if (!avail) return url
-      const result = await window.api.transcoder.start(url)
-      console.log('[App] Transcoding proxy:', result.proxyUrl)
-      return result.proxyUrl
-    } catch (err: any) {
-      console.log('[App] Transcoder unavailable, using direct URL:', err?.message)
-      return url
-    }
-  }, [])
+  }, [torrentSearchOpen, runTorrentSearch])
 
   const playTorrent = useCallback(async (result: TorrentResult): Promise<string> => {
-    const preferred = await window.api.debrid.getPreferred()
-    let url: string
-    if (preferred.service) {
-      const cached = await window.api.debrid.checkCached(preferred.service, result.infoHash)
+    window.api.log('[App] playTorrent called with:', result?.title, result?.infoHash?.slice(0, 16), 'magnet:', result?.magnetUri?.slice(0, 60))
+    // Guard: reject results whose infoHash wasn't in the current search
+    if (searchInfoHashesRef.current.size > 0 && !searchInfoHashesRef.current.has(result.infoHash.toLowerCase())) {
+      const msg = `playTorrent rejected: ${result.infoHash.slice(0, 16)} not in current search (${searchInfoHashesRef.current.size} hashes)`
+      window.api.log('[App]', msg)
+      throw new Error(msg)
+    }
+    const localResult: any = await window.api.localCache.getUrl(result.infoHash)
+    if (localResult?.url) {
+      window.api.log('[App] Serving from local cache:', localResult.url)
+      return localResult.url
+    }
+
+    const services = await window.api.debrid.getServices()
+    for (const service of services) {
+      const cached = await window.api.debrid.checkCached(service, result.infoHash)
       if (cached.cached) {
-        const dl = await window.api.debrid.addAndWait(result.magnetUri, preferred.service)
-        url = typeof dl === 'string' ? dl : (dl.url || '')
-        return await maybeTranscode(url)
+        window.api.log('[App]', service, 'has torrent cached, using it')
+        const dl = await window.api.debrid.addAndWait(result.magnetUri, service)
+        const url = typeof dl === 'string' ? dl : (dl.url || '')
+        return url
       }
     }
+
     const torrentResult = await window.api.torrent.addTorrent(result.magnetUri)
     const streamRes = await window.api.torrent.getStreamUrl(torrentResult.infoHash)
-    return await maybeTranscode(streamRes.url)
-  }, [maybeTranscode])
+    return streamRes.url
+  }, [])
 
   const startPlayback = useCallback(async (result: TorrentResult) => {
-    console.log('[App] startPlayback', result.title, result.infoHash.slice(0, 16))
+    window.api.log('[App] startPlayback', result.title, result.infoHash.slice(0, 16))
+    autoPlayResultsRef.current = []
+    autoPlayIndexRef.current = 0
     setTorrentSearchOpen(false)
     setFreeSearchOpen(false)
     setFreeSearchQuery('')
@@ -347,38 +403,73 @@ export default function App() {
 
     try {
       const url = await playTorrent(result)
-      console.log('[App] Stream URL:', url)
-      setStreamUrl(url)
+      window.api.log('[App] Stream URL:', url)
+      currentInfoHashRef.current = result.infoHash
+      const rp = resumePositionRef.current
+      resumePositionRef.current = undefined
+      if (rp && result.infoHash) {
+        window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
+      }
+      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv')
+      setPlayerLoading(false)
     } catch (err: any) {
-      console.error('[App] Playback failed:', err.message, err.stack)
+      window.api.log('[App] Playback failed:', err.message)
       setStreamError(err?.message || 'Failed to start playback')
-    } finally {
       setPlayerLoading(false)
     }
-  }, [navigate, playTorrent])
+  }, [navigate, playTorrent, accentColor, playerInfo?.mediaType])
 
-  const tryAutoPlayResult = useCallback(async (index: number) => {
+  const tryAutoPlayResult = useCallback(async (index: number, session?: number) => {
+    // Stale-index guard: if refs were cleared but we're called with index > 0, abort
+    if (autoPlayResultsRef.current.length === 0 && index > 0) {
+      window.api.log(`[App] Auto-play stale index ${index}: refs cleared, aborting`)
+      return
+    }
+    if (session !== undefined && session !== searchSessionRef.current) {
+      window.api.log(`[App] Auto-play attempt ${index + 1} stale session ${session}, current ${searchSessionRef.current}, aborting`)
+      return
+    }
     const results = autoPlayResultsRef.current
     if (index >= results.length) {
+      window.api.log(`[App] Auto-play exhausted ${index}/${results.length}, all failed`)
       setStreamError('All torrents failed to play. Try disabling auto-play in Settings.')
       setPlayerLoading(false)
       return
     }
     const result = results[index]
     autoPlayIndexRef.current = index
-    console.log(`[App] Auto-play attempt ${index + 1}/${results.length}: ${result.title}`)
+    window.api.log(`[App] Auto-play attempt ${index + 1}/${results.length}: ${result.title} (${result.infoHash.slice(0, 16)}) session=${searchSessionRef.current}`)
     try {
       const url = await playTorrent(result)
+      if (searchSessionRef.current !== (session ?? searchSessionRef.current)) {
+        window.api.log('[App] Session changed during playTorrent, aborting auto-play')
+        return
+      }
       currentInfoHashRef.current = result.infoHash
-      setStreamUrl(url)
+      const rp = resumePositionRef.current
+      resumePositionRef.current = undefined
+      if (rp && result.infoHash) {
+        window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
+      }
+      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv')
       setPlayerLoading(false)
     } catch (err: any) {
-      console.log(`[App] Auto-play attempt ${index + 1} failed: ${err.message}`)
-      tryAutoPlayResult(index + 1)
+      window.api.log(`[App] Auto-play attempt ${index + 1} failed: ${err.message}`)
+      tryAutoPlayResult(index + 1, session)
     }
-  }, [playTorrent])
+  }, [playTorrent, accentColor, playerInfo?.mediaType])
 
   const handlePlay = useCallback(async (resumePosition?: number) => {
+    // Guard: reject if a torrent search modal is already open or player is active
+    if (torrentSearchOpenRef.current) {
+      window.api.log('[App] handlePlay blocked — torrentSearchOpen already true')
+      return
+    }
+    if (viewRef.current === 'player') {
+      window.api.log('[App] handlePlay blocked — player already active')
+      return
+    }
+
     const selected = useMediaStore.getState().selectedMedia
     if (!selected) return
     const season = useMediaStore.getState().selectedSeason
@@ -386,6 +477,15 @@ export default function App() {
     if (selected.mediaType === 'tv' && episode === null) {
       episode = 1
     }
+
+    // Always clear stale auto-play state before any new play
+    autoPlayResultsRef.current = []
+    autoPlayIndexRef.current = 0
+    currentInfoHashRef.current = null
+    searchInfoHashesRef.current = new Set()
+    const session = ++searchSessionRef.current
+    const caller = new Error().stack?.split('\n').slice(2, 4).map(l => l.trim()).join(' | ') || 'unknown'
+    window.api.log(`[App] handlePlay session=${session} caller=${caller} autoPlayTorrent=`, selected.title, selected.id)
 
     setPlayerInfo({
       tmdbId: selected.id,
@@ -397,17 +497,17 @@ export default function App() {
 
     const { autoPlayTorrent, maxTorrentSize } = useSettingsStore.getState()
     if (!autoPlayTorrent) {
+      window.api.log(`[App] handlePlay manual path, opening modal`)
       const isEpisode = selected.mediaType === 'tv' && episode !== null
+      // Clear stale results so TorrentSearch mounts with empty data (not old results from a prior search)
+      setTorrentResults([])
+      setTorrentCachedMap({})
       setTorrentSearchTitle(isEpisode ? `${selected.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : selected.title)
       setTorrentSearchYear(selected.releaseDate ? parseInt(selected.releaseDate.slice(0, 4)) : undefined)
       setTorrentSearchOpen(true)
       return
     }
-
-    // Auto-play: show player loading, search, try results in order
-    autoPlayResultsRef.current = []
-    autoPlayIndexRef.current = 0
-    currentInfoHashRef.current = null
+    window.api.log(`[App] handlePlay auto-play path`)
     setPlayerLoading(true)
     setStreamUrl(undefined)
     setStreamError(null)
@@ -439,13 +539,16 @@ export default function App() {
         return
       }
 
+      // Track which infoHashes are valid for this search (for playTorrent guard)
+      searchInfoHashesRef.current = new Set(filtered.map((r: TorrentResult) => r.infoHash.toLowerCase()))
       autoPlayResultsRef.current = filtered
-      tryAutoPlayResult(0)
+      window.api.log(`[App] Auto-play session=${session} got ${filtered.length} results, hashes:`, filtered.map((r: TorrentResult) => `${r.title}=${r.infoHash.slice(0, 16)}`))
+      tryAutoPlayResult(0, session)
     } catch (err: any) {
       setStreamError(err?.message || 'Auto-play search failed')
       setPlayerLoading(false)
     }
-  }, [navigate, playTorrent, tryAutoPlayResult])
+  }, [navigate, playTorrent])
 
   const handlePlayYouTubeVideo = useCallback(async (video: any) => {
     // Placeholder for the Webview approach
@@ -529,14 +632,6 @@ export default function App() {
     useMediaStore.getState().triggerRefresh()
   }, [])
 
-  const handleSportsTorrentSearch = useCallback(async (title: string, year?: number) => {
-    setSportsSearchTitle(title)
-    setSportsSearchYear(year)
-    setTorrentSearchTitle(title)
-    setTorrentSearchYear(year)
-    await runTorrentSearch({ title, type: 'movie' })
-    setTorrentSearchOpen(true)
-  }, [runTorrentSearch])
 
   const onStreamError = useCallback(() => {
     if (autoPlayResultsRef.current.length > 0) {
@@ -549,7 +644,7 @@ export default function App() {
         if (currentInfoHashRef.current) {
           window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
         }
-        tryAutoPlayResult(nextIdx)
+        tryAutoPlayResult(nextIdx, searchSessionRef.current)
       } else {
         setStreamError('All torrents failed to play. Try disabling auto-play in Settings.')
       }
@@ -567,6 +662,7 @@ export default function App() {
         useMediaStore.getState().setSelectedEpisode(nextEp)
         setStreamUrl(undefined)
         setStreamError(null)
+        resumePositionRef.current = undefined
         setPlayerInfo((prev) => prev ? { ...prev, episode: nextEp, resumePosition: undefined } : undefined)
         handlePlay()
         return
@@ -574,6 +670,20 @@ export default function App() {
     }
     navigate('detail')
   }, [navigate, handlePlay])
+
+  // When mpv exits (killed by user), clean up immediately
+  useEffect(() => {
+    const unsub = window.api.mpv.onExited(() => {
+      console.log('[App] mpv exited, cleaning up')
+      autoPlayResultsRef.current = []
+      autoPlayIndexRef.current = 0
+      if (currentInfoHashRef.current) {
+        window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
+        currentInfoHashRef.current = null
+      }
+    })
+    return unsub
+  }, [])
 
   // Global keyboard handler
   useEffect(() => {
@@ -607,7 +717,7 @@ export default function App() {
           return
         }
         if (torrentSearchOpen) { setTorrentSearchOpen(false); return }
-        if (view === 'browser' || view === 'movies' || view === 'tv-shows' || view === 'sports') {
+        if (view === 'browser' || view === 'movies' || view === 'tv-shows') {
           e.preventDefault()
           savedFocusRef.current = e.target as HTMLElement
           setSidebarOpen((o) => !o)
@@ -663,11 +773,10 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'sports' ? 'sports' : view === 'youtube' ? 'youtube' : 'browser'}
+        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
-        sportsEnabled={sportsEnabled}
       />
       {(view === 'browser' || view === 'movies' || view === 'tv-shows') && (
         <Browser
@@ -753,7 +862,7 @@ export default function App() {
             cachedMap={torrentCachedMap}
             loading={torrentSearching}
             onSelect={startPlayback}
-            onClose={() => { setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}) }}
+            onClose={() => { window.api.log('[App] TorrentSearch onClose triggered'); setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}) }}
           />
         )}
         {freeSearchOpen && (

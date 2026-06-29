@@ -12,6 +12,7 @@ interface MediaState {
   selectedEpisode: number | null
   seasonEpisodes: Episode[]
   continueWatching: MediaItem[]
+  upNext: Array<{ item: MediaItem; season: number; episode: number; episodeTitle?: string }>
   resumeProgress: number | null
   traktWatched: Set<number>
   traktPlayback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
@@ -28,6 +29,7 @@ interface MediaState {
   setSelectedEpisode: (episode: number | null) => void
   setSeasonEpisodes: (episodes: Episode[]) => void
   setContinueWatching: (items: MediaItem[]) => void
+  setUpNext: (items: Array<{ item: MediaItem; season: number; episode: number; episodeTitle?: string }>) => void
   setResumeProgress: (progress: number | null) => void
   setTraktWatched: (ids: Set<number>) => void
   setTraktPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
@@ -47,6 +49,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   selectedEpisode: null,
   seasonEpisodes: [],
   continueWatching: [],
+  upNext: [],
   resumeProgress: null,
   traktWatched: new Set<number>(),
   traktPlayback: [],
@@ -70,6 +73,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   setSelectedEpisode: (episode) => set({ selectedEpisode: episode }),
   setSeasonEpisodes: (episodes) => set({ seasonEpisodes: episodes }),
   setContinueWatching: (items) => set({ continueWatching: items }),
+  setUpNext: (items) => set({ upNext: items }),
   setResumeProgress: (progress) => set({ resumeProgress: progress }),
   setTraktWatched: (ids) => set({ traktWatched: ids }),
   setTraktPlayback: (items) => set({ traktPlayback: items }),

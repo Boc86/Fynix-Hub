@@ -337,18 +337,17 @@ async function search1337x(query: TorrentQuery): Promise<TorrentResult[]> {
       rows.push({ title, detailUrl, seeders, leechers, size: parseSize(sizeText) })
     }
 
-    const results: TorrentResult[] = []
-    for (const row of rows.slice(0, 10)) {
+    const detailPromises = rows.slice(0, 10).map(async (row) => {
       try {
         const detailRes = await fetch(row.detailUrl)
-        if (!detailRes.ok) continue
+        if (!detailRes.ok) return null
         const detailHtml = await detailRes.text()
         const magnetMatch = /<a[^>]*href="(magnet:\?[^"]*)"[^>]*>/i.exec(detailHtml)
         const magnetUri = magnetMatch ? magnetMatch[1] : ''
         const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i)
         const infoHash = infoHashMatch?.[1] || ''
-        if (!infoHash) continue
-        results.push({
+        if (!infoHash) return null
+        return {
           title: row.title,
           seeders: row.seeders,
           leechers: row.leechers,
@@ -357,10 +356,15 @@ async function search1337x(query: TorrentQuery): Promise<TorrentResult[]> {
           infoHash,
           indexer: '1337x',
           quality: qualityFromTitle(row.title),
-        })
+        } as TorrentResult
       } catch {
-        continue
+        return null
       }
+    })
+    const settled = await Promise.allSettled(detailPromises)
+    const results: TorrentResult[] = []
+    for (const s of settled) {
+      if (s.status === 'fulfilled' && s.value) results.push(s.value)
     }
     return results
   } catch {
@@ -445,6 +449,17 @@ function isIndexerApplicable(indexer: BuiltInIndexer, query: TorrentQuery): bool
   return true
 }
 
+const INDEXER_TIMEOUT = 10000 // 10s timeout per indexer
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms)),
+  ])
+}
+
+const SEARCH_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 export async function searchTorrents(
   query: TorrentQuery,
   enabledIndexerIds?: string[],
@@ -452,6 +467,14 @@ export async function searchTorrents(
 ): Promise<TorrentResult[]> {
   const results: TorrentResult[] = []
   const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
+
+  // Check cache for identical search
+  const cacheKey = `torrent:search:${JSON.stringify({ q: query, e: enabledIndexerIds })}`
+  const cached = CacheService.getCache(cacheKey)
+  if (cached) {
+    console.log(`[TorrentSearch] Cache hit for "${searchTerm}"`)
+    return JSON.parse(cached)
+  }
 
   const enabled = new Set(enabledIndexerIds && enabledIndexerIds.length > 0 ? enabledIndexerIds : getDefaultEnabledIndexers())
   const customs = (customIndexers || []).filter(c => c.enabled)
@@ -461,12 +484,12 @@ export async function searchTorrents(
   for (const indexer of BUILT_IN_INDEXERS) {
     if (!enabled.has(indexer.id)) continue
     if (!isIndexerApplicable(indexer, query)) continue
-    promises.push(indexer.search(query))
+    promises.push(withTimeout(indexer.search(query), INDEXER_TIMEOUT))
   }
 
   for (const indexer of customs) {
     if (!searchTerm) continue
-    promises.push(searchTorznab(indexer, searchTerm))
+    promises.push(withTimeout(searchTorznab(indexer, searchTerm), INDEXER_TIMEOUT))
   }
 
   const settled = await Promise.allSettled(promises)
@@ -479,13 +502,23 @@ export async function searchTorrents(
     }
   }
 
-  console.log(`[TorrentSearch] Total ${results.length} results for "${searchTerm}"`)
+  // Deduplicate by infoHash
+  const seen = new Set<string>()
+  const deduped = results.filter((r) => {
+    if (!r.infoHash || seen.has(r.infoHash)) return false
+    seen.add(r.infoHash)
+    return true
+  })
+
+  console.log(`[TorrentSearch] ${deduped.length} unique results for "${searchTerm}" (${results.length} raw)`)
   const qualityOrder: Record<string, number> = { '4K': 0, '1080p': 1, '720p': 2, '480p': 3 }
-  results.sort((a, b) => {
+  deduped.sort((a, b) => {
     const aQ = qualityOrder[a.quality] ?? 99
     const bQ = qualityOrder[b.quality] ?? 99
     if (aQ !== bQ) return aQ - bQ
     return b.seeders - a.seeders
   })
-  return results
+
+  CacheService.setCache(cacheKey, JSON.stringify(deduped), SEARCH_CACHE_TTL)
+  return deduped
 }

@@ -155,6 +155,82 @@ export async function getPlaybackEpisodes() {
   return fetchTrakt('/sync/playback/episodes')
 }
 
+export async function getShowProgress(showTraktId: number) {
+  return fetchTrakt(`/shows/${showTraktId}/progress?extended=full`)
+}
+
+export async function getWatchedShowsWithProgress() {
+  // Single API call — matches the Kodi TMDB Helper plugin approach
+  // /sync/watched/shows?extended=full returns aired_episodes, watched_episodes,
+  // last_watched_at, and nested seasons/episodes watched data
+  const watched = await fetchTrakt('/sync/watched/shows?extended=full') as any[]
+  if (!watched || !Array.isArray(watched)) return []
+
+  const results: any[] = []
+
+  for (const entry of watched) {
+    const show = entry.show
+    if (!show || !show.ids || !show.ids.tmdb) continue
+
+    const aired = show.aired_episodes || 0
+    const watchedCount = entry.watched_episodes || 0
+
+    // In progress = more episodes aired than watched
+    if (aired <= watchedCount) continue
+
+    // Find next unwatched episode from nested seasons data
+    let nextEpisode: { season: number; number: number; title?: string } | null = null
+
+    if (entry.seasons && Array.isArray(entry.seasons)) {
+      // Sort seasons by number
+      const sortedSeasons = [...entry.seasons].sort((a, b) => (a.number || 0) - (b.number || 0))
+      for (const season of sortedSeasons) {
+        if (!season.episodes || !Array.isArray(season.episodes)) continue
+        // Build a set of watched episode numbers for this season
+        const watchedEpisodes = new Set<number>()
+        for (const ep of season.episodes) {
+          if (ep.number !== undefined) watchedEpisodes.add(ep.number)
+        }
+        // Find the first unwatched episode in this season
+        // Episodes are 1-indexed, find lowest unwatched
+        for (let epNum = 1; epNum <= 100; epNum++) {
+          if (!watchedEpisodes.has(epNum)) {
+            nextEpisode = { season: season.number || 1, number: epNum }
+            break
+          }
+        }
+        if (nextEpisode) break
+      }
+    }
+
+    if (!nextEpisode) continue
+
+    const completion = aired > 0 ? watchedCount / aired : 0
+
+    results.push({
+      show: {
+        title: show.title,
+        year: show.year,
+        ids: show.ids,
+      },
+      next_episode: nextEpisode,
+      completion,
+      aired,
+      completed: watchedCount,
+      last_watched_at: entry.last_watched_at || entry.reset_at,
+    })
+  }
+
+  // Sort by last_watched_at descending (most recently watched first)
+  results.sort((a, b) => {
+    const aTime = new Date(a.last_watched_at || 0).getTime()
+    const bTime = new Date(b.last_watched_at || 0).getTime()
+    return bTime - aTime
+  })
+
+  return results
+}
+
 export function buildScrobblePayload(tmdbId: number, mediaType: string, progress: number, season?: number, episode?: number) {
   if (mediaType === 'tv' && season !== undefined && episode !== undefined) {
     return {

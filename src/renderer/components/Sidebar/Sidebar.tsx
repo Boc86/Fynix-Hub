@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './Sidebar.module.css'
 
-export type NavView = 'browser' | 'movies' | 'tv-shows' | 'sports' | 'youtube' | 'settings'
+export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'settings'
 
-export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'sports', 'youtube', 'settings']
+export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'settings']
 
 interface SidebarProps {
   open: boolean
@@ -11,10 +11,9 @@ interface SidebarProps {
   onNavigate: (view: NavView) => void
   onSearch: () => void
   onClose: () => void
-  sportsEnabled?: boolean
 }
 
-export default function Sidebar({ open, currentView, onNavigate, onSearch, onClose, sportsEnabled }: SidebarProps) {
+export default function Sidebar({ open, currentView, onNavigate, onSearch, onClose }: SidebarProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [focusedIndex, setFocusedIndex] = useState(0)
   const navItemsRef = useRef<HTMLButtonElement[]>([])
@@ -24,9 +23,10 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { view: 'movies' as NavView, label: 'Movies', shortcut: '' },
     { view: 'tv-shows' as NavView, label: 'TV Shows', shortcut: '' },
     { view: 'youtube' as NavView, label: 'YouTube', shortcut: '' },
-    // Sports entry removed – hidden until a reliable API is available
     { view: 'settings' as NavView, label: 'Settings', shortcut: '' },
     { view: null as NavView | null, label: 'Search', shortcut: 'S', isSearch: true },
+    { view: null as NavView | null, label: 'Minimize', shortcut: '', isAction: true, action: 'minimize' as const },
+    { view: null as NavView | null, label: 'Exit', shortcut: '', isAction: true, action: 'exit' as const },
   ]
 
   useEffect(() => {
@@ -63,6 +63,9 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
       if (item) {
         if (item.isSearch) {
           onSearch()
+        } else if (item.isAction) {
+          if (item.action === 'minimize') window.api.app.minimize()
+          else if (item.action === 'exit') window.api.app.quit()
         } else {
           onNavigate(item.view!)
         }
@@ -92,7 +95,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
             ref={(el) => { navItemsRef.current[index] = el! }}
             tabIndex={0}
             className={`${styles.navItem} ${!item.isSearch && currentView === item.view ? styles.active : ''} ${focusedIndex === index ? styles.focused : ''}`}
-            onClick={() => { if (item.isSearch) { onSearch() } else { handleNavClick(item.view!) } }}
+            onClick={() => { if (item.isSearch) { onSearch() } else if (item.isAction) { if (item.action === 'minimize') window.api.app.minimize(); else if (item.action === 'exit') window.api.app.quit() } else { handleNavClick(item.view!) } }}
             onFocus={() => setFocusedIndex(index)}
           >
             <span className={styles.navIcon}>
@@ -132,17 +135,22 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
                   <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/>
                 </svg>
               )}
-              {item.view === 'sports' && (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M2.05 12h19.9"/>
-                  <path d="M12 2.05c2.5 4.5 4 8.5 4 9.95s-1.5 5.45-4 9.95c-2.5-4.5-4-8.5-4-9.95s1.5-5.45 4-9.95z"/>
-                </svg>
-              )}
               {item.view === 'settings' && (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="3"/>
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1-2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              )}
+              {item.isAction && item.action === 'minimize' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              )}
+              {item.isAction && item.action === 'exit' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
                 </svg>
               )}
             </span>
@@ -151,17 +159,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
           </button>
         ))}
 
-        <div className={styles.windowControls}>
-          <button className={styles.controlBtn} onClick={() => window.api.window.minimize()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.minimize(); }} } tabIndex={0} title="Minimize">
-            <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="2" fill="currentColor"/></svg>
-          </button>
-          <button className={styles.controlBtn} onClick={() => window.api.window.maximize()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.maximize(); }} } tabIndex={0} title="Maximize">
-            <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
-          </button>
-          <button className={`${styles.controlBtn} ${styles.closeBtn}`} onClick={() => window.api.window.close()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.close(); }} } tabIndex={0} title="Close">
-            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="2"/></svg>
-          </button>
-        </div>
+
       </nav>
     </>
   )

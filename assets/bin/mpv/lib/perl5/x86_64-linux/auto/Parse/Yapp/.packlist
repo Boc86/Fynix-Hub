@@ -1,0 +1,10 @@
+/app/bin/yapp
+/app/lib/perl5/Parse/Yapp.pm
+/app/lib/perl5/Parse/Yapp/Driver.pm
+/app/lib/perl5/Parse/Yapp/Grammar.pm
+/app/lib/perl5/Parse/Yapp/Lalr.pm
+/app/lib/perl5/Parse/Yapp/Options.pm
+/app/lib/perl5/Parse/Yapp/Output.pm
+/app/lib/perl5/Parse/Yapp/Parse.pm
+/app/man/man1/yapp.1
+/app/man/man3/Parse::Yapp.3

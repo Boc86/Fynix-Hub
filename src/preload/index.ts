@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
     getVersion: () => ipcRenderer.invoke('app:get-version'),
+    log: (...args: unknown[]) => ipcRenderer.invoke('log:info', ...args),
     onRemoteAction: (callback: (action: string) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
       ipcRenderer.on('remote:action', handler)
@@ -19,11 +20,21 @@ const api = {
       ipcRenderer.on('youtube:focus-back', callback)
       return () => { ipcRenderer.removeListener('youtube:focus-back', callback) }
     },
+    transcoder: {
+      isAvailable: () => ipcRenderer.invoke('transcoder:is-available'),
+      start: (sourceUrl: string) => ipcRenderer.invoke('transcoder:start', sourceUrl),
+      stop: () => ipcRenderer.invoke('transcoder:stop'),
+      isRunning: () => ipcRenderer.invoke('transcoder:is-running')
+    },
   },
   tizentube: {
     checkUpdates: () => ipcRenderer.invoke('tizentube:check-updates'),
     update: () => ipcRenderer.invoke('tizentube:update'),
     getVersion: () => ipcRenderer.invoke('tizentube:get-version'),
+  },
+  app: {
+    minimize: () => ipcRenderer.invoke('app:minimize'),
+    quit: () => ipcRenderer.invoke('app:quit'),
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
@@ -81,6 +92,7 @@ const api = {
     getPlayback: () => ipcRenderer.invoke('trakt:get-playback'),
     getPlaybackMovies: () => ipcRenderer.invoke('trakt:get-playback-movies'),
     getPlaybackEpisodes: () => ipcRenderer.invoke('trakt:get-playback-episodes'),
+    getWatchedProgress: () => ipcRenderer.invoke('trakt:get-watched-progress'),
   },
   torrent: {
     search: (query: object) => ipcRenderer.invoke('torrent:search', query),
@@ -93,6 +105,8 @@ const api = {
       ipcRenderer.invoke('torrent:get-progress', infoHash),
     getStreamUrl: (infoHash: string, fileIndex?: number) =>
       ipcRenderer.invoke('torrent:get-stream-url', infoHash, fileIndex),
+    prioritizeResume: (infoHash: string, resumePositionSec: number, estimatedDurationSec: number) =>
+      ipcRenderer.invoke('torrent:prioritize-resume', infoHash, resumePositionSec, estimatedDurationSec),
   },
   indexerCatalog: {
     get: () => ipcRenderer.invoke('indexer-catalog:get'),
@@ -111,6 +125,8 @@ const api = {
   debrid: {
     getStatus: (service: string) =>
       ipcRenderer.invoke('debrid:get-status', service),
+    getServices: () =>
+      ipcRenderer.invoke('debrid:get-services'),
     getPreferred: () =>
       ipcRenderer.invoke('debrid:get-preferred'),
     checkCached: (service: string, hash: string) =>
@@ -151,24 +167,36 @@ const api = {
       ipcRenderer.invoke('watch:get-progress', tmdbId, mediaType, season, episode),
     getHistory: () => ipcRenderer.invoke('watch:get-history'),
   },
-  transcoder: {
-    isAvailable: () => ipcRenderer.invoke('transcoder:is-available'),
-    start: (sourceUrl: string) => ipcRenderer.invoke('transcoder:start', sourceUrl),
-    stop: () => ipcRenderer.invoke('transcoder:stop'),
-    isRunning: () => ipcRenderer.invoke('transcoder:is-running'),
+  mpv: {
+      isAvailable: () => ipcRenderer.invoke('mpv:is-available'),
+    addSubtitle: (filePath: string) => ipcRenderer.invoke('mpv:add-subtitle', filePath),
+      start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext),
+      stop: () => ipcRenderer.invoke('mpv:stop'),
+      isRunning: () => ipcRenderer.invoke('mpv:is-running'),
+      togglePause: () => ipcRenderer.invoke('mpv:toggle-pause'),
+      seek: (seconds: number) => ipcRenderer.invoke('mpv:seek', seconds),
+      getTimePos: () => ipcRenderer.invoke('mpv:get-time-pos'),
+      getDuration: () => ipcRenderer.invoke('mpv:get-duration'),
+      getPaused: () => ipcRenderer.invoke('mpv:get-paused'),
+      showSkipIntro: (endMs: number) => ipcRenderer.invoke('mpv:show-skip-intro', endMs),
+      hideSkipIntro: () => ipcRenderer.invoke('mpv:hide-skip-intro'),
+      setHasNext: (hasNext: boolean) => ipcRenderer.invoke('mpv:set-has-next', hasNext),
+      getLastExitCode: () => ipcRenderer.invoke('mpv:get-last-exit-code'),
+      onExited: (callback: () => void) => {
+        ipcRenderer.on('mpv-exited', callback)
+        return () => { ipcRenderer.removeListener('mpv-exited', callback) }
+      },
+    },
+  localCache: {
+    getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),
+    isCached: (infoHash: string) => ipcRenderer.invoke('local-cache:is-cached', infoHash),
+    status: () => ipcRenderer.invoke('local-cache:status'),
+    clear: () => ipcRenderer.invoke('local-cache:clear'),
   },
-  sportsdb: {
-    getSports: () => ipcRenderer.invoke('sportsdb:get-sports'),
-    getCountries: (sportSlug: string) => ipcRenderer.invoke('sportsdb:get-countries', sportSlug),
-    getCompetitions: (sportSlug: string, sportId: number, countrySlug?: string) =>
-      ipcRenderer.invoke('sportsdb:get-competitions', sportSlug, sportId, countrySlug),
-    getSeasons: (sportSlug: string, tournamentId: number) => ipcRenderer.invoke('sportsdb:get-seasons', sportSlug, tournamentId),
-    getFixtures: (sportSlug: string, tournamentId: number, seasonId: number, page: number, direction: 'last' | 'next') =>
-      ipcRenderer.invoke('sportsdb:get-fixtures', sportSlug, tournamentId, seasonId, page, direction),
-    searchClubs: (sportSlug: string, searchTerm: string) => ipcRenderer.invoke('sportsdb:search-clubs', sportSlug, searchTerm),
-    getClub: (sportSlug: string, teamId: number) => ipcRenderer.invoke('sportsdb:get-club', sportSlug, teamId),
-    getClubFixtures: (sportSlug: string, teamId: number, page: number, direction: 'last' | 'next') =>
-      ipcRenderer.invoke('sportsdb:get-club-fixtures', sportSlug, teamId, page, direction),
+  openSubtitles: {
+    search: (params: any) => ipcRenderer.invoke('opensubtitles:search', params),
+    download: (fileId: number) => ipcRenderer.invoke('opensubtitles:download', fileId),
+    downloadAndSave: (fileId: number) => ipcRenderer.invoke('opensubtitles:download-and-save', fileId),
   },
 }
 

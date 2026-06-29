@@ -24,14 +24,14 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
   { id: 'connections', label: 'Connections', shortcut: '2' },
   { id: 'indexers', label: 'Indexers', shortcut: '3' },
   { id: 'youtube', label: 'YouTube', shortcut: '4' },
-  // { id: 'sports', label: 'Sports', shortcut: '5' }, // hidden until API available
+  // { id: 'sports', label: 'Sports', shortcut: '5' },
   { id: 'advanced', label: 'Advanced', shortcut: '6' },
   { id: 'remote', label: 'Remote', shortcut: '7' },
 ]
@@ -41,15 +41,11 @@ export default function Settings({ onClose }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [localTmdb, setLocalTmdb] = useState(store.tmdbApiKey)
   const [localFanart, setLocalFanart] = useState(store.fanartApiKey)
-  const [localLangs, setLocalLangs] = useState<string[]>(store.preferredLanguages)
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
-  const [localSportsEnabled, setLocalSportsEnabled] = useState(store.sportsEnabled)
-  const [localSportsKey, setLocalSportsKey] = useState(store.sportsDbApiKey)
-  const [localSportsSelected, setLocalSportsSelected] = useState<string[]>(store.sportsSelected)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
+  const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
-  const [availableSports, setAvailableSports] = useState<Array<{ id: string; name: string }>>([])
   const [saved, setSaved] = useState(false)
   const [trackerRefreshState, setTrackerRefreshState] = useState<'idle' | 'refreshing' | 'done' | 'error'>('idle')
   const [trackerRefreshCount, setTrackerRefreshCount] = useState(0)
@@ -69,7 +65,6 @@ export default function Settings({ onClose }: SettingsProps) {
   const [newCustom, setNewCustom] = useState({ name: '', url: '', apiKey: '' })
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null)
 
-  const languages = ['English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Japanese', 'Korean', 'Chinese', 'Russian', 'Hindi', 'Arabic']
   const resolutions = ['4K', '1080p', '720p', '480p']
 
   const contentRef = useRef<HTMLDivElement>(null)
@@ -118,10 +113,6 @@ export default function Settings({ onClose }: SettingsProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [capturingKey])
 
-  const toggleLang = (lang: string) => {
-    setLocalLangs(prev => prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang])
-  }
-
   const toggleRes = (res: string) => {
     setLocalRes(prev => prev.includes(res) ? prev.filter(r => r !== res) : [...prev, res])
   }
@@ -132,14 +123,6 @@ export default function Settings({ onClose }: SettingsProps) {
       setCatalog(catalog || [])
       setCatalogLastUpdated(lastUpdated || null)
     }).catch(() => setCatalog([]))
-  }, [])
-
-  useEffect(() => {
-    window.api.sportsdb.getSports()
-      .then((sports) => {
-        setAvailableSports(sports.map((s: any) => ({ id: s.id || s.slug, name: s.name })))
-      })
-      .catch(() => setAvailableSports([]))
   }, [])
 
   const toggleBuiltIn = (id: string) => {
@@ -266,25 +249,19 @@ export default function Settings({ onClose }: SettingsProps) {
     await Promise.all([
       window.api.settings.set('tmdbApiKey', localTmdb),
       window.api.settings.set('fanartApiKey', localFanart),
-      window.api.settings.set('preferredLanguages', localLangs),
       window.api.settings.set('preferredResolutions', localRes),
       window.api.settings.set('enabledIndexers', localEnabledIndexers),
       window.api.settings.set('customIndexers', localCustomIndexers),
-      window.api.settings.set('sportsEnabled', localSportsEnabled),
-      window.api.settings.set('sportsDbApiKey', localSportsKey),
-       window.api.settings.set('sportsSelected', localSportsSelected),
-       window.api.settings.set('introDbApiKey', localIntroDb),
-     ])
-     store.setTmdbApiKey(localTmdb)
-    store.setFanartApiKey(localFanart)
-    store.setPreferredLanguages(localLangs)
-    store.setPreferredResolutions(localRes)
-    store.setEnabledIndexers(localEnabledIndexers)
-    store.setCustomIndexers(localCustomIndexers)
-    store.setSportsEnabled(localSportsEnabled)
-     store.setSportsDbApiKey(localSportsKey)
-     store.setSportsSelected(localSportsSelected)
-     store.setIntroDbApiKey(localIntroDb)
+        window.api.settings.set('introDbApiKey', localIntroDb),
+        window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
+      ])
+      store.setTmdbApiKey(localTmdb)
+      store.setFanartApiKey(localFanart)
+      store.setPreferredResolutions(localRes)
+      store.setEnabledIndexers(localEnabledIndexers)
+      store.setCustomIndexers(localCustomIndexers)
+      store.setIntroDbApiKey(localIntroDb)
+       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
      await store.saveToDisk()
      store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
@@ -414,27 +391,32 @@ export default function Settings({ onClose }: SettingsProps) {
                  value={localIntroDb}
                  onChange={(e) => setLocalIntroDb(e.target.value)}
                />
-             </div>
- 
-             <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Preferred Languages</h3>
-              <p className={styles.settingDesc}>Filter torrent results by language</p>
-              <div className={styles.toggleGrid}>
-                {languages.map(lang => (
-                  <button
-                    key={lang}
-                    tabIndex={0}
-                    className={`${styles.toggle} ${localLangs.includes(lang) ? styles.toggleActive : ''}`}
-                    onClick={() => toggleLang(lang)}
-                  >
-                    {lang}
-                  </button>
-                ))}
               </div>
-            </div>
 
-            <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>OpenSubtitles API</h3>
+                <p className={styles.settingDesc}>API key for downloading subtitles from OpenSubtitles</p>
+                <input
+                  type="password"
+                  className={styles.input}
+                  placeholder="Enter OpenSubtitles API Key"
+                  value={localOpensubtitlesApiKey}
+                  onChange={(e) => setLocalOpensubtitlesApiKey(e.target.value)}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <label className={styles.settingDesc} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={store.opensubtitlesForcedOnly}
+                      onChange={(e) => store.setOpensubtitlesForcedOnly(e.target.checked)}
+                    />
+                    Forced-only subtitles (only foreign dialogue)
+                  </label>
+                </div>
+              </div>
+
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
               <p className={styles.settingDesc}>Filter torrent results by resolution</p>
               <div className={styles.toggleGrid}>
                 {resolutions.map(res => (
@@ -446,6 +428,42 @@ export default function Settings({ onClose }: SettingsProps) {
                   >
                     {res}
                   </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Preferred Audio Language</h3>
+              <p className={styles.settingDesc}>Auto-select audio track (e.g. "eng", "jpn", "kor")</p>
+              <input
+                className={styles.settingInput}
+                type="text"
+                placeholder="e.g. eng"
+                value={store.preferredAudioLanguage}
+                onChange={(e) => store.setPreferredAudioLanguage(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Accent Color</h3>
+              <p className={styles.settingDesc}>Choose your theme accent color</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                {['#FF6B00', '#E50914', '#007AFF', '#7B68EE', '#34C759', '#00B4D8', '#FFFFFF', '#FF9500'].map((c) => (
+                  <button
+                    key={c}
+                    tabIndex={0}
+                    onClick={() => store.setAccentColor(c)}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      border: store.accentColor === c ? '3px solid rgba(255,255,255,0.9)' : '2px solid rgba(255,255,255,0.2)',
+                      background: c,
+                      cursor: 'pointer',
+                      outline: 'none',
+                    }}
+                    title={c}
+                  />
                 ))}
               </div>
             </div>
@@ -1066,67 +1084,8 @@ export default function Settings({ onClose }: SettingsProps) {
             </div>
           </div>
         )
-      case 'sports':
-        return (
-          <div className={styles.tabContent}>
-            <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Enable Sports Section</h3>
-              <p className={styles.settingDesc}>Show a Sports tab in the sidebar and navigation</p>
-              <div className={styles.toggleGrid}>
-                <button
-                  tabIndex={0}
-                  className={`${styles.toggle} ${localSportsEnabled ? styles.toggleActive : ''}`}
-                  onClick={() => setLocalSportsEnabled((v) => !v)}
-                >
-                  Sports {localSportsEnabled ? 'ON' : 'OFF'}
-                </button>
-              </div>
-            </div>
 
-            <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>SportsAPI Pro Key</h3>
-              <p className={styles.settingDesc}>
-                API key from sportsapipro.com. Used for competitions, seasons, fixtures, and team search across 25+ sports.
-              </p>
-              <input
-                type="password"
-                className={styles.input}
-                placeholder="Enter SportsAPI Pro API Key"
-                value={localSportsKey}
-                onChange={(e) => setLocalSportsKey(e.target.value)}
-              />
-            </div>
-
-            <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Displayed Sports</h3>
-              <p className={styles.settingDesc}>Choose which sports appear on the Sports page</p>
-              {availableSports.length === 0 && localSportsKey.trim() && (
-                <p className={styles.authHint}>Could not load sports. Check the API key.</p>
-              )}
-              {availableSports.length === 0 && !localSportsKey.trim() && (
-                <p className={styles.authHint}>Enter an API key above to load available sports.</p>
-              )}
-              <div className={styles.toggleGrid}>
-                {availableSports.map((sport) => (
-                  <button
-                    key={sport.id}
-                    tabIndex={0}
-                    className={`${styles.toggle} ${localSportsSelected.includes(sport.name) ? styles.toggleActive : ''}`}
-                    onClick={() => {
-                      setLocalSportsSelected((prev) =>
-                        prev.includes(sport.name) ? prev.filter((s) => s !== sport.name) : [...prev, sport.name]
-                      )
-                    }}
-                  >
-                    {sport.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )
-
-case 'remote':
+ case 'remote':
          return (
            <div className={styles.tabContent}>
              <div className={styles.settingGroup}>

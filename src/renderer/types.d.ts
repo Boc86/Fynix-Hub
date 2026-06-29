@@ -83,6 +83,7 @@ export interface Episode {
   stillPath: string | null
   airDate: string
   voteAverage: number
+  runtime: number | null
 }
 
 export interface Genre {

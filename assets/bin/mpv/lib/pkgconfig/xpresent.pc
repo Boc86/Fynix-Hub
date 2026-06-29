@@ -1,0 +1,13 @@
+prefix=/app
+exec_prefix=${prefix}
+includedir=${prefix}/include
+libdir=${exec_prefix}/lib
+
+Name: Xpresent
+Description: X Present Library
+URL: https://gitlab.freedesktop.org/xorg/lib/libxpresent/
+Version: 1.0.2
+Requires: xproto presentproto >= 1.0
+Requires.private: x11 xext xfixes xrandr
+Libs: -L${libdir} -lXpresent
+Cflags: -I${includedir}

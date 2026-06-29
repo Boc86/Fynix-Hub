@@ -51,6 +51,12 @@ export function getPreferred(): string | null {
   return null
 }
 
+const SERVICE_ORDER = ['real-debrid', 'torbox', 'premiumize', 'alldebrid'] as const
+
+export function getServices(): string[] {
+  return SERVICE_ORDER.filter(s => isConfigured(s))
+}
+
 async function realDebridFetch(path: string, options: RequestInit = {}) {
   if (!realDebridKey) throw new Error('Real-Debrid not configured')
   const res = await fetch(`${REAL_DEBRID_BASE}${path}`, {
@@ -170,7 +176,7 @@ export async function realDebridUnrestrict(link: string) {
 }
 
 async function waitForRealDebridReady(torrentId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 3000
+  const pollInterval = 1500
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))
@@ -331,7 +337,7 @@ export async function torboxRequestDownloadLink(torrentId: string, fileId?: numb
 }
 
 async function waitForTorboxReady(torrentId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 3000
+  const pollInterval = 1500
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))
@@ -436,7 +442,7 @@ export async function premiumizeTransferList() {
 }
 
 async function waitForPremiumizeReady(transferId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 3000
+  const pollInterval = 1500
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))
@@ -536,7 +542,7 @@ export async function alldebridUnrestrict(link: string) {
 }
 
 async function waitForAlldebridReady(magnetId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 3000
+  const pollInterval = 1500
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))

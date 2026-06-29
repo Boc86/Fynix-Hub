@@ -29,12 +29,13 @@ interface SettingsState {
   sponsorBlockEnabled: boolean
   sponsorBlockCategories: string[]
   youtubePreferredQuality: string
-  sportsEnabled: boolean
-  sportsDbApiKey: string
-  sportsSelected: string[]
   introDbApiKey: string
+  opensubtitlesApiKey: string
+  opensubtitlesForcedOnly: boolean
+  preferredAudioLanguage: string
+  accentColor: string
   remoteMapping: Record<string, string>
- 
+
   setTmdbApiKey: (key: string) => void
   setFanartApiKey: (key: string) => void
   setTraktConnected: (connected: boolean) => void
@@ -58,10 +59,11 @@ interface SettingsState {
   setSponsorBlockEnabled: (enabled: boolean) => void
   setSponsorBlockCategories: (categories: string[]) => void
   setYoutubePreferredQuality: (quality: string) => void
-  setSportsEnabled: (enabled: boolean) => void
-  setSportsDbApiKey: (key: string) => void
-  setSportsSelected: (sports: string[]) => void
   setIntroDbApiKey: (key: string) => void
+  setOpensubtitlesApiKey: (key: string) => void
+  setOpensubtitlesForcedOnly: (forced: boolean) => void
+  setPreferredAudioLanguage: (lang: string) => void
+  setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
   loadFromDisk: () => Promise<void>
   saveToDisk: () => Promise<void>
@@ -91,10 +93,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   sponsorBlockEnabled: true,
   sponsorBlockCategories: ['sponsor', 'intro', 'outro', 'interaction', 'selfpromo', 'preview', 'music_offtopic', 'poi_highlight'],
   youtubePreferredQuality: '1080p',
-  sportsEnabled: false,
-  sportsDbApiKey: '',
-  sportsSelected: [],
   introDbApiKey: '',
+  opensubtitlesApiKey: '',
+  opensubtitlesForcedOnly: true,
+  preferredAudioLanguage: '',
+  accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
@@ -120,10 +123,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSponsorBlockEnabled: (enabled) => { set({ sponsorBlockEnabled: enabled }); get().saveToDisk() },
   setSponsorBlockCategories: (categories) => { set({ sponsorBlockCategories: categories }); get().saveToDisk() },
   setYoutubePreferredQuality: (quality) => { set({ youtubePreferredQuality: quality }); get().saveToDisk() },
-  setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
-  setSportsDbApiKey: (key) => { set({ sportsDbApiKey: key }); get().saveToDisk() },
-  setSportsSelected: (sports) => { set({ sportsSelected: sports }); get().saveToDisk() },
   setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
+  setOpensubtitlesApiKey: (key) => { set({ opensubtitlesApiKey: key }); get().saveToDisk() },
+  setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
+  setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
+  setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
 
   loadFromDisk: async () => {
@@ -168,10 +172,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('sponsorBlockEnabled', state.sponsorBlockEnabled),
         window.api.settings.set('sponsorBlockCategories', state.sponsorBlockCategories),
         window.api.settings.set('youtubePreferredQuality', state.youtubePreferredQuality),
-        window.api.settings.set('sportsEnabled', state.sportsEnabled),
-        window.api.settings.set('sportsDbApiKey', state.sportsDbApiKey),
-        window.api.settings.set('sportsSelected', state.sportsSelected),
         window.api.settings.set('introDbApiKey', state.introDbApiKey),
+        window.api.settings.set('opensubtitlesApiKey', state.opensubtitlesApiKey),
+        window.api.settings.set('opensubtitlesForcedOnly', state.opensubtitlesForcedOnly),
+        window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
+        window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),
       ])
     } catch { /* ignore */ }

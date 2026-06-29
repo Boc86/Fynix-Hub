@@ -14,15 +14,17 @@ import * as FanartService from '../services/fanart.service'
 import * as IndexerCatalogService from '../services/indexer-catalog.service'
 import * as IntroDBService from "../services/introdb.service";
 import * as YoutubeService from '../services/youtube.service'
-import * as SportsApiService from '../services/sportsapi.service'
+import * as LocalCacheService from '../services/local-cache.service'
+import * as OpenSubtitlesService from '../services/opensubtitles.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
   TraktService.loadCredentials()
   DebridService.loadKeys()
   FanartService.loadApiKey()
-  SportsApiService.loadApiKey()
+  OpenSubtitlesService.loadApiKey()
   await WebTorrentService.init()
+  LocalCacheService.init()
   if (IndexerCatalogService.shouldRefreshCatalog()) {
     IndexerCatalogService.refreshIndexerCatalog().catch(err => {
       console.error('[Handler] Background indexer catalog refresh failed:', err.message)
@@ -30,6 +32,11 @@ export async function registerIpcHandlers(): Promise<void> {
   }
 
   ipcMain.handle('app:get-version', () => '1.0.0')
+
+  // Forward renderer logs to main process stdout (visible in terminal)
+  ipcMain.handle('log:info', (_event, ...args: unknown[]) => {
+    console.log('[Renderer]', ...args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)))
+  })
 
   ipcMain.handle('app:write-debug-file', (_event, data) => {
     try {
@@ -65,6 +72,19 @@ export async function registerIpcHandlers(): Promise<void> {
     return result
   })
 
+  ipcMain.handle('app:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize()
+  })
+
+  ipcMain.handle('app:quit', async () => {
+    try {
+      await MpvService.stopPlayback()
+    } catch {}
+    try {
+      WebTorrentService.removeAllTorrents()
+    } catch {}
+    app.quit()
+  })
   ipcMain.handle('window:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
   })
@@ -224,6 +244,15 @@ export async function registerIpcHandlers(): Promise<void> {
     return TraktService.getPlaybackEpisodes()
   })
 
+  ipcMain.handle('trakt:get-watched-progress', async () => {
+    try {
+      return await TraktService.getWatchedShowsWithProgress()
+    } catch (err: any) {
+      console.error('[Handler] trakt:get-watched-progress failed:', err.message)
+      return []
+    }
+  })
+
   ipcMain.handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
     TraktService.setTokens(accessToken, refreshToken)
   })
@@ -297,6 +326,10 @@ export async function registerIpcHandlers(): Promise<void> {
     WebTorrentService.removeTorrent(infoHash)
   })
 
+  ipcMain.handle('torrent:prioritize-resume', (_event, infoHash, resumePositionSec, estimatedDurationSec) => {
+    WebTorrentService.prioritizeResume(infoHash, resumePositionSec, estimatedDurationSec)
+  })
+
   ipcMain.handle('torrent:get-progress', async (_event, infoHash) => {
     const torrent = await WebTorrentService.getTorrent(infoHash)
     if (!torrent) return null
@@ -327,6 +360,10 @@ export async function registerIpcHandlers(): Promise<void> {
 
   ipcMain.handle('debrid:get-status', (_event, service) => {
     return { configured: DebridService.isConfigured(service) }
+  })
+
+  ipcMain.handle('debrid:get-services', () => {
+    return DebridService.getServices()
   })
 
   ipcMain.handle('debrid:get-preferred', () => {
@@ -450,7 +487,8 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'premiumizeAccessToken') DebridService.loadKeys()
     if (key === 'alldebridAccessToken') DebridService.loadKeys()
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
-  })
+    if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
+})
 
   ipcMain.handle('settings:get-all', () => {
     return CacheService.getAllSettings()
@@ -468,29 +506,28 @@ export async function registerIpcHandlers(): Promise<void> {
     return CacheService.getFullWatchHistory()
   })
 
-  ipcMain.handle('mpv:play', async (event, url) => {
-    console.log('[Handler] mpv:play', url.slice(0, 80) + '...')
+  ipcMain.handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean) => {
+    console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default')
     try {
-      const win = BrowserWindow.fromWebContents(event.sender)
-      await MpvService.play(url)
-      MpvService.onExit(() => {
-        win?.webContents.send('mpv:exited')
-      })
+      await MpvService.startPlayback(url, resumePosition, accentColor)
+      if (hasNext !== undefined) {
+        await MpvService.setHasNext(hasNext)
+      }
     } catch (err: any) {
-      console.error('[Handler] mpv:play failed:', err.message)
+      console.error('[Handler] mpv:start failed:', err.message)
       throw err
     }
   })
 
-  ipcMain.handle('mpv:stop', () => {
-    MpvService.stop()
+  ipcMain.handle('mpv:stop', async () => {
+    await MpvService.stopPlayback()
   })
 
   ipcMain.handle('mpv:get-time-pos', async () => {
     return MpvService.getTimePos()
   })
 
-  ipcMain.handle('mpv:get-duration', () => {
+  ipcMain.handle('mpv:get-duration', async () => {
     return MpvService.getDuration()
   })
 
@@ -502,94 +539,88 @@ export async function registerIpcHandlers(): Promise<void> {
     return MpvService.isRunning()
   })
 
+  ipcMain.handle('mpv:add-subtitle', async (_event, filePath: string) => {
+    await MpvService.addSubtitle(filePath)
+  })
+
   ipcMain.handle('mpv:is-available', () => {
     return MpvService.isAvailable()
   })
 
-  ipcMain.handle('mpv:set-paused', async (_event, paused) => {
-    await MpvService.setPaused(paused)
+  ipcMain.handle('mpv:toggle-pause', async () => {
+    await MpvService.togglePause()
   })
 
-  ipcMain.handle('mpv:seek', async (_event, seconds) => {
+  ipcMain.handle('mpv:seek', async (_event, seconds: number) => {
     await MpvService.seek(seconds)
   })
 
-  ipcMain.handle('sportsdb:get-sports', async () => {
-    return SportsApiService.getAllSports()
+  ipcMain.handle('mpv:show-skip-intro', async (_event, endMs: number) => {
+    await MpvService.showSkipIntro(endMs)
   })
 
-  ipcMain.handle('sportsdb:get-countries', async (_event, sportSlug: string) => {
-    const cacheKey = `sportsapi:countries:${sportSlug}`
-    const cached = CacheService.getCache(cacheKey)
-    if (cached) return JSON.parse(cached)
-    const data = await SportsApiService.getCountries(sportSlug)
-    CacheService.setCache(cacheKey, JSON.stringify(data), 86400000)
-    return data
+  ipcMain.handle('mpv:hide-skip-intro', async () => {
+    await MpvService.hideSkipIntro()
   })
 
-  ipcMain.handle('sportsdb:get-competitions', async (_event, sportSlug: string, sportId: number, countrySlug?: string) => {
-    const cacheKey = `sports:competitions:${sportSlug}:${sportId}:${countrySlug || ''}`
-    const cached = CacheService.getCache(cacheKey)
-    if (cached) return JSON.parse(cached)
-    const data = await SportsApiService.getCompetitions(sportSlug, sportId, countrySlug)
-    CacheService.setCache(cacheKey, JSON.stringify(data), 86400000)
-    return data
+  ipcMain.handle('mpv:set-has-next', async (_event, hasNext: boolean) => {
+    await MpvService.setHasNext(hasNext)
   })
 
-  ipcMain.handle('sportsdb:get-seasons', async (_event, sportSlug: string, tournamentId: number) => {
-    const cacheKey = `sportsapi:seasons:${sportSlug}:${tournamentId}`
-    const cached = CacheService.getCache(cacheKey)
-    if (cached) return JSON.parse(cached)
-    const data = await SportsApiService.getTournamentSeasons(sportSlug, tournamentId)
-    CacheService.setCache(cacheKey, JSON.stringify(data), 86400000)
-    return data
-  })
-
-  ipcMain.handle('sportsdb:get-fixtures', async (_event, sportSlug: string, tournamentId: number, seasonId: number, page: number, direction: 'last' | 'next') => {
-    const data = await SportsApiService.getTournamentEvents(sportSlug, tournamentId, seasonId, page, direction)
-    return data
-  })
-
-  ipcMain.handle('sportsdb:search-clubs', async (_event, sportSlug: string, searchTerm: string) => {
-    const data = await SportsApiService.searchTeams(sportSlug, searchTerm)
-    return data
-  })
-
-  ipcMain.handle('sportsdb:get-club', async (_event, sportSlug: string, teamId: number) => {
-    const cacheKey = `sportsapi:team:${sportSlug}:${teamId}`
-    const cached = CacheService.getCache(cacheKey)
-    if (cached) return JSON.parse(cached)
-    const data = await SportsApiService.getTeamProfile(sportSlug, teamId)
-    CacheService.setCache(cacheKey, JSON.stringify(data), 3600000)
-    return data
-  })
-
-  ipcMain.handle('sportsdb:get-club-fixtures', async (_event, sportSlug: string, teamId: number, page: number, direction: 'last' | 'next') => {
-    const data = await SportsApiService.getTeamEvents(sportSlug, teamId, page, direction)
-    return data
+  ipcMain.handle('mpv:get-last-exit-code', () => {
+    return MpvService.getLastExitCode()
   })
 
   ipcMain.handle('transcoder:is-available', () => {
     return TranscoderService.isAvailable()
   })
 
-  ipcMain.handle('transcoder:start', async (_event, sourceUrl) => {
-    console.log('[Handler] transcoder:start', sourceUrl.slice(0, 80) + '...')
+  ipcMain.handle('local-cache:get-url', async (_event, infoHash) => {
+    const url = LocalCacheService.getCacheUrl(infoHash)
+    return { url }
+  })
+
+  ipcMain.handle('local-cache:is-cached', async (_event, infoHash) => {
+    return LocalCacheService.isCached(infoHash)
+  })
+
+  ipcMain.handle('local-cache:status', () => {
+    return LocalCacheService.getCacheStatus()
+  })
+
+  ipcMain.handle('local-cache:clear', async () => {
+    await LocalCacheService.clearCache()
+  })
+
+  ipcMain.handle('opensubtitles:search', async (_event, params) => {
+    return OpenSubtitlesService.searchSubtitles(params)
+  })
+
+  ipcMain.handle('opensubtitles:download', async (_event, fileId) => {
+    const content = await OpenSubtitlesService.downloadSubtitle(fileId)
+    if (!content) return null
+    const vtt = OpenSubtitlesService.srtToVtt(content)
+    return { vtt }
+  })
+
+  ipcMain.handle('opensubtitles:download-and-save', async (_event, fileId: number) => {
+    const content = await OpenSubtitlesService.downloadSubtitle(fileId)
+    if (!content) return null
+    const filePath = `/tmp/fynix-sub-${fileId}.srt`
+    await fs.promises.writeFile(filePath, content, 'utf-8')
+    return filePath
+  })
+
+  // Notify all renderer windows when mpv exits (so cleanup happens immediately)
+  MpvService.setOnExitCallback((_code, _signal) => {
     try {
-      const result = await TranscoderService.startProxy(sourceUrl)
-      console.log('[Handler] transcoder:start success:', result.proxyUrl)
-      return result
-    } catch (err: any) {
-      console.error('[Handler] transcoder:start failed:', err.message)
-      throw err
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+          win.webContents.send('mpv-exited')
+        }
+      })
+    } catch {
+      // Windows may be gone during app shutdown
     }
-  })
-
-  ipcMain.handle('transcoder:stop', () => {
-    TranscoderService.stopProxy()
-  })
-
-  ipcMain.handle('transcoder:is-running', () => {
-    return TranscoderService.isRunning()
   })
 }

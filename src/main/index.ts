@@ -3,8 +3,8 @@ import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
 import * as TorrentSearchService from './services/torrent-search.service'
 import { TizenTubeService } from './services/tizentube.service'
-import { setupCursorHide } from "./utils/cursorUtils";
-import { setupRemoteControl } from "./utils/remoteControl";
+import { setupCursorHide } from "./utils/cursorUtils"
+import { setupRemoteControl } from "./utils/remoteControl"
 
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('in-process-gpu')
@@ -139,20 +139,30 @@ function createYouTubeView() {
   })
 
   // Intercept keyboard events
-  let isSyntheticEscape = false
   youtubeView.webContents.on('before-input-event', (event, input) => {
     // Escape → exit YouTube entirely
-    if (input.key === 'Escape' && input.type === 'keyDown' && !isSyntheticEscape) {
+    if (input.key === 'Escape' && input.type === 'keyDown') {
       event.preventDefault()
       mainWindow?.webContents.send('youtube:focus-back')
     }
-    // Backspace → navigate back within YouTube TV
+    // Backspace/BrowserBack → go back within YouTube, or exit to app if on main screen
     if ((input.key === 'Backspace' || input.key === 'BrowserBack') && input.type === 'keyDown') {
       event.preventDefault()
-      isSyntheticEscape = true
-      youtubeView?.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
-      youtubeView?.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
-      setTimeout(() => { isSyntheticEscape = false }, 100)
+      const url = youtubeView?.webContents.getURL() || ''
+      console.log('[YouTubeView] Back pressed, current URL:', url)
+      // Exit to app when on the root YouTube TV page (no fragment, empty #, or just #/)
+      if (url === 'https://www.youtube.com/tv' || url === 'https://www.youtube.com/tv#' || url === 'https://www.youtube.com/tv#/') {
+        console.log('[YouTubeView] On root page, exiting to app')
+        mainWindow?.webContents.send('youtube:focus-back')
+      } else {
+        // YouTube TV SPA: dispatch Escape key directly via JS to exit video player
+        // Using executeJavaScript bypasses our before-input-event handler
+        console.log('[YouTubeView] Dispatching Escape via JS to exit video player')
+        youtubeView?.webContents.executeJavaScript(
+          'document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true}));' +
+          'document.dispatchEvent(new KeyboardEvent("keyup", {key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true}));'
+        ).catch(() => {})
+      }
     }
   })
 

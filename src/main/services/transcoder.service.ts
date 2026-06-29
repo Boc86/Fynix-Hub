@@ -1,15 +1,24 @@
 import { spawn, execSync, type ChildProcess } from 'child_process'
 import * as http from 'http'
-import * as path from 'path'
-import * as fs from 'fs'
 
 let server: http.Server | null = null
 let ffmpegProcess: ChildProcess | null = null
 
 function getFfmpegPath(): string {
-  const bundled = path.join(process.resourcesPath, 'app', 'bin', 'ffmpeg')
-  if (fs.existsSync(bundled)) return bundled
   return 'ffmpeg'
+}
+
+let cachedX264Available: boolean | null = null
+
+function isX264Available(ffmpegBin: string): boolean {
+  if (cachedX264Available !== null) return cachedX264Available
+  try {
+    const output = execSync(`"${ffmpegBin}" -encoders 2>/dev/null`, { encoding: 'utf-8', timeout: 10000 })
+    cachedX264Available = output.includes('libx264')
+  } catch {
+    cachedX264Available = false
+  }
+  return cachedX264Available
 }
 
 function probeVideoCodec(sourceUrl: string, ffmpegBin: string): string | null {
@@ -37,50 +46,52 @@ export function isAvailable(): boolean {
   }
 }
 
-export function startProxy(sourceUrl: string): Promise<{ proxyUrl: string }> {
-  stopProxy()
+export async function startProxy(sourceUrl: string): Promise<{ proxyUrl: string }> {
+  await stopProxy()
 
   return new Promise((resolve, reject) => {
     const ffmpegBin = getFfmpegPath()
+    const hasX264 = isX264Available(ffmpegBin)
+    const codec = probeVideoCodec(sourceUrl, ffmpegBin)
+    const needsVideoReencode = !codec || !['h264', 'avc', 'vp8', 'vp9', 'av1'].includes(codec)
+
+    console.log(`[Transcoder] Detected video codec: ${codec}, re-encode: ${needsVideoReencode}, libx264: ${hasX264}`)
+
+    const args: string[] = [
+      '-i', sourceUrl,
+      '-map', '0:v:0?',
+      '-map', '0:a:0?',
+    ]
+
+    if (needsVideoReencode && hasX264) {
+      args.push(
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-crf', '23',
+      )
+    } else {
+      if (needsVideoReencode) {
+        console.log('[Transcoder] libx264 not available, falling back to copy')
+      }
+      args.push('-c:v', 'copy')
+    }
+
+    args.push(
+      '-c:a', 'aac',
+      '-f', 'mp4',
+      '-movflags', 'frag_keyframe+empty_moov+delay_moov',
+      '-loglevel', 'error',
+      'pipe:1',
+    )
 
     const srv = http.createServer((req, res) => {
       if (ffmpegProcess) {
-        ffmpegProcess.kill('SIGTERM')
+        ffmpegProcess.kill('SIGKILL')
         ffmpegProcess = null
       }
 
-      const codec = probeVideoCodec(sourceUrl, ffmpegBin)
-      const needsReencode = codec && !['h264', 'avc', 'vp8', 'vp9', 'av1'].includes(codec)
-
-      console.log(`[Transcoder] Detected video codec: ${codec}, re-encode: ${needsReencode}`)
-
-      const args: string[] = [
-        '-i', sourceUrl,
-        '-map', '0:v:0?',
-        '-map', '0:a:0?',
-      ]
-
-      if (needsReencode) {
-        args.push(
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-tune', 'zerolatency',
-          '-crf', '23',
-        )
-      } else {
-        args.push('-c:v', 'copy')
-      }
-
-      args.push(
-        '-c:a', 'aac',
-        '-f', 'mp4',
-        '-movflags', 'frag_keyframe+empty_moov+delay_moov',
-        '-loglevel', 'error',
-        'pipe:1',
-      )
-
       const ffmpeg = spawn(ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-
       ffmpegProcess = ffmpeg
 
       res.writeHead(200, {
@@ -131,18 +142,32 @@ export function startProxy(sourceUrl: string): Promise<{ proxyUrl: string }> {
   })
 }
 
-export function stopProxy(): void {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill('SIGTERM')
-    setTimeout(() => {
-      if (ffmpegProcess && !ffmpegProcess.killed) ffmpegProcess.kill('SIGKILL')
-    }, 2000)
-    ffmpegProcess = null
-  }
-  if (server) {
-    server.close()
-    server = null
-  }
+export async function stopProxy(): Promise<void> {
+  return new Promise((resolve) => {
+    if (ffmpegProcess) {
+      ffmpegProcess.kill('SIGTERM')
+      const timeout = setTimeout(() => {
+        if (ffmpegProcess && !ffmpegProcess.killed) ffmpegProcess.kill('SIGKILL')
+        cleanup()
+      }, 500)
+      ffmpegProcess.on('exit', () => {
+        clearTimeout(timeout)
+        cleanup()
+      })
+    } else {
+      cleanup()
+    }
+
+    function cleanup() {
+      ffmpegProcess = null
+      if (server) {
+        server.close(() => resolve())
+        server = null
+      } else {
+        resolve()
+      }
+    }
+  })
 }
 
 export function isRunning(): boolean {

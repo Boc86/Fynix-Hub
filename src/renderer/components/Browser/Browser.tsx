@@ -24,9 +24,9 @@ interface BrowserProps {
 export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTypeFilter, genreFilter }: BrowserProps) {
   const {
     trending, popularMovies, popularTvShows, topRatedMovies,
-    continueWatching, isLoading, error, traktWatched,
+    continueWatching, upNext, isLoading, error, traktWatched,
     setTrending, setPopularMovies, setPopularTvShows,
-    setTopRatedMovies, setContinueWatching,
+    setTopRatedMovies, setContinueWatching, setUpNext,
     setTraktWatched, setTraktPlayback,
     setLoading, setError, refreshVersion
   } = useMediaStore()
@@ -41,19 +41,19 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
 
   const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !traktWatched.has(item.id))
-  // TV playback items are specific in-progress episodes; filtering by show-level watched IDs
-  // would incorrectly remove a show from Continue Watching just because some episodes were watched.
   const continueTv = continueWatching.filter(item => item.mediaType === 'tv')
+  const upNextItems = upNext.map(u => u.item)
 
   const rowConfig = mediaTypeFilter
     ? [
         ...(mediaTypeFilter === 'movie'
           ? [{ items: continueMovies, label: 'continueMovies' }]
-          : [{ items: continueTv, label: 'continueTv' }]),
+          : [{ items: upNextItems, label: 'upNext' }, { items: continueTv, label: 'continueTv' }]),
         { items: trending, label: 'trending' },
         ...genreRows,
       ]
     : [
+        { items: upNextItems, label: 'upNext' },
         { items: continueMovies, label: 'continueMovies' },
         { items: continueTv, label: 'continueTv' },
         { items: trending, label: 'trending' },
@@ -64,7 +64,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
   const getVisibleRows = useCallback(() =>
     rowConfig.filter((r) => r.items.length > 0),
-    [trending, continueWatching, popularMovies, popularTvShows, topRatedMovies, genreRows]
+    [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, genreRows]
   )
 
   const getRowItemCount = useCallback((rowIdx: number) => {
@@ -162,6 +162,41 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       if (cwItems.length > 0) {
         setContinueWatching(cwItems)
       }
+
+      // Fetch Up Next (shows with next episode to watch)
+      try {
+        const progress = await window.api.trakt.getWatchedProgress()
+        if (progress && Array.isArray(progress) && progress.length > 0) {
+          const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
+            const tmdbId = p?.show?.ids?.tmdb
+            if (!tmdbId || !p?.next_episode) return null
+            try {
+              const detail = await window.api.tmdb.getDetails('tv', tmdbId)
+              if (!detail) return null
+              return {
+                item: {
+                  id: detail.id,
+                  title: detail.title || detail.name || '',
+                  overview: detail.overview || '',
+                  posterPath: detail.posterPath || null,
+                  backdropPath: detail.backdropPath || null,
+                  releaseDate: detail.releaseDate || '',
+                  voteAverage: detail.voteAverage || 0,
+                  mediaType: 'tv' as const,
+                  genreIds: (detail.genres || []).map((g: any) => g.id),
+                },
+                season: p.next_episode.season || 1,
+                episode: p.next_episode.number || 1,
+                episodeTitle: p.next_episode.title || '',
+              }
+            } catch { return null }
+          })
+          const upNextItems = (await Promise.all(upNextPromises)).filter((x): x is NonNullable<typeof x> => x !== null)
+          setUpNext(upNextItems)
+        }
+      } catch (err: any) {
+        console.log('[Browser] getWatchedProgress failed:', err?.message)
+      }
     }
   }
 
@@ -246,7 +281,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     setFocusedRow(0)
     setFocusedCard(0)
     setFocusedHeroAction(-1)
-  }, [continueWatching.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length])
+  }, [continueWatching.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length])
 
   useEffect(() => {
     if ((continueWatching.length > 0 || trending.length > 0) && browserRef.current) {
@@ -337,13 +372,19 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           } catch {
             useMediaStore.getState().setSelectedMedia(item as any)
           }
-          const info = continueInfo.get(item.id)
-          if (info?.mediaType === 'tv' && info.season !== undefined && info.episode !== undefined) {
-            useMediaStore.getState().setSelectedSeason(info.season)
-            useMediaStore.getState().setSelectedEpisode(info.episode)
-          }
-          if (info?.progress && info.progress > 0 && info.progress < 0.95) {
-            useMediaStore.getState().setResumeProgress(info.progress)
+          const upNextMatch = upNext.find(u => u.item.id === item.id)
+          if (upNextMatch) {
+            useMediaStore.getState().setSelectedSeason(upNextMatch.season)
+            useMediaStore.getState().setSelectedEpisode(upNextMatch.episode)
+          } else {
+            const info = continueInfo.get(item.id)
+            if (info?.mediaType === 'tv' && info.season !== undefined && info.episode !== undefined) {
+              useMediaStore.getState().setSelectedSeason(info.season)
+              useMediaStore.getState().setSelectedEpisode(info.episode)
+            }
+            if (info?.progress && info.progress > 0 && info.progress < 0.95) {
+              useMediaStore.getState().setResumeProgress(info.progress)
+            }
           }
           onSelectMedia()
         }
@@ -406,6 +447,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
               <MediaRow
                 key={row.label}
                 title={
+                  row.label === 'upNext' ? 'Up Next' :
                   row.label === 'trending' ? (mediaTypeFilter === 'movie' ? 'Trending Movies' : mediaTypeFilter === 'tv' ? 'Trending TV Shows' : 'Trending Now') :
                   row.label === 'continueMovies' ? 'Continue Watching Movies' :
                   row.label === 'continueTv' ? 'Continue Watching TV Shows' :
@@ -422,13 +464,19 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                   } catch {
                     useMediaStore.getState().setSelectedMedia(item as any)
                   }
-                  const info = continueInfo.get(item.id)
-                  if (info?.mediaType === 'tv' && info.season !== undefined && info.episode !== undefined) {
-                    useMediaStore.getState().setSelectedSeason(info.season)
-                    useMediaStore.getState().setSelectedEpisode(info.episode)
-                  }
-                  if (info?.progress && info.progress > 0 && info.progress < 0.95) {
-                    useMediaStore.getState().setResumeProgress(info.progress)
+                  const upNextMatch = upNext.find(u => u.item.id === item.id)
+                  if (upNextMatch) {
+                    useMediaStore.getState().setSelectedSeason(upNextMatch.season)
+                    useMediaStore.getState().setSelectedEpisode(upNextMatch.episode)
+                  } else {
+                    const info = continueInfo.get(item.id)
+                    if (info?.mediaType === 'tv' && info.season !== undefined && info.episode !== undefined) {
+                      useMediaStore.getState().setSelectedSeason(info.season)
+                      useMediaStore.getState().setSelectedEpisode(info.episode)
+                    }
+                    if (info?.progress && info.progress > 0 && info.progress < 0.95) {
+                      useMediaStore.getState().setResumeProgress(info.progress)
+                    }
                   }
                   onSelectMedia()
                 }}

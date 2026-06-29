@@ -29,36 +29,74 @@
   to { opacity: 1; }
 }
 
+.osdBackdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.osdBackdropImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%);
+}
+
 .osdTop {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 12px;
   padding: 16px;
-  background: linear-gradient(rgba(0,0,0,0.7), transparent);
+  background: linear-gradient(rgba(0,0,0,0.4), transparent);
   pointer-events: auto;
+  position: relative;
+  z-index: 1;
+  min-height: 120px;
 }
 
 .osdInfo {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-end;
+  gap: 14px;
   flex: 1;
   min-width: 0;
 }
 
+.osdPoster {
+  width: 56px;
+  height: 84px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  flex-shrink: 0;
+}
+
+.osdMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
 .osdClearlogo {
-  max-height: 40px;
-  max-width: 250px;
-  min-height: 20px;
+  max-height: 48px;
+  max-width: 280px;
+  min-height: 24px;
   object-fit: contain;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.9));
 }
 
 .osdTitle {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 1.4rem;
+  font-weight: 700;
   color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  text-shadow: 0 2px 8px rgba(0,0,0,0.9);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -72,6 +110,7 @@
   padding: 2px 8px;
   border-radius: 4px;
   white-space: nowrap;
+  align-self: flex-start;
 }
 
 .osdCenter {
@@ -200,6 +239,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   background: none;
   border: none;
   color: #fff;
@@ -210,6 +250,12 @@
 
 .osdBtn:hover {
   background: rgba(255,255,255,0.15);
+}
+
+.skipLabel {
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .audioTrackWrap {

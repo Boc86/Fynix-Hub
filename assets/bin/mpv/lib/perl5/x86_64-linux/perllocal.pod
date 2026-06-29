@@ -1,0 +1,22 @@
+=head2 Fri Nov 11 11:11:11 2011: C<Module> L<Parse::Yapp|Parse::Yapp>
+
+=over 4
+
+=item *
+
+C<installed into: /app/lib/perl5>
+
+=item *
+
+C<LINKTYPE: dynamic>
+
+=item *
+
+C<VERSION: 1.21>
+
+=item *
+
+C<EXE_FILES: yapp>
+
+=back
+

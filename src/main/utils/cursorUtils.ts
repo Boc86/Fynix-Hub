@@ -24,12 +24,6 @@ export function setupCursorHide(window: BrowserWindow): void {
     hideCursor()
   })
 
-  // Show cursor on keyboard input, then auto-hide
-  window.webContents.on('before-input-event', () => {
-    window.webContents.executeJavaScript('document.body.style.cursor = "auto"')
-    hideCursor()
-  })
-
   // Initialize the hide timer
   hideCursor()
 }

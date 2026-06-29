@@ -1,0 +1,258 @@
+diff --git a/.github/workflows/build-flatpak.yml b/.github/workflows/build-flatpak.yml
+deleted file mode 100644
+index bb74edf..0000000
+--- a/.github/workflows/build-flatpak.yml
++++ /dev/null
+@@ -1,152 +0,0 @@
+-name: Build & Deploy Flatpak
+-
+-on:
+-  push:
+-    branches: [master]
+-  workflow_dispatch:
+-
+-permissions:
+-  contents: write
+-  pages: write
+-  id-token: write
+-
+-concurrency:
+-  group: pages
+-  cancel-in-progress: true
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-latest
+-    outputs:
+-      version: ${{ steps.version.outputs.version }}
+-    steps:
+-      - name: Checkout
+-        uses: actions/checkout@v4
+-
+-      - name: Setup Node.js
+-        uses: actions/setup-node@v4
+-        with:
+-          node-version: 20
+-          cache: npm
+-
+-      - name: Install npm dependencies
+-        run: npm ci
+-
+-      - name: Download static ffmpeg
+-        run: bash scripts/setup-ffmpeg.sh
+-
+-      - name: Install Flatpak SDK & runtime
+-        run: |
+-          sudo apt-get update
+-          sudo apt-get install -y flatpak flatpak-builder
+-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+-          flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+-          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp//24.08 || true
+-
+-      - name: Build Flatpak bundle
+-        run: TMPDIR=/var/tmp npm run make:flatpak
+-
+-      - name: Get version
+-        id: version
+-        run: echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+-
+-      - name: Upload flatpak bundle
+-        uses: actions/upload-artifact@v4
+-        with:
+-          name: flatpak-bundle
+-          path: out/make/flatpak/x86_64/*.flatpak
+-
+-      - name: Import GPG key
+-        run: |
+-          if [ -z "$GPG_PRIVATE_KEY" ]; then
+-            echo "GPG_PRIVATE_KEY is empty, skipping key import."
+-            exit 0
+-          fi
+-          echo "$GPG_PRIVATE_KEY" | gpg --import --batch --passphrase "$GPG_PASSPHRASE" || true
+-          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+-          gpg-connect-agent reloadagent /bye || true
+-        env:
+-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+-
+-      - name: Build OSTree repo
+-        run: |
+-          BUNDLE=$(find out/make -name "*.flatpak" | head -1)
+-          echo "Bundle: $BUNDLE"
+-
+-          ostree init --mode=archive-z2 --repo=repo
+-
+-          if [ -n "$GPG_KEY_ID" ]; then
+-            KEYGRIP=$(gpg --list-secret-keys --with-keygrip "$GPG_KEY_ID" 2>/dev/null | grep Keygrip | head -1 | awk '{print $3}') || true
+-            if [ -n "$KEYGRIP" ]; then
+-              echo "$GPG_PASSPHRASE" | /usr/lib/gnupg2/gpg-preset-passphrase --preset "$KEYGRIP" 2>/dev/null || true
+-            fi
+-            flatpak build-import --gpg-sign="$GPG_KEY_ID" repo "$BUNDLE"
+-            flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas repo
+-          else
+-            flatpak build-import repo "$BUNDLE"
+-            flatpak build-update-repo --generate-static-deltas repo
+-          fi
+-        env:
+-          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+-
+-      - name: Copy flatpakrepo file
+-        run: cp com.fynix.hub.flatpakrepo repo/repo.flatpakrepo
+-
+-      - name: Upload Pages artifact
+-        uses: actions/upload-pages-artifact@v3
+-        with:
+-          path: repo
+-
+-  deploy-pages:
+-    needs: build
+-    runs-on: ubuntu-latest
+-    environment:
+-      name: github-pages
+-      url: ${{ steps.deployment.outputs.page_url }}
+-    steps:
+-      - name: Deploy to GitHub Pages
+-        id: deployment
+-        uses: actions/deploy-pages@v4
+-
+-  release:
+-    needs: build
+-    runs-on: ubuntu-latest
+-    if: github.ref == 'refs/heads/master'
+-    steps:
+-      - name: Checkout
+-        uses: actions/checkout@v4
+-
+-      - name: Download flatpak bundle
+-        uses: actions/download-artifact@v4
+-        with:
+-          name: flatpak-bundle
+-          path: bundle
+-
+-      - name: Get version from build
+-        id: meta
+-        run: echo "version=${{ needs.build.outputs.version }}" >> "$GITHUB_OUTPUT"
+-
+-      - name: Check if tag exists
+-        id: check
+-        run: |
+-          if git rev-parse "${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+-            echo "exists=true" >> "$GITHUB_OUTPUT"
+-          else
+-            echo "exists=false" >> "$GITHUB_OUTPUT"
+-          fi
+-
+-      - name: Create GitHub Release
+-        if: steps.check.outputs.exists == 'false'
+-        uses: softprops/action-gh-release@v2
+-        with:
+-          tag_name: ${{ steps.meta.outputs.version }}
+-          name: "Fynix Hub ${{ steps.meta.outputs.version }}"
+-          files: |
+-            bundle/*.flatpak
+-            com.fynix.hub.flatpakrepo
+-          draft: false
+-          prerelease: false
+-        env:
+-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+diff --git a/src/main/index.ts b/src/main/index.ts
+index 4695246..3593fdf 100644
+--- a/src/main/index.ts
++++ b/src/main/index.ts
+@@ -3,6 +3,8 @@ import path from 'path'
+ import { registerIpcHandlers } from './ipc/handlers'
+ import * as TorrentSearchService from './services/torrent-search.service'
+ import { TizenTubeService } from './services/tizentube.service'
++import { setupCursorHide } from "./utils/cursorUtils";
++import { setupRemoteControl } from "./utils/remoteControl";
+ 
+ app.commandLine.appendSwitch('disable-gpu')
+ app.commandLine.appendSwitch('in-process-gpu')
+@@ -21,6 +23,7 @@ function createWindow(): void {
+     minHeight: 720,
+     fullscreen: true,
+     backgroundColor: '#141414',
++    icon: path.join(__dirname, "../../assets/FLB-512.png"),
+     titleBarStyle: 'hidden',
+     titleBarOverlay: false,
+     webPreferences: {
+@@ -39,6 +42,9 @@ function createWindow(): void {
+       path.resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
+     )
+   }
++  setupRemoteControl(mainWindow)
++  setupCursorHide(mainWindow)
++  mainWindow.maximize()
+ 
+   mainWindow.on('closed', () => {
+     mainWindow = null
+diff --git a/src/main/ipc/handlers.ts b/src/main/ipc/handlers.ts
+index 5542b50..7f63280 100644
+--- a/src/main/ipc/handlers.ts
++++ b/src/main/ipc/handlers.ts
+@@ -12,6 +12,7 @@ import * as MpvService from '../services/mpv.service'
+ import * as TranscoderService from '../services/transcoder.service'
+ import * as FanartService from '../services/fanart.service'
+ import * as IndexerCatalogService from '../services/indexer-catalog.service'
++import * as IntroDBService from "../services/introdb.service";
+ import * as YoutubeService from '../services/youtube.service'
+ import * as SportsApiService from '../services/sportsapi.service'
+ 
+@@ -320,9 +321,8 @@ export async function registerIpcHandlers(): Promise<void> {
+       throw err
+     }
+   })
+-
+-  ipcMain.handle('intros:get-segments', async (_event, params) => {
+-    return IntrosService.getSegments(params)
++  ipcMain.handle("intros:get-segments", async (_event, params) => {
++    return IntroDBService.getSegments(params)
+   })
+ 
+   ipcMain.handle('debrid:get-status', (_event, service) => {
+diff --git a/src/renderer/components/Sidebar/Sidebar.tsx b/src/renderer/components/Sidebar/Sidebar.tsx
+index 4fdabe3..b817c59 100644
+--- a/src/renderer/components/Sidebar/Sidebar.tsx
++++ b/src/renderer/components/Sidebar/Sidebar.tsx
+@@ -152,10 +152,10 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
+         ))}
+ 
+         <div className={styles.windowControls}>
+-          <button className={styles.controlBtn} onClick={() => window.api.window.minimize()} title="Minimize">
++          <button className={styles.controlBtn} onClick={() => window.api.window.minimize()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.minimize(); }} } tabIndex="0" title="Minimize">
+             <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="2" fill="currentColor"/></svg>
+           </button>
+-          <button className={styles.controlBtn} onClick={() => window.api.window.maximize()} title="Maximize">
++          <button className={styles.controlBtn} onClick={() => window.api.window.maximize()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.api.window.maximize(); }} } tabIndex="0" title="Maximize">
+             <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
+           </button>
+           <button className={`${styles.controlBtn} ${styles.closeBtn}`} onClick={() => window.api.window.close()} title="Close">
+diff --git a/src/renderer/store/settingsStore.ts b/src/renderer/store/settingsStore.ts
+index 3f94e46..faf4c78 100644
+--- a/src/renderer/store/settingsStore.ts
++++ b/src/renderer/store/settingsStore.ts
+@@ -32,6 +32,7 @@ interface SettingsState {
+   sportsEnabled: boolean
+   sportsDbApiKey: string
+   sportsSelected: string[]
++  introDbApiKey: string
+ 
+   setTmdbApiKey: (key: string) => void
+   setFanartApiKey: (key: string) => void
+@@ -117,6 +118,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
+   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
+   setSportsDbApiKey: (key) => { set({ sportsDbApiKey: key }); get().saveToDisk() },
+   setSportsSelected: (sports) => { set({ sportsSelected: sports }); get().saveToDisk() },
++  setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
+ 
+   loadFromDisk: async () => {
+     try {
+@@ -163,6 +165,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
+         window.api.settings.set('sportsEnabled', state.sportsEnabled),
+         window.api.settings.set('sportsDbApiKey', state.sportsDbApiKey),
+         window.api.settings.set('sportsSelected', state.sportsSelected),
++        window.api.settings.set("introDbApiKey", state.introDbApiKey),
+       ])
+     } catch { /* ignore */ }
+   },
