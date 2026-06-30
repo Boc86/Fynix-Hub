@@ -86,6 +86,8 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     }
   }, [mediaInfo, duration, currentTime])
 
+  const splashHiddenRef = useRef(false)
+
   const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
     if (!mediaInfo || mediaInfo.isTrailer) return
     if (!isFinite(duration) || duration <= 0) return
@@ -193,6 +195,12 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         pos = poll[0]
         dur = poll[1]
         paused = poll[2]
+
+        // Hide splash on first valid time-pos
+        if (pos > 0 && !splashHiddenRef.current) {
+          splashHiddenRef.current = true
+          window.api.mpv.hideSplash().catch(() => {})
+        }
 
         setCurrentTime(pos)
         if (dur > 0) setDuration(dur)
@@ -329,12 +337,47 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     fetchSubtitles()
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
 
+  // Send clearlogo and plot to mpv
+  useEffect(() => {
+    if (!mediaInfo || mediaInfo.isTrailer || !selectedMedia) return
+
+    // Clearlogo: network name (TV) or production company (movie) or media title
+    const tv = selectedMedia as any
+    const movie = selectedMedia as any
+    let clearlogoText = ''
+    if (mediaInfo.mediaType === 'tv' && tv.networks && tv.networks.length > 0) {
+      clearlogoText = tv.networks[0].name
+    } else if (mediaInfo.mediaType === 'movie' && movie.productionCompanies && movie.productionCompanies.length > 0) {
+      clearlogoText = movie.productionCompanies[0].name
+    }
+    window.api.log('[VideoPlayer] clearlogo text:', JSON.stringify(clearlogoText))
+    if (clearlogoText) {
+      window.api.mpv.setClearlogo(clearlogoText).catch(() => {})
+    }
+
+    // Plot: movie overview or fetch episode overview
+    const sendPlot = (text: string) => {
+      window.api.log('[VideoPlayer] plot text:', JSON.stringify(text?.slice(0, 100)))
+      if (text) window.api.mpv.setPlot(text).catch(() => {})
+    }
+    if (mediaInfo.mediaType === 'movie') {
+      sendPlot((selectedMedia as any).overview)
+    } else if (mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode) {
+      window.api.tmdb.getEpisode(mediaInfo.tmdbId, mediaInfo.season, mediaInfo.episode).then((ep: any) => {
+        sendPlot(ep?.overview)
+      }).catch(() => {
+        sendPlot((selectedMedia as any).overview)
+      })
+    }
+  }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.isTrailer, selectedMedia])
+
   if (playerLoading) {
     return (
       <div className={styles.player}>
-        <div className={styles.loadingOverlay}>
-          <div className={styles.spinner} />
-          <span>Preparing stream...</span>
+        <div className={styles.splashOverlay}>
+          <span className={styles.splashLogo}>Fynix Media Hub</span>
+          <span className={styles.splashSub}>Preparing stream&hellip;</span>
+          <div className={styles.splashSpinner} />
         </div>
       </div>
     )

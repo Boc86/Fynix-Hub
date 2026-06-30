@@ -27,8 +27,8 @@ local gray = '&H888888&'
 
 local state = {
     visible = false,
-    row = 2,        -- 1 = seek bar, 2 = buttons
-    focus = 3,      -- index in current row (1-based)
+    row = 2,
+    focus = 3,
     paused = false,
     time_pos = 0,
     duration = 0,
@@ -38,6 +38,18 @@ local state = {
     osd_w = 1920,
     osd_h = 1080,
     menu_open = false,
+
+    splash = false,
+    splash_dots = '',
+    splash_timer = nil,
+
+    clearlogo = nil,
+
+    plot = nil,
+
+    up_next = nil,
+    up_next_countdown = 10,
+    up_next_timer = nil,
 }
 
 local hide_timer = nil
@@ -71,17 +83,29 @@ local function hide_osd()
     render()
 end
 
--- Row 2 buttons: audio, rewind, play, stop, ff, next, subs
+-- Splash spinner animation
+local function update_splash_spinner()
+    if not state.splash then return end
+    local dots = state.splash_dots
+    if #dots >= 3 then
+        state.splash_dots = ''
+    else
+        state.splash_dots = dots .. '.'
+    end
+    render()
+end
+
+-- Row 2 buttons
 local function get_buttons()
     local btns = {
-        {id = 'audio', icon = '\u{266A}', width = 60},       -- music note
-        {id = 'rewind', icon = '\u{25C0}\u{25C0}', width = 60}, -- left triangles
-        {id = 'play', icon = '\u{25B6}', width = 60},        -- play
-        {id = 'stop', icon = '\u{25A0}', width = 60},        -- stop
-        {id = 'ff', icon = '\u{25B6}\u{25B6}', width = 60},  -- right triangles
+        {id = 'audio', icon = '\u{266A}', width = 60},
+        {id = 'rewind', icon = '\u{25C0}\u{25C0}', width = 60},
+        {id = 'play', icon = '\u{25B6}', width = 60},
+        {id = 'stop', icon = '\u{25A0}', width = 60},
+        {id = 'ff', icon = '\u{25B6}\u{25B6}', width = 60},
     }
     if state.has_next then
-        btns[#btns + 1] = {id = 'next', icon = '\u{25B6}\u{25B6}\u{007C}', width = 60} -- next track
+        btns[#btns + 1] = {id = 'next', icon = '\u{25B6}\u{25B6}\u{007C}', width = 60}
     end
     if state.skip_intro_end then
         btns[#btns + 1] = {id = 'skip', label = 'Skip Intro', width = 120}
@@ -175,7 +199,7 @@ local function rewind()
     show_osd()
 end
 
--- Subtitle cycling (includes Off)
+-- Subtitle cycling
 local function cycle_subs()
     local tracks = mp.get_property_native('track-list')
     local sub_ids = {}
@@ -197,7 +221,6 @@ local function cycle_subs()
         end
     end
 
-    -- Cycle: 0 (off) -> 1 -> 2 -> ... -> 0 (off)
     idx = idx + 1
     if idx > #sub_ids then idx = 0 end
 
@@ -250,7 +273,6 @@ end
 
 local function activate()
     if state.row == 1 then
-        -- Seek bar - Enter does nothing special
         return
     end
 
@@ -336,16 +358,194 @@ local function on_key(key)
     end
 end
 
+local function draw_splash(ass, w, h)
+    local cx = w / 2
+    local cy = h / 2
+
+    -- Dim background
+    ass:new_event()
+    ass:append('{\\an7}{\\pos(0,0)}')
+    ass:append('{\\1c&H000000&\\1a&H88&}')
+    ass:draw_start()
+    ass:rect_cw(0, 0, w, h)
+    ass:draw_stop()
+
+    -- Logo text
+    ass:new_event()
+    ass:append('{\\an5}')
+    ass:pos(cx, cy - 40)
+    ass:append('{\\fs64\\1c' .. accent .. '\\b1}')
+    ass:append('Fynix Media Hub')
+
+    -- Subtitle
+    ass:new_event()
+    ass:append('{\\an5}')
+    ass:pos(cx, cy + 20)
+    ass:append('{\\fs20\\1c' .. gray .. '}')
+    ass:append('Preparing stream' .. state.splash_dots)
+
+    -- Spinner dots animation
+    ass:new_event()
+    ass:append('{\\an5}')
+    ass:pos(cx, cy + 60)
+    ass:append('{\\fs14\\1c' .. gray .. '}')
+    ass:append('\u{25EF}')
+end
+
+local function draw_clearlogo(ass, w, h)
+    if not state.clearlogo then return end
+
+    -- Background pill
+    ass:new_event()
+    ass:append('{\\an7}{\\pos(0,0)}')
+    ass:append('{\\1c&H1A1A1A&\\1a&H00&}')
+    ass:draw_start()
+    ass:round_rect_cw(40, 24, 260, 80, 8)
+    ass:draw_stop()
+
+    -- Left accent bar
+    ass:new_event()
+    ass:append('{\\an7}{\\pos(0,0)}')
+    ass:append('{\\1c' .. accent .. '\\1a&H00&}')
+    ass:draw_start()
+    ass:rect_cw(40, 24, 44, 80)
+    ass:draw_stop()
+
+    -- Clearlogo text
+    ass:new_event()
+    ass:append('{\\an1}')
+    ass:pos(56, 30)
+    ass:append('{\\fs22\\1c' .. white .. '\\b1}')
+    ass:append(state.clearlogo)
+end
+
+local function draw_plot(ass, w, h)
+    if not state.plot then return end
+
+    local text_w = w - 160
+    local text_h = 200
+    local text_x = 80
+    local text_y = h - 400
+
+    -- Background
+    ass:new_event()
+    ass:append('{\\an7}{\\pos(0,0)}')
+    ass:append('{\\1c&H0A0A0A&\\1a&HDC&}')
+    ass:draw_start()
+    ass:round_rect_cw(text_x - 20, text_y - 20, text_x + text_w + 20, text_y + text_h + 20, 8)
+    ass:draw_stop()
+
+    ass:new_event()
+    ass:append('{\\an7}')
+    ass:pos(text_x, text_y)
+    ass:append('{\\fs18\\1c' .. white .. '\\q2}')
+    ass:append('{\\clip(' .. text_x .. ',' .. text_y .. ',' .. (text_x + text_w) .. ',' .. (text_y + text_h) .. ')}')
+    local max_len = 500
+    local plot_text = state.plot
+    if #plot_text > max_len then
+        plot_text = plot_text:sub(1, max_len) .. '...'
+    end
+    ass:append(plot_text)
+end
+
+local function draw_up_next(ass, w, h)
+    if not state.up_next then return end
+
+    local box_w = 360
+    local box_h = 200
+    local box_x = w - box_w - 60
+    local box_y = h - box_h - 100
+
+    -- Background
+    ass:new_event()
+    ass:append('{\\an7}{\\pos(0,0)}')
+    ass:append('{\\1c&H0A0A0A&\\1a&H00&}')
+    ass:draw_start()
+    ass:round_rect_cw(box_x, box_y, box_x + box_w, box_y + box_h, 8)
+    ass:draw_stop()
+
+    -- Title
+    ass:new_event()
+    ass:append('{\\an7}')
+    ass:pos(box_x + 20, box_y + 15)
+    ass:append('{\\fs16\\1c' .. accent .. '\\b1}')
+    ass:append('Up Next')
+
+    -- Episode title
+    local title = state.up_next.title or ''
+    ass:new_event()
+    ass:append('{\\an7}')
+    ass:pos(box_x + 20, box_y + 45)
+    ass:append('{\\fs18\\1c' .. white .. '}')
+    if #title > 30 then title = title:sub(1, 30) .. '...' end
+    ass:append(title)
+
+    -- Subtitle (season/episode info)
+    if state.up_next.subtitle then
+        ass:new_event()
+        ass:append('{\\an7}')
+        ass:pos(box_x + 20, box_y + 72)
+        ass:append('{\\fs14\\1c' .. gray .. '}')
+        ass:append(state.up_next.subtitle)
+    end
+
+    -- Countdown circle area
+    local cd_cx = box_x + box_w - 55
+    local cd_cy = box_y + box_h - 55
+    local cd_r = 25
+
+    -- Countdown box
+    ass:new_event()
+    ass:append('{\\an7}{\\pos(0,0)}')
+    ass:append('{\\3c' .. white .. '\\3a&H00&\\1a&HFF&\\bord3}')
+    ass:draw_start()
+    ass:round_rect_cw(cd_cx - cd_r, cd_cy - cd_r, cd_cx + cd_r, cd_cy + cd_r, 4)
+    ass:draw_stop()
+
+    -- Countdown text
+    ass:new_event()
+    ass:append('{\\an5}')
+    ass:pos(cd_cx, cd_cy + 2)
+    ass:append('{\\fs20\\1c' .. white .. '\\b1}')
+    ass:append(tostring(state.up_next_countdown))
+end
+
 function render()
     local ass = assdraw.ass_new()
+    local w = state.osd_w
+    local h = state.osd_h
 
-    if not state.visible then
-        mp.set_osd_ass(state.osd_w, state.osd_h, '')
+    -- Splash screen takes full priority
+    if state.splash then
+        draw_splash(ass, w, h)
+        mp.set_osd_ass(w, h, ass.text)
         return
     end
 
-    local w = state.osd_w
-    local h = state.osd_h
+    -- Up-next overlay (always visible when active)
+    if state.up_next then
+        draw_up_next(ass, w, h)
+    end
+
+    -- Clearlogo (always visible when active)
+    if state.clearlogo then
+        msg.info('fynix-osc: render drawing clearlogo: ' .. tostring(state.clearlogo))
+        draw_clearlogo(ass, w, h)
+    end
+
+    -- Plot text (always visible when active)
+    if state.plot then
+        msg.info('fynix-osc: render drawing plot: ' .. tostring(state.plot):sub(1, 60))
+        draw_plot(ass, w, h)
+    end
+
+    -- Main OSD (only when visible)
+    if not state.visible then
+        -- Still set the overlay text for up-next/clearlogo/plot
+        mp.set_osd_ass(w, h, ass.text)
+        return
+    end
+
     local bar_h = 120
     local bar_y = h - bar_h
 
@@ -357,7 +557,7 @@ function render()
     ass:rect_cw(0, bar_y, w, h)
     ass:draw_stop()
 
-    -- Row 1: Seek bar + time (top portion of bar)
+    -- Row 1: Seek bar
     local seek_y = bar_y + 20
     local seek_h = 30
     local seek_x = 40
@@ -415,7 +615,7 @@ function render()
     ass:append('{\\fs18\\1c' .. white .. '}')
     ass:append(time_str)
 
-    -- Speed indicator (if not 1x)
+    -- Speed indicator
     if state.speed ~= 1 then
         local speed_str = string.format('%.0fx', state.speed)
         ass:new_event()
@@ -431,7 +631,6 @@ function render()
     local btns = get_buttons()
     local n = #btns
 
-    -- Calculate positions: audio left, subs right, center group centered
     local center_count = 0
     for i, btn in ipairs(btns) do
         if btn.id ~= 'audio' and btn.id ~= 'subs' then
@@ -444,7 +643,6 @@ function render()
     local center_total = center_count * btn_w + (center_count - 1) * btn_gap
     local center_start = (w - center_total) / 2
 
-    -- Assign x positions
     local center_idx = 0
     for i, btn in ipairs(btns) do
         if btn.id == 'audio' then
@@ -458,7 +656,6 @@ function render()
         btn.cx = btn.x + btn_w / 2
     end
 
-    -- Draw buttons
     for i, btn in ipairs(btns) do
         local is_focused = (state.row == 2 and state.focus == i)
         local color = is_focused and accent or white
@@ -504,13 +701,48 @@ function render()
     mp.set_osd_ass(w, h, ass.text)
 end
 
+-- Up-next countdown
+local function start_up_next_countdown()
+    if state.up_next_timer then state.up_next_timer:kill() end
+    state.up_next_countdown = 10
+    state.up_next_timer = mp.add_periodic_timer(1, function()
+        state.up_next_countdown = state.up_next_countdown - 1
+        if state.up_next_countdown <= 0 then
+            -- Auto-play next episode
+            if state.up_next_timer then state.up_next_timer:kill() end
+            state.up_next_timer = nil
+            state.up_next = nil
+            mp.command('quit 42')
+        end
+        render()
+    end)
+end
+
+local function stop_up_next_countdown()
+    if state.up_next_timer then
+        state.up_next_timer:kill()
+        state.up_next_timer = nil
+    end
+    state.up_next_countdown = 10
+end
+
 mp.observe_property('pause', 'bool', function(_, value)
     state.paused = value
     render()
 end)
 
 mp.observe_property('time-pos', 'number', function(_, value)
+    local prev = state.time_pos
     state.time_pos = value or 0
+    -- Auto-hide splash on first non-zero time-pos (playback started)
+    if state.splash and state.time_pos > 0 then
+        msg.info('fynix-osc: time-pos > 0, hiding splash')
+        if state.splash_timer then
+            state.splash_timer:kill()
+            state.splash_timer = nil
+        end
+        state.splash = false
+    end
     render()
 end)
 
@@ -529,6 +761,25 @@ mp.observe_property('osd-height', 'number', function(_, value)
     render()
 end)
 
+-- Script message handlers
+
+mp.register_script_message('show-splash', function()
+    state.splash = true
+    state.splash_dots = ''
+    if state.splash_timer then state.splash_timer:kill() end
+    state.splash_timer = mp.add_periodic_timer(0.5, update_splash_spinner)
+    render()
+end)
+
+mp.register_script_message('hide-splash', function()
+    state.splash = false
+    if state.splash_timer then
+        state.splash_timer:kill()
+        state.splash_timer = nil
+    end
+    render()
+end)
+
 mp.register_script_message('show-skip-intro', function(endMs)
     state.skip_intro_end = tonumber(endMs)
     show_osd()
@@ -544,6 +795,42 @@ mp.register_script_message('hide-skip-intro', function()
     render()
 end)
 
+mp.register_script_message('set-clearlogo', function(text)
+    msg.info('fynix-osc: set-clearlogo received: ' .. tostring(text))
+    state.clearlogo = text or nil
+    render()
+end)
+
+mp.register_script_message('clear-clearlogo', function()
+    msg.info('fynix-osc: clear-clearlogo received')
+    state.clearlogo = nil
+    render()
+end)
+
+mp.register_script_message('set-plot', function(text)
+    local truncated = text and #text > 100 and text:sub(1, 100) .. '...' or text
+    msg.info('fynix-osc: set-plot received: ' .. tostring(truncated))
+    state.plot = (text and text ~= '') and text or nil
+    render()
+end)
+
+mp.register_script_message('set-up-next', function(imagePath, title, subtitle, countdown)
+    state.up_next = {
+        title = title or '',
+        subtitle = subtitle or '',
+    }
+    local cd = tonumber(countdown) or 10
+    state.up_next_countdown = cd
+    start_up_next_countdown()
+    show_osd()
+end)
+
+mp.register_script_message('clear-up-next', function()
+    state.up_next = nil
+    stop_up_next_countdown()
+    render()
+end)
+
 mp.register_script_message('fynix-osc-key', function(key)
     if key == 'click' then
         show_osd()
@@ -553,4 +840,11 @@ mp.register_script_message('fynix-osc-key', function(key)
 end)
 
 msg.info('fynix-osc.lua script loaded successfully')
+
+-- Auto-show splash on startup (before any IPC socket is available)
+state.splash = true
+state.splash_dots = ''
+state.splash_timer = mp.add_periodic_timer(0.5, update_splash_spinner)
+msg.info('fynix-osc: splash auto-shown')
+
 render()

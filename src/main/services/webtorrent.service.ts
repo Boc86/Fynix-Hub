@@ -1,10 +1,33 @@
 import type WebTorrent from 'webtorrent'
 import * as LocalCacheService from './local-cache.service'
+import * as fs from 'fs'
+import * as path from 'path'
+import { app } from 'electron'
 
 let client: WebTorrent | null = null
 let WebTorrentClass: typeof WebTorrent | null = null
 let serverPort = 0
 let serverRef: any = null
+
+const METADATA_CACHE_DIR = path.join(app.getPath('userData'), 'torrent-metadata')
+
+function getMetadataPath(infoHash: string): string {
+  const dir = path.resolve(METADATA_CACHE_DIR)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return path.join(dir, infoHash.toLowerCase() + '.torrent')
+}
+
+function saveTorrentMetadata(torrent: any): void {
+  try {
+    if (torrent.torrentFile) {
+      const p = getMetadataPath(torrent.infoHash)
+      fs.writeFileSync(p, Buffer.from(torrent.torrentFile))
+      debug(`Saved torrent metadata to ${p}`)
+    }
+  } catch (e: any) {
+    debugError('Failed to save torrent metadata:', e.message)
+  }
+}
 
 const torrentMap = new Map<string, any>()
 
@@ -44,12 +67,79 @@ function parseInfoHash(magnetUri: string): string | null {
   return match ? match[1].toLowerCase() : null
 }
 
+export async function prefetchMetadata(infoHash: string, magnetUri: string): Promise<void> {
+  if (!client) return
+  const metaPath = getMetadataPath(infoHash)
+  if (fs.existsSync(metaPath)) {
+    debug(`Metadata already cached for ${infoHash}`)
+    return
+  }
+  debug(`Prefetching metadata for ${infoHash}`)
+  let timedOut = false
+  try {
+    const torrent = await client.add(magnetUri, { path: '/tmp/fynix-prefetch' })
+    if (!torrent.ready) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          timedOut = true
+          reject(new Error('Metadata timeout (10s)'))
+        }, 10000)
+        torrent.once('ready', () => {
+          clearTimeout(timeout)
+          resolve()
+        })
+        torrent.once('error', (err: Error) => {
+          clearTimeout(timeout)
+          reject(err)
+        })
+      })
+    }
+    if (!timedOut) {
+      saveTorrentMetadata(torrent)
+      torrent.destroy({ destroyStore: true })
+      debug(`Prefetched metadata for ${infoHash}`)
+    } else {
+      // Don't destroy unready torrents — utMetadata may have pending callbacks
+      // that crash on destroyed torrent (Cannot read properties of null '_debugId')
+      debug(`Prefetch timed out for ${infoHash}, leaving torrent in background`)
+    }
+  } catch (e: any) {
+    debugError(`Failed to prefetch metadata for ${infoHash}:`, e.message)
+  }
+}
+
+export async function prefetchBatch(results: { infoHash: string; magnetUri: string }[], limit = 5): Promise<void> {
+  const toFetch = results.filter(r => {
+    const p = getMetadataPath(r.infoHash)
+    return !fs.existsSync(p)
+  }).slice(0, limit)
+  if (toFetch.length === 0) return
+  debug(`Prefetching metadata for ${toFetch.length} torrents (limit=${limit})`)
+  for (const r of toFetch) {
+    await prefetchMetadata(r.infoHash, r.magnetUri)
+  }
+}
+
 export async function addTorrent(magnetUri: string, options?: any) {
   if (!client) throw new Error('WebTorrent not initialized')
   debug(`Adding torrent: ${magnetUri.slice(0, 80)}...`)
   const start = Date.now()
 
   const infoHash = parseInfoHash(magnetUri)
+
+  // Check for cached .torrent metadata — skip metadata download from peers
+  let torrentBuf: Buffer | null = null
+  if (infoHash) {
+    const metaPath = getMetadataPath(infoHash)
+    if (fs.existsSync(metaPath)) {
+      try {
+        torrentBuf = fs.readFileSync(metaPath)
+        debug(`Loaded cached torrent metadata (${(torrentBuf.length / 1024).toFixed(1)} KB)`)
+      } catch (e: any) {
+        debugError('Failed to read cached metadata:', e.message)
+      }
+    }
+  }
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (infoHash) {
@@ -61,10 +151,15 @@ export async function addTorrent(magnetUri: string, options?: any) {
     }
 
     try {
-      const torrent = await client.add(magnetUri, {
+      const addOpts: any = {
         ...options,
         path: LocalCacheService.getCacheDir(),
-      })
+      }
+      // Pass cached .torrent buffer directly to skip metadata fetch
+      const torrent = torrentBuf
+        ? await client.add(torrentBuf, addOpts)
+        : await client.add(magnetUri, addOpts)
+
       debug(`Torrent added in ${Date.now() - start}ms, infoHash: ${torrent.infoHash}`)
 
       if (!torrent.ready && (!torrent.files || torrent.files.length === 0)) {
@@ -83,6 +178,9 @@ export async function addTorrent(magnetUri: string, options?: any) {
           })
         })
       }
+
+      // Save torrent metadata for future fast loading
+      saveTorrentMetadata(torrent)
 
       if (torrent.files) {
         debug(`Torrent has ${torrent.files.length} files:`)

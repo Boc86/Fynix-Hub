@@ -434,14 +434,33 @@ export default function Settings({ onClose }: SettingsProps) {
 
             <div className={styles.settingGroup}>
               <h3 className={styles.settingTitle}>Preferred Audio Language</h3>
-              <p className={styles.settingDesc}>Auto-select audio track (e.g. "eng", "jpn", "kor")</p>
-              <input
-                className={styles.settingInput}
-                type="text"
-                placeholder="e.g. eng"
-                value={store.preferredAudioLanguage}
-                onChange={(e) => store.setPreferredAudioLanguage(e.target.value)}
-              />
+              <p className={styles.settingDesc}>Auto-select audio track by language</p>
+              <div className={styles.toggleGrid}>
+                {[
+                  { label: 'Default', value: '' },
+                  { label: 'English', value: 'eng' },
+                  { label: 'Italian', value: 'ita' },
+                  { label: 'Spanish', value: 'spa' },
+                  { label: 'French', value: 'fra' },
+                  { label: 'German', value: 'deu' },
+                  { label: 'Portuguese', value: 'por' },
+                  { label: 'Japanese', value: 'jpn' },
+                  { label: 'Korean', value: 'kor' },
+                  { label: 'Chinese', value: 'chi' },
+                  { label: 'Russian', value: 'rus' },
+                  { label: 'Hindi', value: 'hin' },
+                  { label: 'Arabic', value: 'ara' },
+                ].map(lang => (
+                  <button
+                    key={lang.value}
+                    tabIndex={0}
+                    className={`${styles.toggle} ${store.preferredAudioLanguage === lang.value ? styles.toggleActive : ''}`}
+                    onClick={() => store.setPreferredAudioLanguage(lang.value)}
+                  >
+                    {lang.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className={styles.settingGroup}>

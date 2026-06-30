@@ -78,6 +78,22 @@ export default function App() {
   }, [view])
 
   const accentColor = useSettingsStore((s) => s.accentColor)
+  const preferredAudioLang = useSettingsStore((s) => s.preferredAudioLanguage)
+  const preferredLangs = useSettingsStore((s) => s.preferredLanguages)
+
+  function getAudioLang(): string | undefined {
+    if (preferredAudioLang) return preferredAudioLang.toLowerCase()
+    const langNameToCode: Record<string, string> = {
+      english: 'eng', spanish: 'spa', french: 'fra', german: 'deu',
+      italian: 'ita', portuguese: 'por', japanese: 'jpn', korean: 'kor',
+      chinese: 'chi', russian: 'rus', hindi: 'hin', arabic: 'ara',
+    }
+    for (const l of preferredLangs) {
+      const mapped = langNameToCode[l.toLowerCase()]
+      if (mapped) return mapped
+    }
+    return undefined
+  }
   useEffect(() => {
     document.documentElement.style.setProperty('--accent', accentColor)
     document.documentElement.style.setProperty('--accent-hover', accentColor + '80')
@@ -402,6 +418,7 @@ export default function App() {
     navigate('player')
 
     try {
+      const audioLang = getAudioLang()
       const url = await playTorrent(result)
       window.api.log('[App] Stream URL:', url)
       currentInfoHashRef.current = result.infoHash
@@ -410,14 +427,14 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
-      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv')
+      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang)
       setPlayerLoading(false)
     } catch (err: any) {
       window.api.log('[App] Playback failed:', err.message)
       setStreamError(err?.message || 'Failed to start playback')
       setPlayerLoading(false)
     }
-  }, [navigate, playTorrent, accentColor, playerInfo?.mediaType])
+  }, [navigate, playTorrent, accentColor, playerInfo?.mediaType, preferredAudioLang, preferredLangs])
 
   const tryAutoPlayResult = useCallback(async (index: number, session?: number) => {
     // Stale-index guard: if refs were cleared but we're called with index > 0, abort
@@ -440,6 +457,7 @@ export default function App() {
     autoPlayIndexRef.current = index
     window.api.log(`[App] Auto-play attempt ${index + 1}/${results.length}: ${result.title} (${result.infoHash.slice(0, 16)}) session=${searchSessionRef.current}`)
     try {
+      const audioLang = getAudioLang()
       const url = await playTorrent(result)
       if (searchSessionRef.current !== (session ?? searchSessionRef.current)) {
         window.api.log('[App] Session changed during playTorrent, aborting auto-play')
@@ -451,13 +469,13 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
-      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv')
+      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang)
       setPlayerLoading(false)
     } catch (err: any) {
       window.api.log(`[App] Auto-play attempt ${index + 1} failed: ${err.message}`)
       tryAutoPlayResult(index + 1, session)
     }
-  }, [playTorrent, accentColor, playerInfo?.mediaType])
+  }, [playTorrent, accentColor, playerInfo?.mediaType, preferredAudioLang, preferredLangs])
 
   const handlePlay = useCallback(async (resumePosition?: number) => {
     // Guard: reject if a torrent search modal is already open or player is active

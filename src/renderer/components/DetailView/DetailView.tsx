@@ -136,9 +136,10 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     loadSimilar();
   }, [selectedMedia?.id, selectedMedia?.mediaType]);
 
-  // Auto-focus on mount
+  // Auto-focus on mount — focus first action button
   useEffect(() => {
     detailRef.current?.focus();
+    setFocusedItem(0);
   }, []);
 
   const backdropUrl = selectedMedia?.backdropPath

@@ -71,38 +71,48 @@ function waitForSocket(socketPath: string, timeoutMs: number): Promise<void> {
 
 function sendCommand(command: object): Promise<any> {
   return new Promise((resolve, reject) => {
-    const client = new net.Socket()
-    const payload = JSON.stringify(command) + '\n'
+    const doConnect = (retriesLeft: number) => {
+      const client = new net.Socket()
+      const payload = JSON.stringify(command) + '\n'
 
-    client.connect(ipcSocketPath, () => {
-      client.write(payload)
-    })
+      client.connect(ipcSocketPath, () => {
+        client.write(payload)
+      })
 
-    let data = ''
-    client.on('data', (chunk) => {
-      data += chunk.toString()
-    })
+      let data = ''
+      client.on('data', (chunk) => {
+        data += chunk.toString()
+      })
 
-    client.on('close', () => {
-      try {
-        resolve(JSON.parse(data))
-      } catch {
-        resolve(data)
-      }
-    })
+      client.on('close', () => {
+        try {
+          resolve(JSON.parse(data))
+        } catch {
+          resolve(data)
+        }
+      })
 
-    client.on('error', (err) => {
-      reject(err)
-    })
+      client.on('error', (err: NodeJS.ErrnoException) => {
+        client.destroy()
+        if (err.code === 'ENOENT' && retriesLeft > 0) {
+          // Socket not ready yet — retry after a short delay
+          setTimeout(() => doConnect(retriesLeft - 1), 500)
+        } else {
+          reject(err)
+        }
+      })
 
-    setTimeout(() => {
-      client.destroy()
-      reject(new Error('IPC command timed out'))
-    }, 5000)
+      setTimeout(() => {
+        client.destroy()
+        reject(new Error('IPC command timed out'))
+      }, 5000)
+    }
+
+    doConnect(10)  // up to ~5s retries
   })
 }
 
-export async function startPlayback(url: string, resumePosition?: number, accentColor?: string): Promise<void> {
+export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string): Promise<void> {
   await stopPlayback()
 
   if (fs.existsSync(ipcSocketPath)) {
@@ -112,6 +122,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   console.log('[MPV] Env DISPLAY:', process.env.DISPLAY)
   console.log('[MPV] Env FLATPAK_ID:', process.env.FLATPAK_ID)
   if (accentColor) console.log('[MPV] Accent color for OSC:', accentColor)
+  if (audioLanguage) console.log('[MPV] Preferred audio language:', audioLanguage)
 
   const { cmd, mpvDir } = findMpvCommand()
 
@@ -127,7 +138,14 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--hwdec=no',
     '--vo=gpu',
     '--gpu-context=x11egl',
+    '--cache-pause-initial=yes',
+    '--cache=yes',
+    '--demuxer-readahead-secs=60',
   ]
+
+  if (audioLanguage) {
+    mpvArgs.push(`--alang=${audioLanguage}`)
+  }
 
   if (mpvDir) {
     const confPath = path.join(mpvDir, 'mpv.conf')
@@ -222,9 +240,15 @@ export async function startPlayback(url: string, resumePosition?: number, accent
       }
     })
 
-    waitForSocket(ipcSocketPath, 10000)
-      .then(async () => {
-        if (resumePos) {
+    // Resolve immediately after spawn — don't block on IPC socket.
+    // The renderer's poll loop handles IPC errors via try/catch.
+    settled = true
+    resolve()
+
+    // Do resume-seek asynchronously in the background once socket is ready
+    if (resumePos) {
+      waitForSocket(ipcSocketPath, 10000)
+        .then(async () => {
           console.log('[MPV] Socket ready, seeking to resume position:', resumePos)
           try {
             await sendCommand({ command: ['set', 'time-pos', resumePos] })
@@ -232,18 +256,11 @@ export async function startPlayback(url: string, resumePosition?: number, accent
           } catch (e) {
             console.warn('[MPV] Resume seek failed:', e)
           }
-        }
-        if (!settled) {
-          settled = true
-          resolve()
-        }
-      })
-      .catch((err) => {
-        if (!settled) {
-          settled = true
-          reject(err)
-        }
-      })
+        })
+        .catch((err) => {
+          console.warn('[MPV] Socket wait timeout for resume seek:', err)
+        })
+    }
   })
 
   return promise
@@ -336,9 +353,55 @@ export async function hideSkipIntro(): Promise<void> {
   } catch {}
 }
 
+export async function showSplash(): Promise<void> {
+  try {
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'show-splash'] })
+  } catch {}
+}
+
+export async function hideSplash(): Promise<void> {
+  try {
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'hide-splash'] })
+  } catch {}
+}
+
 export async function setHasNext(hasNext: boolean): Promise<void> {
   try {
     await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-has-next', hasNext ? 'true' : 'false'] })
+  } catch {}
+}
+
+export async function setClearlogo(text: string): Promise<void> {
+  try {
+    console.log('[MPV] Sending set-clearlogo:', text.slice(0, 50))
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-clearlogo', text] })
+  } catch {}
+}
+
+export async function clearClearlogo(): Promise<void> {
+  try {
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-clearlogo'] })
+  } catch {}
+}
+
+export async function setPlot(text: string): Promise<void> {
+  try {
+    const truncated = text.length > 500 ? text.slice(0, 500) + '...' : text
+    console.log('[MPV] Sending set-plot:', truncated.slice(0, 80))
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-plot', truncated] })
+  } catch {}
+}
+
+export async function setUpNext(opts: { imagePath: string; title: string; subtitle: string; countdown: number }): Promise<void> {
+  try {
+    const args = ['script-message-to', 'fynix-osc', 'set-up-next', opts.imagePath, opts.title, opts.subtitle, String(opts.countdown)]
+    await sendCommand({ command: args })
+  } catch {}
+}
+
+export async function clearUpNext(): Promise<void> {
+  try {
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-up-next'] })
   } catch {}
 }
 

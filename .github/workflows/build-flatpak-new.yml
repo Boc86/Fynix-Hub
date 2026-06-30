@@ -32,9 +32,6 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Download static ffmpeg
-        run: bash scripts/setup-ffmpeg.sh
-
       - name: Install Flatpak SDK & runtime
         run: |
           sudo apt-get update

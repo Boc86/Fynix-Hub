@@ -427,3 +427,39 @@
   max-width: 220px;
   word-break: break-all;
 }
+
+.splashOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #000;
+  z-index: 100;
+}
+
+.splashLogo {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.splashSub {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.splashSpinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: splashSpin 0.7s linear infinite;
+}
+
+@keyframes splashSpin {
+  to { transform: rotate(360deg); }
+}

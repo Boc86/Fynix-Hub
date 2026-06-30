@@ -24,7 +24,6 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { view: 'tv-shows' as NavView, label: 'TV Shows', shortcut: '' },
     { view: 'youtube' as NavView, label: 'YouTube', shortcut: '' },
     { view: 'settings' as NavView, label: 'Settings', shortcut: '' },
-    { view: null as NavView | null, label: 'Search', shortcut: 'S', isSearch: true },
     { view: null as NavView | null, label: 'Minimize', shortcut: '', isAction: true, action: 'minimize' as const },
     { view: null as NavView | null, label: 'Exit', shortcut: '', isAction: true, action: 'exit' as const },
   ]
@@ -61,9 +60,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
       e.preventDefault()
       const item = navItems[focusedIndex]
       if (item) {
-        if (item.isSearch) {
-          onSearch()
-        } else if (item.isAction) {
+        if (item.isAction) {
           if (item.action === 'minimize') window.api.app.minimize()
           else if (item.action === 'exit') window.api.app.quit()
         } else {
@@ -72,7 +69,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
         onClose()
       }
     }
-  }, [focusedIndex, onNavigate, onSearch, onClose])
+  }, [focusedIndex, onNavigate, onClose])
 
   const handleNavClick = (view: NavView) => {
     onNavigate(view)
@@ -94,17 +91,11 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
             key={item.label}
             ref={(el) => { navItemsRef.current[index] = el! }}
             tabIndex={0}
-            className={`${styles.navItem} ${!item.isSearch && currentView === item.view ? styles.active : ''} ${focusedIndex === index ? styles.focused : ''}`}
-            onClick={() => { if (item.isSearch) { onSearch() } else if (item.isAction) { if (item.action === 'minimize') window.api.app.minimize(); else if (item.action === 'exit') window.api.app.quit() } else { handleNavClick(item.view!) } }}
+            className={`${styles.navItem} ${currentView === item.view ? styles.active : ''} ${focusedIndex === index ? styles.focused : ''}`}
+            onClick={() => { if (item.isAction) { if (item.action === 'minimize') window.api.app.minimize(); else if (item.action === 'exit') window.api.app.quit() } else { handleNavClick(item.view!) } }}
             onFocus={() => setFocusedIndex(index)}
           >
             <span className={styles.navIcon}>
-              {item.isSearch && (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8"/>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-              )}
               {item.view === 'browser' && (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>

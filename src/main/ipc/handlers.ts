@@ -9,7 +9,6 @@ import * as DebridService from '../services/debrid.service'
 import * as IntrosService from '../services/intros.service'
 import * as CacheService from '../services/cache.service'
 import * as MpvService from '../services/mpv.service'
-import * as TranscoderService from '../services/transcoder.service'
 import * as FanartService from '../services/fanart.service'
 import * as IndexerCatalogService from '../services/indexer-catalog.service'
 import * as IntroDBService from "../services/introdb.service";
@@ -268,6 +267,8 @@ export async function registerIpcHandlers(): Promise<void> {
     try {
       const results = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers)
       console.log('[Handler] torrent:search returned', results.length, 'results')
+      // Asynchronously pre-cache metadata for top 5 results
+      WebTorrentService.prefetchBatch(results.slice(0, 5)).catch(() => {})
       return results
     } catch (err: any) {
       console.error('[Handler] torrent:search failed:', err.message)
@@ -506,10 +507,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return CacheService.getFullWatchHistory()
   })
 
-  ipcMain.handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean) => {
-    console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default')
+  ipcMain.handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string) => {
+    console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default', 'audioLang:', audioLanguage ?? 'none')
     try {
-      await MpvService.startPlayback(url, resumePosition, accentColor)
+      await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage)
       if (hasNext !== undefined) {
         await MpvService.setHasNext(hasNext)
       }
@@ -563,16 +564,53 @@ export async function registerIpcHandlers(): Promise<void> {
     await MpvService.hideSkipIntro()
   })
 
+  ipcMain.handle('mpv:show-splash', async () => {
+    await MpvService.showSplash()
+  })
+
+  ipcMain.handle('mpv:hide-splash', async () => {
+    await MpvService.hideSplash()
+  })
+
   ipcMain.handle('mpv:set-has-next', async (_event, hasNext: boolean) => {
     await MpvService.setHasNext(hasNext)
   })
 
-  ipcMain.handle('mpv:get-last-exit-code', () => {
-    return MpvService.getLastExitCode()
+  ipcMain.handle('mpv:set-clearlogo', async (_event, text: string) => {
+    if (!text) {
+      await MpvService.clearClearlogo()
+      return
+    }
+    await MpvService.setClearlogo(text)
   })
 
-  ipcMain.handle('transcoder:is-available', () => {
-    return TranscoderService.isAvailable()
+  ipcMain.handle('mpv:clear-clearlogo', async () => {
+    await MpvService.clearClearlogo()
+  })
+
+  ipcMain.handle('mpv:set-plot', async (_event, text: string) => {
+    await MpvService.setPlot(text || '')
+  })
+
+  ipcMain.handle('mpv:set-up-next', async (_event, opts: { title: string; subtitle: string; countdown: number }) => {
+    if (!opts.title) {
+      await MpvService.clearUpNext()
+      return
+    }
+    await MpvService.setUpNext({
+      imagePath: '',
+      title: opts.title,
+      subtitle: opts.subtitle || '',
+      countdown: opts.countdown || 10,
+    })
+  })
+
+  ipcMain.handle('mpv:clear-up-next', async () => {
+    await MpvService.clearUpNext()
+  })
+
+  ipcMain.handle('mpv:get-last-exit-code', () => {
+    return MpvService.getLastExitCode()
   })
 
   ipcMain.handle('local-cache:get-url', async (_event, infoHash) => {

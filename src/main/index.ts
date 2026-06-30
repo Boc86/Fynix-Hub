@@ -6,8 +6,9 @@ import { TizenTubeService } from './services/tizentube.service'
 import { setupCursorHide } from "./utils/cursorUtils"
 import { setupRemoteControl } from "./utils/remoteControl"
 
-app.commandLine.appendSwitch('disable-gpu')
-app.commandLine.appendSwitch('in-process-gpu')
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
+app.commandLine.appendSwitch('disable-software-rasterizer')
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
@@ -69,8 +70,8 @@ function createYouTubeView() {
     },
   })
 
-  // Spoof User-Agent to Android TV to get youtube.com/tv interface
-  const tvUserAgent = 'Mozilla/5.0 (Linux; Android 11; SHIELD Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  // Spoof User-Agent to PS4/Cobalt for youtube.com/tv with 4K support
+  const tvUserAgent = 'Mozilla/5.0 (Linux; Android 12) Cobalt/22.2.3-gold (PS4)'
   youtubeView.webContents.setUserAgent(tvUserAgent)
 
   // Also spoof User-Agent at session level for all requests

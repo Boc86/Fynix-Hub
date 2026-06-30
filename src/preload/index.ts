@@ -20,12 +20,6 @@ const api = {
       ipcRenderer.on('youtube:focus-back', callback)
       return () => { ipcRenderer.removeListener('youtube:focus-back', callback) }
     },
-    transcoder: {
-      isAvailable: () => ipcRenderer.invoke('transcoder:is-available'),
-      start: (sourceUrl: string) => ipcRenderer.invoke('transcoder:start', sourceUrl),
-      stop: () => ipcRenderer.invoke('transcoder:stop'),
-      isRunning: () => ipcRenderer.invoke('transcoder:is-running')
-    },
   },
   tizentube: {
     checkUpdates: () => ipcRenderer.invoke('tizentube:check-updates'),
@@ -170,7 +164,7 @@ const api = {
   mpv: {
       isAvailable: () => ipcRenderer.invoke('mpv:is-available'),
     addSubtitle: (filePath: string) => ipcRenderer.invoke('mpv:add-subtitle', filePath),
-      start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext),
+      start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext, audioLanguage),
       stop: () => ipcRenderer.invoke('mpv:stop'),
       isRunning: () => ipcRenderer.invoke('mpv:is-running'),
       togglePause: () => ipcRenderer.invoke('mpv:toggle-pause'),
@@ -180,7 +174,15 @@ const api = {
       getPaused: () => ipcRenderer.invoke('mpv:get-paused'),
       showSkipIntro: (endMs: number) => ipcRenderer.invoke('mpv:show-skip-intro', endMs),
       hideSkipIntro: () => ipcRenderer.invoke('mpv:hide-skip-intro'),
+      showSplash: () => ipcRenderer.invoke('mpv:show-splash'),
+      hideSplash: () => ipcRenderer.invoke('mpv:hide-splash'),
       setHasNext: (hasNext: boolean) => ipcRenderer.invoke('mpv:set-has-next', hasNext),
+      setClearlogo: (text: string) => ipcRenderer.invoke('mpv:set-clearlogo', text),
+      clearClearlogo: () => ipcRenderer.invoke('mpv:clear-clearlogo'),
+      setPlot: (text: string) => ipcRenderer.invoke('mpv:set-plot', text),
+      setUpNext: (opts: { title: string; subtitle: string; countdown: number }) =>
+        ipcRenderer.invoke('mpv:set-up-next', opts),
+      clearUpNext: () => ipcRenderer.invoke('mpv:clear-up-next'),
       getLastExitCode: () => ipcRenderer.invoke('mpv:get-last-exit-code'),
       onExited: (callback: () => void) => {
         ipcRenderer.on('mpv-exited', callback)
