@@ -200,6 +200,15 @@ const api = {
     download: (fileId: number) => ipcRenderer.invoke('opensubtitles:download', fileId),
     downloadAndSave: (fileId: number) => ipcRenderer.invoke('opensubtitles:download-and-save', fileId),
   },
+  sports: {
+    getAllLeagues: () => ipcRenderer.invoke('sports:get-all-leagues'),
+    getLeaguesBySport: (sport: string) => ipcRenderer.invoke('sports:get-leagues-by-sport', sport),
+    getSportsList: () => ipcRenderer.invoke('sports:get-sports-list'),
+    getUpcomingEvents: (leagueId: string) => ipcRenderer.invoke('sports:get-upcoming-events', leagueId),
+    getPastEvents: (leagueId: string) => ipcRenderer.invoke('sports:get-past-events', leagueId),
+    getEventDetails: (eventId: string) => ipcRenderer.invoke('sports:get-event-details', eventId),
+    getTeamDetails: (teamId: string) => ipcRenderer.invoke('sports:get-team-details', teamId),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

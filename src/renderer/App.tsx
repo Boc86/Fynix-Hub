@@ -9,6 +9,7 @@ import Sidebar from './components/Sidebar/Sidebar'
 
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import TorrentSearch from './components/TorrentSearch/TorrentSearch'
+import Sports from './components/Sports/Sports'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
@@ -16,7 +17,7 @@ import type { TorrentResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
-  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports'
 
 interface PlayerInfo {
   tmdbId: number
@@ -791,7 +792,7 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
+        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : view === 'sports' ? 'sports' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -831,6 +832,19 @@ export default function App() {
       {view === 'settings' && (
         <div className="animate-fade">
           <Settings onClose={() => goBack()} />
+        </div>
+      )}
+      {view === 'sports' && (
+        <div className="animate-fade">
+          <Sports
+            onPlay={(title, year) => {
+              setTorrentSearchTitle(title)
+              setTorrentSearchYear(year)
+              setTorrentSearchOpen(true)
+              runTorrentSearch({ title, year, type: 'movie' })
+            }}
+            onBack={() => goBack()}
+          />
         </div>
       )}
       {view === 'youtube' && (

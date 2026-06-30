@@ -145,3 +145,61 @@ export interface IntroSegment {
   startsAtBeginning: boolean
   endsAtMediaEnd: boolean
 }
+
+export interface SportsLeague {
+  idLeague: string
+  strLeague: string
+  strSport: string
+  strBadge: string
+  strLogo: string
+  strTrophy: string
+  strDescription: string
+  strBanner: string
+  strCountry: string
+  strFanart1: string
+  strFanart2: string
+  strFanart3: string
+  strCurrentSeason: string
+  strDivision: string
+}
+
+export interface SportsEvent {
+  idEvent: string
+  idLeague: string
+  idHomeTeam: string
+  idAwayTeam: string
+  strEvent: string
+  strEventAlternate: string
+  strHomeTeam: string
+  strAwayTeam: string
+  strHomeTeamBadge: string
+  strAwayTeamBadge: string
+  dateEvent: string
+  strTime: string
+  strThumb: string
+  strSeason: string
+  strSport: string
+  intHomeScore: string
+  intAwayScore: string
+  strStatus: string
+  strPoster: string
+  strVideo: string
+  strFilename: string
+  strCountry: string
+  strVenue: string
+}
+
+export interface SportsTeam {
+  idTeam: string
+  strTeam: string
+  strTeamBadge: string
+  strTeamJersey: string
+  strTeamLogo: string
+  strTeamFanart1: string
+  strTeamBanner: string
+  strDescription: string
+  strCountry: string
+  strStadium: string
+  strLeague: string
+  idLeague: string
+}

@@ -15,6 +15,7 @@ import * as IntroDBService from "../services/introdb.service";
 import * as YoutubeService from '../services/youtube.service'
 import * as LocalCacheService from '../services/local-cache.service'
 import * as OpenSubtitlesService from '../services/opensubtitles.service'
+import * as SportsService from '../services/sports.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -22,6 +23,7 @@ export async function registerIpcHandlers(): Promise<void> {
   DebridService.loadKeys()
   FanartService.loadApiKey()
   OpenSubtitlesService.loadApiKey()
+  SportsService.loadApiKey()
   await WebTorrentService.init()
   LocalCacheService.init()
   if (IndexerCatalogService.shouldRefreshCatalog()) {
@@ -489,6 +491,7 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'alldebridAccessToken') DebridService.loadKeys()
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
     if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
+    if (key === 'sportsDbApiKey') SportsService.setApiKey(String(value))
 })
 
   ipcMain.handle('settings:get-all', () => {
@@ -647,6 +650,34 @@ export async function registerIpcHandlers(): Promise<void> {
     const filePath = `/tmp/fynix-sub-${fileId}.srt`
     await fs.promises.writeFile(filePath, content, 'utf-8')
     return filePath
+  })
+
+  ipcMain.handle('sports:get-all-leagues', async () => {
+    return SportsService.getAllLeagues()
+  })
+
+  ipcMain.handle('sports:get-leagues-by-sport', async (_event, sport: string) => {
+    return SportsService.getLeaguesBySport(sport)
+  })
+
+  ipcMain.handle('sports:get-sports-list', async () => {
+    return SportsService.getSportsList()
+  })
+
+  ipcMain.handle('sports:get-upcoming-events', async (_event, leagueId: string) => {
+    return SportsService.getUpcomingEvents(leagueId)
+  })
+
+  ipcMain.handle('sports:get-past-events', async (_event, leagueId: string) => {
+    return SportsService.getPastEvents(leagueId)
+  })
+
+  ipcMain.handle('sports:get-event-details', async (_event, eventId: string) => {
+    return SportsService.getEventDetails(eventId)
+  })
+
+  ipcMain.handle('sports:get-team-details', async (_event, teamId: string) => {
+    return SportsService.getTeamDetails(teamId)
   })
 
   // Notify all renderer windows when mpv exits (so cleanup happens immediately)

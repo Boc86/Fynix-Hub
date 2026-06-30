@@ -24,14 +24,14 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
   { id: 'connections', label: 'Connections', shortcut: '2' },
   { id: 'indexers', label: 'Indexers', shortcut: '3' },
   { id: 'youtube', label: 'YouTube', shortcut: '4' },
-  // { id: 'sports', label: 'Sports', shortcut: '5' },
+  { id: 'sports', label: 'Sports', shortcut: '5' },
   { id: 'advanced', label: 'Advanced', shortcut: '6' },
   { id: 'remote', label: 'Remote', shortcut: '7' },
 ]
@@ -288,7 +288,7 @@ export default function Settings({ onClose }: SettingsProps) {
 
       let newTab: SettingsTab | null = null
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key >= '1' && e.key <= '5')) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key >= '1' && e.key <= '7')) {
         if (isTyping) return
         e.preventDefault()
         if (e.key === 'ArrowRight') {
@@ -1104,7 +1104,38 @@ export default function Settings({ onClose }: SettingsProps) {
           </div>
         )
 
- case 'remote':
+      case 'sports':
+        return (
+          <div className={styles.tabContent}>
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>TheSportsDB API</h3>
+              <p className={styles.settingDesc}>API key for browsing sports leagues, events, and scores.</p>
+              <input
+                type="password"
+                className={styles.input}
+                placeholder="Enter TheSportsDB API Key (or leave empty for test key)"
+                value={store.sportsDbApiKey}
+                onChange={(e) => store.setSportsDbApiKey(e.target.value)}
+              />
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Sports Hub</h3>
+              <p className={styles.settingDesc}>Enable the Sports section in the sidebar to browse leagues and events.</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.sportsEnabled ? styles.toggleActive : ''}`}
+                  onClick={() => store.setSportsEnabled(!store.sportsEnabled)}
+                >
+                  Sports Hub {store.sportsEnabled ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+      case 'remote':
          return (
            <div className={styles.tabContent}>
              <div className={styles.settingGroup}>
