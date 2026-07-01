@@ -13,6 +13,16 @@ interface ReplayResult {
   sources: { label: string; type: string; url: string }[]
 }
 
+interface ScheduleMatch {
+  id: string
+  title: string
+  category: string
+  date: number
+  poster?: string
+  teams?: { home?: { name: string; badge: string }; away?: { name: string; badge: string } }
+  sources: { source: string; id: string }[]
+}
+
 const SPORT_ICONS: Record<string, string> = {
   'Soccer': '⚽',
   'American Football': '🏈',
@@ -65,6 +75,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
   const [replayResults, setReplayResults] = useState<ReplayResult[]>([])
   const [replaySearching, setReplaySearching] = useState(false)
   const [replayFocused, setReplayFocused] = useState(0)
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [scheduleMatches, setScheduleMatches] = useState<ScheduleMatch[]>([])
+  const [scheduleLoading, setScheduleLoading] = useState(false)
+  const [scheduleStreams, setScheduleStreams] = useState<{ source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[]>([])
+  const [scheduleStreamLoading, setScheduleStreamLoading] = useState(false)
+  const [viewKey, setViewKey] = useState(0)
 
   const visibleSports = useMemo(() => {
     if (settingsStore.sportsSelected.length === 0) return store.sportsList
@@ -168,6 +184,48 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
     store.setLoading(false)
   }, [store])
 
+  const loadSchedule = useCallback(async () => {
+    setScheduleLoading(true)
+    setShowSchedule(true)
+    setFocusedIndex(0)
+    try {
+      const matches: ScheduleMatch[] = await window.api.streamedpk.getToday()
+      const selectedSports = settingsStore.sportsSelected
+      if (selectedSports.length === 0) {
+        setScheduleMatches(matches)
+      } else {
+        const selectedNames = new Set(
+          store.sportsList
+            .filter(s => selectedSports.includes(s.id))
+            .map(s => s.slug?.toLowerCase() || s.name.toLowerCase())
+        )
+        setScheduleMatches(matches.filter(m => selectedNames.has(m.category.toLowerCase())))
+      }
+    } catch {
+      setScheduleMatches([])
+    }
+    setScheduleLoading(false)
+  }, [settingsStore.sportsSelected, store.sportsList])
+
+  const loadScheduleStreams = useCallback(async (match: ScheduleMatch) => {
+    setScheduleStreamLoading(true)
+    setScheduleStreams([])
+    setFocusedIndex(0)
+    try {
+      const all: { source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[] = []
+      for (const src of match.sources) {
+        const streams = await window.api.streamedpk.getStreams(src.source, src.id)
+        for (const s of streams) {
+          all.push(s)
+        }
+      }
+      setScheduleStreams(all)
+    } catch {
+      setScheduleStreams([])
+    }
+    setScheduleStreamLoading(false)
+  }, [])
+
   const isTeamEvent = useCallback((event: SportsEvent) => {
     return !!(event.homeTeamName && event.awayTeamName)
   }, [])
@@ -197,22 +255,39 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
   }, [store.selectedEvent, onPlay, isTeamEvent])
 
   const goBack = useCallback(() => {
+    if (showSchedule) {
+      if (scheduleStreams.length > 0) {
+        setScheduleStreams([])
+      } else {
+        setShowSchedule(false)
+        setScheduleMatches([])
+        setScheduleStreams([])
+        setScheduleLoading(false)
+        setScheduleStreamLoading(false)
+      }
+      setFocusedIndex(0)
+      return
+    }
     const { view } = useSportsStore.getState()
     switch (view) {
       case 'sports':
         onBack()
         break
-      case 'leagues':
-        useSportsStore.setState({
-          view: 'sports',
-          selectedSport: null, leagues: [],
-          selectedLeague: null, seasons: [],
-          selectedSeason: null, upcomingEvents: [], pastEvents: [],
-          selectedEvent: null, homeTeam: null, awayTeam: null,
-        })
-        setFocusedIndex(0)
+      case 'leagues': {
+        const keepSportsList = useSportsStore.getState().sportsList
+        store.reset()
+        store.setSportsList(keepSportsList)
+        setShowSchedule(false)
+        setScheduleMatches([])
+        setScheduleStreams([])
+        setScheduleLoading(false)
+        setScheduleStreamLoading(false)
         setReplayResults([])
+        setReplaySearching(false)
+        setFocusedIndex(0)
+        setViewKey(k => k + 1)
         break
+      }
       case 'seasons':
         useSportsStore.setState({ view: 'leagues', selectedLeague: null, seasons: [] })
         setFocusedIndex(0)
@@ -224,6 +299,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
       case 'detail':
         useSportsStore.setState({ view: 'events', selectedEvent: null, homeTeam: null, awayTeam: null })
         setReplayResults([])
+        setReplaySearching(false)
         setFocusedIndex(0)
         break
     }
@@ -250,6 +326,45 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
     const el = containerRef.current
     if (!el) return
     function handleKeyDown(e: KeyboardEvent) {
+      // Schedule view keyboard handling
+      if (showSchedule) {
+        if (scheduleStreams.length > 0) {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault(); e.stopPropagation()
+            setFocusedIndex((i) => Math.min(i + 1, scheduleStreams.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); e.stopPropagation()
+            setFocusedIndex((i) => Math.max(i - 1, 0))
+          } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); e.stopPropagation()
+            const s = scheduleStreams[focusedIndex]
+            if (s) onPlayUrl(s.embedUrl)
+          } else if (e.key === 'Backspace' || e.key === 'Escape') {
+            e.preventDefault(); e.stopPropagation()
+            setScheduleStreams([])
+            setFocusedIndex(0)
+          }
+          return
+        }
+        if (scheduleMatches.length > 0) {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault(); e.stopPropagation()
+            setFocusedIndex((i) => Math.min(i + 1, scheduleMatches.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); e.stopPropagation()
+            setFocusedIndex((i) => Math.max(i - 1, 0))
+          } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); e.stopPropagation()
+            loadScheduleStreams(scheduleMatches[focusedIndex])
+          } else if (e.key === 'Backspace' || e.key === 'Escape') {
+            e.preventDefault(); e.stopPropagation()
+            goBack()
+          }
+          return
+        }
+        return
+      }
+      // Normal navigation (sports/leagues/seasons/events)
       const items = getItems()
       if (store.view === 'detail') {
         if (replayResults.length > 0) {
@@ -284,17 +399,26 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
         }
         return
       }
+      // Always allow Backspace/Escape to go back, even when items are empty
+      if (e.key === 'Backspace' || e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        goBack()
+        return
+      }
       if (items.length === 0) return
       const cols = getGridCols()
       const isGridView = store.view === 'sports' || store.view === 'leagues' || store.view === 'seasons'
+
+      const maxIndex = store.view === 'sports' ? items.length : items.length - 1
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         e.stopPropagation()
         if (isGridView) {
-          setFocusedIndex((i) => Math.min(i + cols, items.length - 1))
+          setFocusedIndex((i) => Math.min(i + cols, maxIndex))
         } else {
-          setFocusedIndex((i) => Math.min(i + 1, items.length - 1))
+          setFocusedIndex((i) => Math.min(i + 1, maxIndex))
         }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
@@ -307,7 +431,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
       } else if (e.key === 'ArrowRight' && isGridView) {
         e.preventDefault()
         e.stopPropagation()
-        setFocusedIndex((i) => Math.min(i + 1, items.length - 1))
+        setFocusedIndex((i) => Math.min(i + 1, maxIndex))
       } else if (e.key === 'ArrowLeft' && isGridView) {
         e.preventDefault()
         e.stopPropagation()
@@ -315,26 +439,29 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
       } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
         e.stopPropagation()
-        const item = items[focusedIndex]
-        if (!item) return
         if (store.view === 'sports') {
-          loadLeagues(item as SportarrSport)
-        } else if (store.view === 'leagues') {
-          loadSeasons(item as SportsLeague)
-        } else if (store.view === 'seasons') {
-          loadEvents(item as SportsSeason)
-        } else if (store.view === 'events') {
-          loadEventDetail(item as SportsEvent)
+          if (focusedIndex === 0) {
+            loadSchedule()
+          } else {
+            const item = items[focusedIndex - 1]
+            if (item) loadLeagues(item as SportarrSport)
+          }
+        } else {
+          const item = items[focusedIndex]
+          if (!item) return
+          if (store.view === 'leagues') {
+            loadSeasons(item as SportsLeague)
+          } else if (store.view === 'seasons') {
+            loadEvents(item as SportsSeason)
+          } else if (store.view === 'events') {
+            loadEventDetail(item as SportsEvent)
+          }
         }
-      } else if (e.key === 'Backspace' || e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        goBack()
       }
     }
     el.addEventListener('keydown', handleKeyDown)
     return () => el.removeEventListener('keydown', handleKeyDown)
-  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, showSchedule, scheduleMatches, scheduleStreams, loadSchedule, loadScheduleStreams, onPlayUrl])
 
   useEffect(() => {
     setFocusedIndex(0)
@@ -407,11 +534,77 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
   }
 
   const renderContent = () => {
-    if (store.loading) {
+    if (store.loading && !showSchedule) {
       return <div className={styles.loading}>Loading...</div>
     }
-    if (store.error) {
+    if (store.error && !showSchedule) {
       return <div className={styles.error}>{store.error}</div>
+    }
+
+    // Schedule view
+    if (showSchedule) {
+      if (scheduleLoading) {
+        return <div className={styles.loading}>Loading schedule...</div>
+      }
+      if (scheduleStreamLoading) {
+        return <div className={styles.loading}>Loading stream sources...</div>
+      }
+      // Stream sources list for a match
+      if (scheduleStreams.length > 0) {
+        return (
+          <div>
+            <h2 className={styles.sectionTitle}>Select Source</h2>
+            <div className={styles.eventsList}>
+              {scheduleStreams.map((s, i) => (
+                <div
+                  key={i}
+                  data-focus-index={i}
+                  className={`${styles.eventCard} ${isFocused(i, focusedIndex) ? styles.eventCardFocused : ''}`}
+                  tabIndex={0}
+                  onClick={() => onPlayUrl(s.embedUrl)}
+                  onMouseEnter={() => setFocusedIndex(i)}
+                >
+                  <div className={styles.teamInfo} style={{ flex: 1 }}>
+                    <div className={styles.teamName} style={{ fontSize: 14 }}>
+                      {s.source} #{s.streamNo}{s.hd ? ' HD' : ''}
+                    </div>
+                    <div className={styles.cardSub}>{s.language}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      }
+      // Match list
+      if (scheduleMatches.length === 0) {
+        return <div className={styles.emptyState}>No live events today for the selected sports.</div>
+      }
+      return (
+        <div>
+          <h2 className={styles.sectionTitle}>Today's Schedule</h2>
+          <div className={styles.eventsList}>
+            {scheduleMatches.map((match, i) => (
+              <div
+                key={match.id}
+                data-focus-index={i}
+                className={`${styles.eventCard} ${isFocused(i, focusedIndex) ? styles.eventCardFocused : ''}`}
+                tabIndex={0}
+                onClick={() => loadScheduleStreams(match)}
+                onMouseEnter={() => setFocusedIndex(i)}
+              >
+                <div className={styles.teamInfo} style={{ flex: 1 }}>
+                  <div className={styles.teamName} style={{ fontSize: 14 }}>{match.title}</div>
+                  <div className={styles.cardSub}>{match.category}</div>
+                </div>
+                {match.poster && (
+                  <img src={match.poster} alt="" className={styles.teamBadge} style={{ width: 56, height: 56, borderRadius: 6 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )
     }
 
     switch (store.view) {
@@ -420,14 +613,26 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
           <div>
             <h2 className={styles.sectionTitle}>Choose a Sport</h2>
             <div className={styles.grid} data-grid>
+              <div
+                data-focus-index={0}
+                className={`${styles.card} ${isFocused(0, focusedIndex) ? styles.cardFocused : ''}`}
+                tabIndex={0}
+                onClick={loadSchedule}
+                onMouseEnter={() => setFocusedIndex(0)}
+              >
+                <div className={styles.cardBody} style={{ alignItems: 'center', padding: 24 }}>
+                  <div className={styles.sportIcon}>📅</div>
+                  <div className={styles.cardTitle} style={{ marginTop: 8 }}>Schedule</div>
+                </div>
+              </div>
               {visibleSports.map((sport, i) => (
                 <div
                   key={sport.id}
-                  data-focus-index={i}
-                  className={`${styles.card} ${isFocused(i, focusedIndex) ? styles.cardFocused : ''}`}
+                  data-focus-index={i + 1}
+                  className={`${styles.card} ${isFocused(i + 1, focusedIndex) ? styles.cardFocused : ''}`}
                   tabIndex={0}
                   onClick={() => loadLeagues(sport)}
-                  onMouseEnter={() => setFocusedIndex(i)}
+                  onMouseEnter={() => setFocusedIndex(i + 1)}
                 >
                   <div className={styles.cardBody} style={{ alignItems: 'center', padding: 24 }}>
                     <div className={styles.sportIcon}>{SPORT_ICONS[sport.name] || '🏅'}</div>
@@ -660,7 +865,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
   }
 
   return (
-    <div className={styles.container} ref={containerRef} tabIndex={-1}>
+    <div className={styles.container} ref={containerRef} tabIndex={-1} key={viewKey}>
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={goBack} tabIndex={0}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -668,11 +873,13 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
           </svg>
         </button>
         <h1 className={styles.title}>
-          {store.view === 'sports' && 'Sports'}
-          {store.view === 'leagues' && store.selectedSport?.name}
-          {store.view === 'seasons' && store.selectedLeague?.name}
-          {store.view === 'events' && `${store.selectedLeague?.name} — ${store.selectedSeason?.name}`}
-          {store.view === 'detail' && (isTeamEvent(store.selectedEvent!)
+          {showSchedule && scheduleStreams.length > 0 && 'Stream Sources'}
+          {showSchedule && scheduleStreams.length === 0 && 'Live Schedule'}
+          {!showSchedule && store.view === 'sports' && 'Sports'}
+          {!showSchedule && store.view === 'leagues' && store.selectedSport?.name}
+          {!showSchedule && store.view === 'seasons' && store.selectedLeague?.name}
+          {!showSchedule && store.view === 'events' && `${store.selectedLeague?.name} — ${store.selectedSeason?.name}`}
+          {!showSchedule && store.view === 'detail' && (isTeamEvent(store.selectedEvent!)
             ? `${store.selectedEvent?.homeTeamName ?? ''} vs ${store.selectedEvent?.awayTeamName ?? ''}`
             : store.selectedEvent?.name ?? '')}
         </h1>

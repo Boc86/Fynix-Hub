@@ -393,14 +393,22 @@ export default function App() {
     }
 
     const services = await window.api.debrid.getServices()
-    for (const service of services) {
-      const cached = await window.api.debrid.checkCached(service, result.infoHash)
-      if (cached.cached) {
-        window.api.log('[App]', service, 'has torrent cached, using it')
-        const dl = await window.api.debrid.addAndWait(result.magnetUri, service)
-        const url = typeof dl === 'string' ? dl : (dl.url || '')
-        return url
-      }
+    const checkResults = await Promise.allSettled(
+      services.map(async (service: string) => {
+        const cached = await window.api.debrid.checkCached(service, result.infoHash)
+        return { service, cached: cached.cached }
+      })
+    )
+    const cachedService = checkResults.find(
+      (r): r is PromiseFulfilledResult<{ service: string; cached: boolean }> =>
+        r.status === 'fulfilled' && r.value.cached
+    )
+    if (cachedService) {
+      const { service } = cachedService.value
+      window.api.log('[App]', service, 'has torrent cached, using it')
+      const dl = await window.api.debrid.addAndWait(result.magnetUri, service)
+      const url = typeof dl === 'string' ? dl : (dl.url || '')
+      return url
     }
 
     const torrentResult = await window.api.torrent.addTorrent(result.magnetUri)
@@ -729,10 +737,13 @@ export default function App() {
         if (torrentSearchOpen) { setTorrentSearchOpen(false); return }
         if (searchOpen) { setSearchOpen(false); return }
         if (sidebarOpen) { setSidebarOpen(false); return }
+        if (view === 'sports') return
         if (view !== 'browser') { goBack(); return }
       }
       
       if (e.key === 'Backspace') {
+        if (isTyping) return
+        if (view === 'sports') return
         if (virtualKeyboardOpen) {
           e.preventDefault()
           setVirtualKeyboardOpen(false)

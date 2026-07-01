@@ -17,6 +17,7 @@ import * as LocalCacheService from '../services/local-cache.service'
 import * as OpenSubtitlesService from '../services/opensubtitles.service'
 import * as SportsService from '../services/sports.service'
 import * as ReplayZoneService from '../services/replayzone.service'
+import * as StreamedPkService from '../services/streamedpk.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -271,7 +272,7 @@ export async function registerIpcHandlers(): Promise<void> {
       const results = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers)
       console.log('[Handler] torrent:search returned', results.length, 'results')
       // Asynchronously pre-cache metadata for top 5 results
-      WebTorrentService.prefetchBatch(results.slice(0, 5)).catch(() => {})
+      WebTorrentService.prefetchBatch(results.slice(0, 15)).catch(() => {})
       return results
     } catch (err: any) {
       console.error('[Handler] torrent:search failed:', err.message)
@@ -692,6 +693,22 @@ export async function registerIpcHandlers(): Promise<void> {
 
   ipcMain.handle('replayzone:search', async (_event, query: string) => {
     return ReplayZoneService.searchReplays(query)
+  })
+
+  ipcMain.handle('streamedpk:get-today', async () => {
+    return StreamedPkService.getTodayMatches()
+  })
+
+  ipcMain.handle('streamedpk:get-streams', async (_event, source: string, id: string) => {
+    return StreamedPkService.getStream(source, id)
+  })
+
+  ipcMain.handle('mpv:get-sub-action', async () => {
+    return MpvService.getSubAction()
+  })
+
+  ipcMain.handle('mpv:clear-sub-action', async () => {
+    await MpvService.clearSubAction()
   })
 
   // Notify all renderer windows when mpv exits (so cleanup happens immediately)

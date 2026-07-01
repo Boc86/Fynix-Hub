@@ -184,6 +184,8 @@ const api = {
         ipcRenderer.invoke('mpv:set-up-next', opts),
       clearUpNext: () => ipcRenderer.invoke('mpv:clear-up-next'),
       getLastExitCode: () => ipcRenderer.invoke('mpv:get-last-exit-code'),
+      getSubAction: () => ipcRenderer.invoke('mpv:get-sub-action'),
+      clearSubAction: () => ipcRenderer.invoke('mpv:clear-sub-action'),
       onExited: (callback: () => void) => {
         ipcRenderer.on('mpv-exited', callback)
         return () => { ipcRenderer.removeListener('mpv-exited', callback) }
@@ -209,6 +211,10 @@ const api = {
     getEventDetails: (eventId: string) => ipcRenderer.invoke('sports:get-event-details', eventId),
     getTeamDetails: (teamId: string) => ipcRenderer.invoke('sports:get-team-details', teamId),
     searchReplays: (query: string) => ipcRenderer.invoke('replayzone:search', query),
+  },
+  streamedpk: {
+    getToday: () => ipcRenderer.invoke('streamedpk:get-today'),
+    getStreams: (source: string, id: string) => ipcRenderer.invoke('streamedpk:get-streams', source, id),
   },
 }
 

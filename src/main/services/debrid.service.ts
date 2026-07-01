@@ -176,7 +176,7 @@ export async function realDebridUnrestrict(link: string) {
 }
 
 async function waitForRealDebridReady(torrentId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 1500
+  const pollInterval = 800
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))
@@ -337,7 +337,7 @@ export async function torboxRequestDownloadLink(torrentId: string, fileId?: numb
 }
 
 async function waitForTorboxReady(torrentId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 1500
+  const pollInterval = 800
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))
@@ -442,7 +442,7 @@ export async function premiumizeTransferList() {
 }
 
 async function waitForPremiumizeReady(transferId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 1500
+  const pollInterval = 800
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))
@@ -542,7 +542,7 @@ export async function alldebridUnrestrict(link: string) {
 }
 
 async function waitForAlldebridReady(magnetId: string, maxPollMs = 60000): Promise<string> {
-  const pollInterval = 1500
+  const pollInterval = 800
   const maxAttempts = maxPollMs / pollInterval
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, pollInterval))

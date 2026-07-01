@@ -351,10 +351,9 @@ export default function Settings({ onClose }: SettingsProps) {
 
       if (newTab) {
         setActiveTab(newTab)
-        // Focus first element in the new tab's content after render
+        // Keep focus on the newly activated tab button
         setTimeout(() => {
-          const focusable = getFocusable()
-          if (focusable.length > 0) focusable[0]?.focus()
+          settingsRef.current?.querySelector<HTMLElement>(`.${styles.tab}[data-tab="${newTab}"]`)?.focus()
         }, 0)
       }
     }
@@ -1295,6 +1294,7 @@ case 'advanced':
             key={tab.id}
             tabIndex={0}
             className={`${styles.tab} ${activeTab === tab.id ? styles.active : ''}`}
+            data-tab={tab.id}
             onClick={() => setActiveTab(tab.id)}
           >
             <span>{tab.label}</span>

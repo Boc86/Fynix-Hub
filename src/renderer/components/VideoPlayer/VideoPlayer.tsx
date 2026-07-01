@@ -87,6 +87,9 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   }, [mediaInfo, duration, currentTime])
 
   const splashHiddenRef = useRef(false)
+  const [showSubNotFound, setShowSubNotFound] = useState(false)
+  const [searchingSubs, setSearchingSubs] = useState(false)
+  const showSubNotFoundRef = useRef(false)
 
   const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -114,6 +117,38 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
       )
       await window.api.trakt.markWatched(payload)
     } catch { /* non-critical */ }
+  }, [mediaInfo])
+
+  const handleSearchSubs = useCallback(async () => {
+    if (!mediaInfo || mediaInfo.isTrailer) return
+    setSearchingSubs(true)
+    try {
+      const params: any = {
+        tmdb_id: mediaInfo.tmdbId,
+        season: mediaInfo.season,
+        episode: mediaInfo.episode,
+      }
+      const subs = await window.api.openSubtitles.search(params)
+      const prefs = preferredLanguagesRef.current
+      if (subs.length > 0 && prefs.length > 0) {
+        const match = subs.find((s: any) => {
+          const lang = s.attributes.language || ''
+          return prefs.some(p => lang.toLowerCase().startsWith(p.toLowerCase()))
+        })
+        if (match) {
+          const fileId = match.attributes.files?.[0]?.file_id
+          if (fileId) {
+            const filePath = await window.api.openSubtitles.downloadAndSave(fileId)
+            if (filePath) {
+              await window.api.mpv.addSubtitle(filePath)
+            }
+          }
+        }
+      }
+    } catch {}
+    setSearchingSubs(false)
+    setShowSubNotFound(false)
+    showSubNotFoundRef.current = false
   }, [mediaInfo])
 
   // Backup exit handler — if mpv exits and poll loop hasn't caught it yet
@@ -200,6 +235,16 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         if (pos > 0 && !splashHiddenRef.current) {
           splashHiddenRef.current = true
           window.api.mpv.hideSplash().catch(() => {})
+        }
+
+        // Check for subtitle-not-found signal from mpv OSD
+        if (!showSubNotFoundRef.current) {
+          const subAction = await window.api.mpv.getSubAction().catch(() => null)
+          if (subAction === 'no-subs') {
+            await window.api.mpv.clearSubAction().catch(() => {})
+            setShowSubNotFound(true)
+            showSubNotFoundRef.current = true
+          }
         }
 
         setCurrentTime(pos)
@@ -399,6 +444,34 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   // mpv is on top with its own OSC — no visual overlay needed here
   // This component handles backend: polling, scrobbling, subtitles, skip-intro
   return (
-    <div className={styles.player} tabIndex={-1} />
+    <div className={styles.player} tabIndex={-1}>
+      {showSubNotFound && (
+        <div className={styles.splashOverlay}>
+          <span className={styles.splashLogo}>No Subtitles</span>
+          <span className={styles.splashSub}>
+            {searchingSubs ? 'Searching for subtitles...' : 'No subtitles available for this video. Search OpenSubtitles?'}
+          </span>
+          {!searchingSubs && (
+            <div style={{ display: 'flex', gap: 24, marginTop: 16 }}>
+              <button
+                className={styles.playBtn}
+                onClick={handleSearchSubs}
+                style={{ padding: '12px 32px', fontSize: 16 }}
+              >
+                Yes, Search
+              </button>
+              <button
+                className={styles.playBtn}
+                onClick={() => { setShowSubNotFound(false); showSubNotFoundRef.current = false }}
+                style={{ padding: '12px 32px', fontSize: 16, opacity: 0.6 }}
+              >
+                No
+              </button>
+            </div>
+          )}
+          {searchingSubs && <div className={styles.splashSpinner} />}
+        </div>
+      )}
+    </div>
   )
 }

@@ -209,9 +209,12 @@ local function cycle_subs()
         end
     end
     if #sub_ids == 0 then
+        mp.set_property('user-data/fynix/sub-action', 'no-subs')
         mp.commandv('show-text', 'No subtitles available', 2000)
         return
     end
+
+    mp.set_property('user-data/fynix/sub-action', '')
 
     local current_sid = mp.get_property_number('sid', 0)
     local idx = 0

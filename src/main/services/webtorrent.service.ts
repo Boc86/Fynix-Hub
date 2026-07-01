@@ -108,7 +108,7 @@ export async function prefetchMetadata(infoHash: string, magnetUri: string): Pro
   }
 }
 
-export async function prefetchBatch(results: { infoHash: string; magnetUri: string }[], limit = 5): Promise<void> {
+export async function prefetchBatch(results: { infoHash: string; magnetUri: string }[], limit = 15): Promise<void> {
   const toFetch = results.filter(r => {
     const p = getMetadataPath(r.infoHash)
     return !fs.existsSync(p)

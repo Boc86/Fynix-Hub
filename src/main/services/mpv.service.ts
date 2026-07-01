@@ -450,6 +450,21 @@ export function getLastExitCode(): number | null {
   return lastExitCode
 }
 
+export async function getSubAction(): Promise<string | null> {
+  try {
+    const res = await sendCommand({ command: ['get_property_string', 'user-data/fynix/sub-action'] })
+    return res?.data || null
+  } catch {
+    return null
+  }
+}
+
+export async function clearSubAction(): Promise<void> {
+  try {
+    await sendCommand({ command: ['set_property_string', 'user-data/fynix/sub-action', ''] })
+  } catch {}
+}
+
 export function isAvailable(): boolean {
   if (isFlatpak()) {
     try {
