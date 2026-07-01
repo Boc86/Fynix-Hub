@@ -35,7 +35,6 @@ interface SettingsState {
   preferredAudioLanguage: string
   accentColor: string
   remoteMapping: Record<string, string>
-  sportsDbApiKey: string
   sportsEnabled: boolean
   sportsSelected: string[]
 
@@ -68,7 +67,6 @@ interface SettingsState {
   setPreferredAudioLanguage: (lang: string) => void
   setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
-  setSportsDbApiKey: (key: string) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsSelected: (ids: string[]) => void
   loadFromDisk: () => Promise<void>
@@ -105,7 +103,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   preferredAudioLanguage: '',
   accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
-  sportsDbApiKey: '',
   sportsEnabled: false,
   sportsSelected: [],
 
@@ -138,7 +135,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
-  setSportsDbApiKey: (key) => { set({ sportsDbApiKey: key }); get().saveToDisk() },
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
 
@@ -190,7 +186,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),
-        window.api.settings.set('sportsDbApiKey', state.sportsDbApiKey),
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsSelected', state.sportsSelected),
       ])

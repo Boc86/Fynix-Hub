@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, BrowserView } from 'electron'
 import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
 import * as TorrentSearchService from './services/torrent-search.service'
+import * as WebTorrentService from './services/webtorrent.service'
+import * as MpvService from './services/mpv.service'
 import { TizenTubeService } from './services/tizentube.service'
 import { setupCursorHide } from "./utils/cursorUtils"
 import { setupRemoteControl } from "./utils/remoteControl"
@@ -216,6 +218,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', async () => {
+  console.log('[App] before-quit — cleaning up services')
+  try { await MpvService.stopPlayback() } catch (e: any) { console.error('[App] mpv stop error:', e?.message) }
+  try { WebTorrentService.removeAllTorrents() } catch (e: any) { console.error('[App] torrent cleanup error:', e?.message) }
+  destroyYouTubeView()
+  console.log('[App] before-quit cleanup complete')
 })
 
 ipcMain.on('youtube:show', () => {

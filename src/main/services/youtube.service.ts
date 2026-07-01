@@ -1,22 +1,27 @@
-import { execFile } from 'child_process'
+import { execFile, spawn, type ChildProcess } from 'child_process'
 import path from 'path'
 import { app } from 'electron'
 import fs from 'fs'
 import os from 'os'
 import * as CacheService from './cache.service'
 
-const BUNDLED_YT_DLP = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp')
+const RESOURCES_YT_DLP = path.join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp')
+const DEV_YT_DLP = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp')
+const FALLBACK_YT_DLP = '/usr/bin/yt-dlp'
 
 function getYtDlpPath(): string {
-  const systemPaths = [
+  const candidates = [
+    RESOURCES_YT_DLP,
+    DEV_YT_DLP,
     '/usr/local/bin/yt-dlp',
     '/usr/bin/yt-dlp',
+    FALLBACK_YT_DLP,
     path.join(app.getPath('home'), '.local', 'bin', 'yt-dlp'),
   ]
-  for (const p of systemPaths) {
+  for (const p of candidates) {
     if (fs.existsSync(p)) return p
   }
-  return BUNDLED_YT_DLP
+  return FALLBACK_YT_DLP
 }
 
 interface BrowserPath {
@@ -121,6 +126,42 @@ function runYtDlp(args: string[], timeout = 15000): Promise<string> {
       resolve(stdout.trim())
     })
   })
+}
+
+export async function resolveStreamUrl(pageUrl: string): Promise<string> {
+  const args = [
+    '--no-check-certificate',
+    '--no-warnings',
+    '--no-cache-dir',
+    '--get-url',
+    '--format', 'best[ext=mp4]/best[ext=webm]/best',
+    pageUrl,
+  ]
+  const stdout = await runYtDlp(args, 30000)
+  const url = stdout.split('\n').filter(Boolean)[0]
+  if (!url) throw new Error('No stream URL returned by yt-dlp')
+  return url
+}
+
+import type { ChildProcess } from 'child_process'
+
+export function spawnYtDlpStdout(pageUrl: string): ChildProcess {
+  const binary = getYtDlpPath()
+  console.log('[yt-dlp] piping via:', binary, 'for URL:', pageUrl)
+  const args = [
+    '--no-check-certificate',
+    '--no-warnings',
+    '--no-cache-dir',
+    '--quiet',
+    '--format', 'best[ext=mp4]/best[ext=webm]/best',
+    '-o', '-',
+    pageUrl,
+  ]
+  return spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function isReplayUrl(url: string): boolean {
+  return /\bok\.ru\b|\bokcdn\.ru\b|\bokvideo\.ru\b|\bvk\.com\/video\b|\bvkvideo\b|\bdailymotion\.com\b|\bstreamtape\.com\b|\bstreamwish\.com\b|\bvidoza\.net\b|\bdooo\.stream\b|\bfileditchecks\b|\bvoe\.sx\b/i.test(url)
 }
 
 interface FormatInfo {

@@ -1,128 +1,123 @@
 import * as CacheService from './cache.service'
 
-const SPORTSDB_BASE = 'https://www.thesportsdb.com/api/v1/json'
+const SPORTARR_BASE = 'https://sportarr.net/api/public/v1'
 
-let apiKey = ''
+const CACHE_TTL = 300000
 
-export function setApiKey(key: string) {
-  apiKey = key
+interface ApiResponse<T> {
+  items: T[]
+  total: number
+  skip: number
+  limit: number
 }
 
-export function loadApiKey() {
-  apiKey = CacheService.getSetting<string>('sportsDbApiKey') || ''
+interface SportarrSport {
+  id: string
+  shortId: string
+  name: string
+  slug: string
+  description: string
+  iconUrl: string
+  isActive: boolean
 }
 
-function getApiKey(): string {
-  return apiKey || '3' // free test key
+interface SportarrLeague {
+  id: string
+  shortId: string
+  name: string
+  slug: string
+  abbreviation: string
+  description: string
+  sportId: string
+  sportName: string
+  country: string
+  logoUrl: string
+  isActive: boolean
+  alternateNames: string[]
 }
 
-async function fetchSportsDb(path: string) {
-  const key = getApiKey()
-  const res = await fetch(`${SPORTSDB_BASE}/${key}${path}`)
-  if (!res.ok) throw new Error(`TheSportsDB error: ${res.status}`)
-  return res.json()
+interface SportarrSeason {
+  id: string
+  shortId: string
+  name: string
+  leagueId: string
+  leagueName: string
+  startDate: string
+  endDate: string
+  year: string | null
+  isCurrent: boolean
+  isActive: boolean
 }
 
-export interface SportsLeague {
-  idLeague: string
-  strLeague: string
-  strSport: string
-  strBadge: string
-  strLogo: string
-  strTrophy: string
-  strDescription: string
-  strBanner: string
-  strCountry: string
-  strFanart1: string
-  strFanart2: string
-  strFanart3: string
-  strCurrentSeason: string
-  strDivision: string
+interface SportarrEvent {
+  id: string
+  shortId: string
+  name: string
+  eventType: string
+  leagueId: string
+  leagueName: string
+  seasonId: string
+  seasonName: string
+  venueId: string
+  venueName: string
+  scheduledStart: string
+  scheduledStartLocal: string
+  scheduledEnd: string
+  broadcastDate: string
+  broadcastTimezone: string
+  status: string
+  homeTeamId: string
+  homeTeamName: string
+  awayTeamId: string
+  awayTeamName: string
+  homeScore: number | null
+  awayScore: number | null
+  seasonNumber: number
+  episodeNumber: number
+  episodeCode: string
+  isActive: boolean
+  parts: unknown[]
 }
 
-export interface SportsEvent {
-  idEvent: string
-  idLeague: string
-  idHomeTeam: string
-  idAwayTeam: string
-  strEvent: string
-  strEventAlternate: string
-  strHomeTeam: string
-  strAwayTeam: string
-  strHomeTeamBadge: string
-  strAwayTeamBadge: string
-  dateEvent: string
-  strTime: string
-  strThumb: string
-  strSeason: string
-  strSport: string
-  intHomeScore: string
-  intAwayScore: string
-  strStatus: string
-  strPoster: string
-  strVideo: string
-  strFilename: string
-  strCountry: string
-  strVenue: string
+interface SportarrTeam {
+  id: string
+  shortId: string
+  name: string
+  slug: string
+  abbreviation: string
+  nickname: string
+  city: string
+  country: string
+  logoUrl: string
+  alternateNames: string[]
+  primaryColor: string
+  secondaryColor: string
+  venueId: string
+  venueName: string
+  isActive: boolean
 }
 
-export interface SportsTeam {
-  idTeam: string
-  strTeam: string
-  strTeamBadge: string
-  strTeamJersey: string
-  strTeamLogo: string
-  strTeamFanart1: string
-  strTeamBanner: string
-  strDescription: string
-  strCountry: string
-  strStadium: string
-  strLeague: string
-  idLeague: string
+const http = {
+  async get<T>(path: string): Promise<ApiResponse<T>> {
+    const res = await fetch(`${SPORTARR_BASE}${path}`)
+    if (!res.ok) throw new Error(`Sportarr API error: ${res.status}`)
+    return res.json()
+  },
+  async getOne<T>(path: string): Promise<T> {
+    const res = await fetch(`${SPORTARR_BASE}${path}`)
+    if (!res.ok) throw new Error(`Sportarr API error: ${res.status}`)
+    return res.json()
+  },
 }
 
-const CACHE_TTL = 300000 // 5 minutes
-
-export async function getAllLeagues(): Promise<SportsLeague[]> {
-  const cacheKey = 'sports:all-leagues'
+export async function getSportsList(): Promise<SportarrSport[]> {
+  const cacheKey = 'sports:list:v2'
   const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as SportsLeague[]
+  if (cached) return JSON.parse(cached) as SportarrSport[]
 
   try {
-    const data = await fetchSportsDb('/all_leagues.php')
-    const leagues = (data?.leagues || []) as SportsLeague[]
-    CacheService.setCache(cacheKey, JSON.stringify(leagues), CACHE_TTL)
-    return leagues
-  } catch (err: any) {
-    console.error('[Sports] Failed to fetch leagues:', err.message)
-    return []
-  }
-}
-
-export async function getLeaguesBySport(sport: string): Promise<SportsLeague[]> {
-  const cacheKey = `sports:leagues:${sport}`
-  const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as SportsLeague[]
-
-  try {
-    const data = await fetchSportsDb(`/search_all_leagues.php?s=${encodeURIComponent(sport)}`)
-    const leagues = (data?.country || []) as SportsLeague[]
-    CacheService.setCache(cacheKey, JSON.stringify(leagues), CACHE_TTL)
-    return leagues
-  } catch (err: any) {
-    console.error(`[Sports] Failed to fetch ${sport} leagues:`, err.message)
-    return []
-  }
-}
-
-export async function getSportsList(): Promise<string[]> {
-  const cacheKey = 'sports:list'
-  const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as string[]
-
-  try {
-    const data = await fetchSportsDb('/all_sports.php')
-    const sports = (data?.sports || []).map((s: any) => s.strSport) as string[]
+    const data = await http.get<SportarrSport>('/sports')
+    const sports = data.items.filter(s => s.isActive)
     CacheService.setCache(cacheKey, JSON.stringify(sports), 86400000)
     return sports
   } catch (err: any) {
@@ -131,14 +126,63 @@ export async function getSportsList(): Promise<string[]> {
   }
 }
 
-export async function getUpcomingEvents(leagueId: string): Promise<SportsEvent[]> {
-  const cacheKey = `sports:upcoming:${leagueId}`
+async function fetchAll<T>(basePath: string): Promise<T[]> {
+  const all: T[] = []
+  let skip = 0
+  const pageSize = 100
+  while (true) {
+    const sep = basePath.includes('?') ? '&' : '?'
+    const data = await http.get<T>(`${basePath}${sep}skip=${skip}&limit=${pageSize}`)
+    all.push(...data.items)
+    if (all.length >= data.total || data.items.length === 0) break
+    skip += pageSize
+  }
+  return all
+}
+
+export async function getLeaguesBySport(sportId: string): Promise<SportarrLeague[]> {
+  const cacheKey = `sports:leagues:v2:${sportId}`
   const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as SportsEvent[]
+  if (cached) return JSON.parse(cached) as SportarrLeague[]
 
   try {
-    const data = await fetchSportsDb(`/eventsnextleague.php?id=${leagueId}`)
-    const events = (data?.events || []) as SportsEvent[]
+    const items = await fetchAll<SportarrLeague>(`/leagues?sport=${encodeURIComponent(sportId)}`)
+    const leagues = items.filter(l => l.isActive)
+    CacheService.setCache(cacheKey, JSON.stringify(leagues), CACHE_TTL)
+    return leagues
+  } catch (err: any) {
+    console.error(`[Sports] Failed to fetch leagues for ${sportId}:`, err.message)
+    return []
+  }
+}
+
+export async function getSeasons(leagueId: string): Promise<SportarrSeason[]> {
+  const cacheKey = `sports:seasons:v2:${leagueId}`
+  const cached = CacheService.getCache(cacheKey)
+  if (cached) return JSON.parse(cached) as SportarrSeason[]
+
+  try {
+    const data = await http.get<SportarrSeason>(`/seasons?league=${encodeURIComponent(leagueId)}`)
+    const seasons = data.items
+    CacheService.setCache(cacheKey, JSON.stringify(seasons), CACHE_TTL)
+    return seasons
+  } catch (err: any) {
+    console.error(`[Sports] Failed to fetch seasons for ${leagueId}:`, err.message)
+    return []
+  }
+}
+
+export async function getUpcomingEvents(leagueId: string, seasonId?: string): Promise<SportarrEvent[]> {
+  const cacheKey = `sports:upcoming:v2:${leagueId}:${seasonId || 'all'}`
+  const cached = CacheService.getCache(cacheKey)
+  if (cached) return JSON.parse(cached) as SportarrEvent[]
+
+  try {
+    let path = `/events?league=${encodeURIComponent(leagueId)}`
+    if (seasonId) path += `&season=${encodeURIComponent(seasonId)}`
+    const items = await fetchAll<SportarrEvent>(path)
+    const now = new Date()
+    const events = items.filter(e => e.isActive && new Date(e.scheduledStart) > now)
     CacheService.setCache(cacheKey, JSON.stringify(events), CACHE_TTL)
     return events
   } catch (err: any) {
@@ -147,14 +191,17 @@ export async function getUpcomingEvents(leagueId: string): Promise<SportsEvent[]
   }
 }
 
-export async function getPastEvents(leagueId: string): Promise<SportsEvent[]> {
-  const cacheKey = `sports:past:${leagueId}`
+export async function getPastEvents(leagueId: string, seasonId?: string): Promise<SportarrEvent[]> {
+  const cacheKey = `sports:past:v2:${leagueId}:${seasonId || 'all'}`
   const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as SportsEvent[]
+  if (cached) return JSON.parse(cached) as SportarrEvent[]
 
   try {
-    const data = await fetchSportsDb(`/eventspastleague.php?id=${leagueId}`)
-    const events = (data?.events || []) as SportsEvent[]
+    let path = `/events?league=${encodeURIComponent(leagueId)}`
+    if (seasonId) path += `&season=${encodeURIComponent(seasonId)}`
+    const items = await fetchAll<SportarrEvent>(path)
+    const now = new Date()
+    const events = items.filter(e => e.isActive && new Date(e.scheduledStart) <= now)
     CacheService.setCache(cacheKey, JSON.stringify(events), CACHE_TTL)
     return events
   } catch (err: any) {
@@ -163,44 +210,40 @@ export async function getPastEvents(leagueId: string): Promise<SportsEvent[]> {
   }
 }
 
-export async function getEventDetails(eventId: string): Promise<SportsEvent | null> {
-  const cacheKey = `sports:event:${eventId}`
+export async function getEventDetails(eventId: string): Promise<SportarrEvent | null> {
+  const cacheKey = `sports:event:v2:${eventId}`
   const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as SportsEvent
+  if (cached) return JSON.parse(cached) as SportarrEvent
 
   try {
-    const data = await fetchSportsDb(`/event_details.php?id=${eventId}`)
-    const events = (data?.events || []) as SportsEvent[]
-    if (events.length === 0) return null
-    CacheService.setCache(cacheKey, JSON.stringify(events[0]), CACHE_TTL)
-    return events[0]
+    const event = await http.getOne<SportarrEvent>(`/events/${encodeURIComponent(eventId)}`)
+    if (event) CacheService.setCache(cacheKey, JSON.stringify(event), CACHE_TTL)
+    return event
   } catch (err: any) {
     console.error(`[Sports] Failed to fetch event ${eventId}:`, err.message)
     return null
   }
 }
 
-export async function getTeamDetails(teamId: string): Promise<SportsTeam | null> {
-  const cacheKey = `sports:team:${teamId}`
+export async function getTeamDetails(teamId: string): Promise<SportarrTeam | null> {
+  const cacheKey = `sports:team:v2:${teamId}`
   const cached = CacheService.getCache(cacheKey)
-  if (cached) return JSON.parse(cached) as SportsTeam
+  if (cached) return JSON.parse(cached) as SportarrTeam
 
   try {
-    const data = await fetchSportsDb(`/lookupteam.php?id=${teamId}`)
-    const teams = (data?.teams || []) as SportsTeam[]
-    if (teams.length === 0) return null
-    CacheService.setCache(cacheKey, JSON.stringify(teams[0]), 86400000)
-    return teams[0]
+    const team = await http.getOne<SportarrTeam>(`/teams/${encodeURIComponent(teamId)}`)
+    if (team) CacheService.setCache(cacheKey, JSON.stringify(team), 86400000)
+    return team
   } catch (err: any) {
     console.error(`[Sports] Failed to fetch team ${teamId}:`, err.message)
     return null
   }
 }
 
-export async function searchEvents(query: string): Promise<SportsEvent[]> {
+export async function searchEvents(query: string): Promise<SportarrEvent[]> {
   try {
-    const data = await fetchSportsDb(`/searchteams.php?t=${encodeURIComponent(query)}`)
-    return (data?.event || []) as SportsEvent[]
+    const data = await http.get<SportarrEvent>(`/search?q=${encodeURIComponent(query)}&types=event`)
+    return data.items
   } catch (err: any) {
     console.error(`[Sports] Failed to search events for ${query}:`, err.message)
     return []

@@ -1,11 +1,15 @@
 import { create } from 'zustand'
-import type { SportsLeague, SportsEvent, SportsTeam } from '../types.d'
+import type { SportsLeague, SportsEvent, SportsTeam, SportarrSport, SportsSeason } from '../types.d'
+
+type SportsView = 'sports' | 'leagues' | 'seasons' | 'events' | 'detail'
 
 interface SportsState {
-  sportsList: string[]
+  sportsList: SportarrSport[]
   leagues: SportsLeague[]
-  selectedSport: string | null
+  seasons: SportsSeason[]
+  selectedSport: SportarrSport | null
   selectedLeague: SportsLeague | null
+  selectedSeason: SportsSeason | null
   upcomingEvents: SportsEvent[]
   pastEvents: SportsEvent[]
   selectedEvent: SportsEvent | null
@@ -13,12 +17,14 @@ interface SportsState {
   awayTeam: SportsTeam | null
   loading: boolean
   error: string | null
-  view: 'sports' | 'leagues' | 'events' | 'detail'
+  view: SportsView
 
-  setSportsList: (list: string[]) => void
+  setSportsList: (list: SportarrSport[]) => void
   setLeagues: (leagues: SportsLeague[]) => void
-  setSelectedSport: (sport: string | null) => void
+  setSeasons: (seasons: SportsSeason[]) => void
+  setSelectedSport: (sport: SportarrSport | null) => void
   setSelectedLeague: (league: SportsLeague | null) => void
+  setSelectedSeason: (season: SportsSeason | null) => void
   setUpcomingEvents: (events: SportsEvent[]) => void
   setPastEvents: (events: SportsEvent[]) => void
   setSelectedEvent: (event: SportsEvent | null) => void
@@ -26,22 +32,24 @@ interface SportsState {
   setAwayTeam: (team: SportsTeam | null) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
-  setView: (view: 'sports' | 'leagues' | 'events' | 'detail') => void
+  setView: (view: SportsView) => void
   reset: () => void
 }
 
 const initialState = {
-  sportsList: [],
-  leagues: [],
-  selectedSport: null,
-  selectedLeague: null,
-  upcomingEvents: [],
-  pastEvents: [],
-  selectedEvent: null,
-  homeTeam: null,
-  awayTeam: null,
+  sportsList: [] as SportarrSport[],
+  leagues: [] as SportsLeague[],
+  seasons: [] as SportsSeason[],
+  selectedSport: null as SportarrSport | null,
+  selectedLeague: null as SportsLeague | null,
+  selectedSeason: null as SportsSeason | null,
+  upcomingEvents: [] as SportsEvent[],
+  pastEvents: [] as SportsEvent[],
+  selectedEvent: null as SportsEvent | null,
+  homeTeam: null as SportsTeam | null,
+  awayTeam: null as SportsTeam | null,
   loading: false,
-  error: null,
+  error: null as string | null,
   view: 'sports' as const,
 }
 
@@ -50,8 +58,10 @@ export const useSportsStore = create<SportsState>((set) => ({
 
   setSportsList: (list) => set({ sportsList: list }),
   setLeagues: (leagues) => set({ leagues }),
+  setSeasons: (seasons) => set({ seasons }),
   setSelectedSport: (sport) => set({ selectedSport: sport }),
   setSelectedLeague: (league) => set({ selectedLeague: league }),
+  setSelectedSeason: (season) => set({ selectedSeason: season }),
   setUpcomingEvents: (events) => set({ upcomingEvents: events }),
   setPastEvents: (events) => set({ pastEvents: events }),
   setSelectedEvent: (event) => set({ selectedEvent: event }),

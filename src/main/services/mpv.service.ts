@@ -2,6 +2,8 @@ import { spawn, execSync, type ChildProcess } from 'child_process'
 import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as YoutubeService from './youtube.service'
+import * as OkruResolver from './okru-resolver'
 
 let mpvProcess: ChildProcess | null = null
 let ipcSocketPath = '/tmp/mpv-fynix.sock'
@@ -119,6 +121,19 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     try { fs.unlinkSync(ipcSocketPath) } catch {}
   }
 
+  let playUrl: string = url
+  if (OkruResolver.isOkruReplay(url)) {
+    try {
+      console.log('[MPV] Resolving ok.ru replay URL via custom resolver')
+      const resolved = await OkruResolver.resolveOkruReplay(url)
+      console.log('[MPV] Resolved ok.ru manifest URL, passing directly to mpv')
+      playUrl = resolved
+    } catch (err: any) {
+      console.error('[MPV] ok.ru resolution failed:', err?.message)
+      throw err
+    }
+  }
+
   console.log('[MPV] Env DISPLAY:', process.env.DISPLAY)
   console.log('[MPV] Env FLATPAK_ID:', process.env.FLATPAK_ID)
   if (accentColor) console.log('[MPV] Accent color for OSC:', accentColor)
@@ -147,6 +162,20 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     mpvArgs.push(`--alang=${audioLanguage}`)
   }
 
+  if (/^https?:\/\//.test(playUrl)) {
+    const isOkCdn = /okcdn\.ru/i.test(playUrl)
+    const isVk = /vk\.com|vkvideo/i.test(playUrl)
+    if (isOkCdn) {
+      mpvArgs.push('--referrer=https://ok.ru/')
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+      mpvArgs.push('--http-header-fields=Origin: https://ok.ru')
+    } else if (isVk) {
+      mpvArgs.push('--referrer=https://vk.com/')
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+      mpvArgs.push('--http-header-fields=Origin: https://vk.com')
+    }
+  }
+
   if (mpvDir) {
     const confPath = path.join(mpvDir, 'mpv.conf')
     const inputPath = path.join(mpvDir, 'input.conf')
@@ -157,6 +186,18 @@ export async function startPlayback(url: string, resumePosition?: number, accent
       mpvArgs.push(`--script=${scriptPath}`)
       console.log('[MPV] Loading custom OSC script:', scriptPath)
     }
+  }
+
+  const isReplayBypass = /^https?:\/\/.*okcdn\.ru/i.test(playUrl) || /vk\.com|vkvideo/i.test(playUrl)
+  if (isReplayBypass) {
+    mpvArgs.push('--cache=no')
+    mpvArgs.push('--cache-pause-initial=no')
+    mpvArgs.push('--demuxer-readahead-secs=0')
+    mpvArgs.push('--demuxer-max-bytes=200MiB')
+    mpvArgs.push('--demuxer-max-back-bytes=50MiB')
+    mpvArgs.push('--prefetch-playlist=no')
+    mpvArgs.push('--force-seekable=no')
+    console.log('[MPV] Replay bypass: cache disabled for', playUrl.split('/')[2])
   }
 
   const accent = (accentColor || '#FF6B00').replace(/^#/, '')
@@ -171,7 +212,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     console.log('[MPV] Will seek to resume position:', resumePos)
   }
 
-  mpvArgs.push(url)
+  mpvArgs.push(playUrl)
 
   const fullArgs = [...mpvArgs]
   console.log('[MPV] Starting:', cmd, fullArgs.join(' '))

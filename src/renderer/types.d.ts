@@ -147,59 +147,87 @@ export interface IntroSegment {
 }
 
 export interface SportsLeague {
-  idLeague: string
-  strLeague: string
-  strSport: string
-  strBadge: string
-  strLogo: string
-  strTrophy: string
-  strDescription: string
-  strBanner: string
-  strCountry: string
-  strFanart1: string
-  strFanart2: string
-  strFanart3: string
-  strCurrentSeason: string
-  strDivision: string
+  id: string
+  shortId: string
+  name: string
+  slug: string
+  abbreviation: string
+  description: string
+  sportId: string
+  sportName: string
+  country: string
+  logoUrl: string
+  isActive: boolean
+  alternateNames: string[]
 }
 
 export interface SportsEvent {
-  idEvent: string
-  idLeague: string
-  idHomeTeam: string
-  idAwayTeam: string
-  strEvent: string
-  strEventAlternate: string
-  strHomeTeam: string
-  strAwayTeam: string
-  strHomeTeamBadge: string
-  strAwayTeamBadge: string
-  dateEvent: string
-  strTime: string
-  strThumb: string
-  strSeason: string
-  strSport: string
-  intHomeScore: string
-  intAwayScore: string
-  strStatus: string
-  strPoster: string
-  strVideo: string
-  strFilename: string
-  strCountry: string
-  strVenue: string
+  id: string
+  shortId: string
+  name: string
+  eventType: string
+  leagueId: string
+  leagueName: string
+  seasonId: string
+  seasonName: string
+  venueId: string
+  venueName: string
+  scheduledStart: string
+  scheduledStartLocal: string
+  scheduledEnd: string
+  broadcastDate: string
+  broadcastTimezone: string
+  status: string
+  homeTeamId: string
+  homeTeamName: string
+  awayTeamId: string
+  awayTeamName: string
+  homeScore: number | null
+  awayScore: number | null
+  seasonNumber: number
+  episodeNumber: number
+  episodeCode: string
+  isActive: boolean
+  parts: unknown[]
 }
 
 export interface SportsTeam {
-  idTeam: string
-  strTeam: string
-  strTeamBadge: string
-  strTeamJersey: string
-  strTeamLogo: string
-  strTeamFanart1: string
-  strTeamBanner: string
-  strDescription: string
-  strCountry: string
-  strStadium: string
-  strLeague: string
-  idLeague: string
+  id: string
+  shortId: string
+  name: string
+  slug: string
+  abbreviation: string
+  nickname: string
+  city: string
+  country: string
+  logoUrl: string
+  alternateNames: string[]
+  primaryColor: string
+  secondaryColor: string
+  venueId: string
+  venueName: string
+  isActive: boolean
+}
+
+export interface SportarrSport {
+  id: string
+  shortId: string
+  name: string
+  slug: string
+  description: string
+  iconUrl: string
+  isActive: boolean
+}
+
+export interface SportsSeason {
+  id: string
+  shortId: string
+  name: string
+  leagueId: string
+  leagueName: string
+  startDate: string
+  endDate: string
+  year: string | null
+  isCurrent: boolean
+  isActive: boolean
 }

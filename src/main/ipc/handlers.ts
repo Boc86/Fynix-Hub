@@ -16,6 +16,7 @@ import * as YoutubeService from '../services/youtube.service'
 import * as LocalCacheService from '../services/local-cache.service'
 import * as OpenSubtitlesService from '../services/opensubtitles.service'
 import * as SportsService from '../services/sports.service'
+import * as ReplayZoneService from '../services/replayzone.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -23,7 +24,7 @@ export async function registerIpcHandlers(): Promise<void> {
   DebridService.loadKeys()
   FanartService.loadApiKey()
   OpenSubtitlesService.loadApiKey()
-  SportsService.loadApiKey()
+  // SportsService uses public Sportarr API, no key needed
   await WebTorrentService.init()
   LocalCacheService.init()
   if (IndexerCatalogService.shouldRefreshCatalog()) {
@@ -491,7 +492,7 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'alldebridAccessToken') DebridService.loadKeys()
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
     if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
-    if (key === 'sportsDbApiKey') SportsService.setApiKey(String(value))
+    // SportsService uses public Sportarr API, no key needed
 })
 
   ipcMain.handle('settings:get-all', () => {
@@ -652,24 +653,33 @@ export async function registerIpcHandlers(): Promise<void> {
     return filePath
   })
 
-  ipcMain.handle('sports:get-all-leagues', async () => {
-    return SportsService.getAllLeagues()
-  })
-
   ipcMain.handle('sports:get-leagues-by-sport', async (_event, sport: string) => {
     return SportsService.getLeaguesBySport(sport)
+  })
+
+  ipcMain.handle('youtube:get-stream-url', async (_event, videoUrl: string) => {
+    try {
+      const url = await YoutubeService.resolveStreamUrl(videoUrl)
+      return { success: true, url }
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to resolve stream URL' }
+    }
+  })
+
+  ipcMain.handle('sports:get-seasons', async (_event, leagueId: string) => {
+    return SportsService.getSeasons(leagueId)
   })
 
   ipcMain.handle('sports:get-sports-list', async () => {
     return SportsService.getSportsList()
   })
 
-  ipcMain.handle('sports:get-upcoming-events', async (_event, leagueId: string) => {
-    return SportsService.getUpcomingEvents(leagueId)
+  ipcMain.handle('sports:get-upcoming-events', async (_event, leagueId: string, seasonId?: string) => {
+    return SportsService.getUpcomingEvents(leagueId, seasonId)
   })
 
-  ipcMain.handle('sports:get-past-events', async (_event, leagueId: string) => {
-    return SportsService.getPastEvents(leagueId)
+  ipcMain.handle('sports:get-past-events', async (_event, leagueId: string, seasonId?: string) => {
+    return SportsService.getPastEvents(leagueId, seasonId)
   })
 
   ipcMain.handle('sports:get-event-details', async (_event, eventId: string) => {
@@ -678,6 +688,10 @@ export async function registerIpcHandlers(): Promise<void> {
 
   ipcMain.handle('sports:get-team-details', async (_event, teamId: string) => {
     return SportsService.getTeamDetails(teamId)
+  })
+
+  ipcMain.handle('replayzone:search', async (_event, query: string) => {
+    return ReplayZoneService.searchReplays(query)
   })
 
   // Notify all renderer windows when mpv exits (so cleanup happens immediately)

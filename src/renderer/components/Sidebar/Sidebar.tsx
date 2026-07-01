@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './Sidebar.module.css'
 
-export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'settings' | 'sports'
+export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'settings'
 
-export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'settings', 'sports']
+export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'settings']
 
 interface SidebarProps {
   open: boolean
@@ -23,8 +23,8 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { view: 'movies' as NavView, label: 'Movies', shortcut: '' },
     { view: 'tv-shows' as NavView, label: 'TV Shows', shortcut: '' },
     { view: 'youtube' as NavView, label: 'YouTube', shortcut: '' },
-    { view: 'settings' as NavView, label: 'Settings', shortcut: '' },
     { view: 'sports' as NavView, label: 'Sports', shortcut: '' },
+    { view: 'settings' as NavView, label: 'Settings', shortcut: '' },
     { view: null as NavView | null, label: 'Minimize', shortcut: '', isAction: true, action: 'minimize' as const },
     { view: null as NavView | null, label: 'Exit', shortcut: '', isAction: true, action: 'exit' as const },
   ]

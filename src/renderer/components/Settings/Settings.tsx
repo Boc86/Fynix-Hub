@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
 import type { CustomIndexer } from '../../../main/services/torrent-search.service'
+import type { SportarrSport } from '../../types.d'
 import styles from './Settings.module.css'
 
 interface BuiltInDefinition {
@@ -64,6 +65,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [catalogError, setCatalogError] = useState('')
   const [newCustom, setNewCustom] = useState({ name: '', url: '', apiKey: '' })
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null)
+  const [sportsList, setSportsList] = useState<SportarrSport[]>([])
 
   const resolutions = ['4K', '1080p', '720p', '480p']
 
@@ -92,6 +94,15 @@ export default function Settings({ onClose }: SettingsProps) {
       if (v) setTizentubeVersion(v)
     }).catch(() => {})
   }, [])
+
+  // Load sports list when sports tab is opened
+  useEffect(() => {
+    if (activeTab === 'sports' && sportsList.length === 0) {
+      window.api.sports.getSportsList().then((list: SportarrSport[]) => {
+        setSportsList(list)
+      }).catch(() => {})
+    }
+  }, [activeTab])
 
   const captureKey = (action: string) => {
     setCapturingKey(action)
@@ -1108,20 +1119,8 @@ export default function Settings({ onClose }: SettingsProps) {
         return (
           <div className={styles.tabContent}>
             <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>TheSportsDB API</h3>
-              <p className={styles.settingDesc}>API key for browsing sports leagues, events, and scores.</p>
-              <input
-                type="password"
-                className={styles.input}
-                placeholder="Enter TheSportsDB API Key (or leave empty for test key)"
-                value={store.sportsDbApiKey}
-                onChange={(e) => store.setSportsDbApiKey(e.target.value)}
-              />
-            </div>
-
-            <div className={styles.settingGroup}>
               <h3 className={styles.settingTitle}>Sports Hub</h3>
-              <p className={styles.settingDesc}>Enable the Sports section in the sidebar to browse leagues and events.</p>
+              <p className={styles.settingDesc}>Browse sports leagues, events, and scores. Data is provided by the free Sportarr public API — no API key required.</p>
               <div className={styles.toggleGrid}>
                 <button
                   tabIndex={0}
@@ -1132,6 +1131,49 @@ export default function Settings({ onClose }: SettingsProps) {
                 </button>
               </div>
             </div>
+
+            {store.sportsEnabled && (
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Visible Sports</h3>
+                <p className={styles.settingDesc}>Select which sports appear in the Sports section. Leave empty to show all.</p>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <button
+                    tabIndex={0}
+                    className={styles.connectBtn}
+                    onClick={() => store.setSportsSelected(sportsList.map(s => s.id))}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    tabIndex={0}
+                    className={styles.connectBtn}
+                    onClick={() => store.setSportsSelected([])}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className={styles.toggleGrid}>
+                  {sportsList.map((sport) => {
+                    const selected = store.sportsSelected.includes(sport.id)
+                    return (
+                      <button
+                        key={sport.id}
+                        tabIndex={0}
+                        className={`${styles.toggle} ${selected ? styles.toggleActive : ''}`}
+                        onClick={() => {
+                          const next = selected
+                            ? store.sportsSelected.filter(id => id !== sport.id)
+                            : [...store.sportsSelected, sport.id]
+                          store.setSportsSelected(next)
+                        }}
+                      >
+                        {sport.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )
 

@@ -1,11 +1,16 @@
-import React, { useEffect, useCallback, useRef, useState } from 'react'
+import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react'
 import { useSportsStore } from '../../store/sportsStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import styles from './Sports.module.css'
+import type { SportarrSport, SportsLeague, SportsEvent, SportsSeason } from '../../types.d'
 
-interface SportsProps {
-  onPlay: (title: string, year?: number) => void
-  onBack: () => void
+interface ReplayResult {
+  title: string
+  sport: string
+  category: string
+  thumbnail: string
+  date: string
+  sources: { label: string; type: string; url: string }[]
 }
 
 const SPORT_ICONS: Record<string, string> = {
@@ -43,19 +48,44 @@ const SPORT_ICONS: Record<string, string> = {
   'Surfing': '🏄',
 }
 
-export default function Sports({ onPlay, onBack }: SportsProps) {
+const GRID_MIN_COL = 260
+
+interface SportsProps {
+  onPlay: (title: string, year?: number) => void
+  onPlayUrl: (url: string) => Promise<void>
+  onBack: () => void
+}
+
+export default function Sports({ onPlay, onPlayUrl, onBack }: SportsProps) {
   const store = useSportsStore()
   const settingsStore = useSettingsStore()
   const containerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const [focusedIndex, setFocusedIndex] = useState(0)
+  const [replayResults, setReplayResults] = useState<ReplayResult[]>([])
+  const [replaySearching, setReplaySearching] = useState(false)
+  const [replayFocused, setReplayFocused] = useState(0)
 
-  const hasApiKey = !!settingsStore.sportsDbApiKey
+  const visibleSports = useMemo(() => {
+    if (settingsStore.sportsSelected.length === 0) return store.sportsList
+    return store.sportsList.filter(s => settingsStore.sportsSelected.includes(s.id))
+  }, [store.sportsList, settingsStore.sportsSelected])
 
   useEffect(() => {
-    if (store.view === 'sports' && store.sportsList.length === 0) {
+    const { view } = useSportsStore.getState()
+    if (view !== 'sports') {
+      useSportsStore.setState({
+        view: 'sports',
+        selectedSport: null, leagues: [],
+        selectedLeague: null, seasons: [],
+        selectedSeason: null, upcomingEvents: [], pastEvents: [],
+        selectedEvent: null, homeTeam: null, awayTeam: null,
+      })
+    }
+    if (store.sportsList.length === 0) {
       store.setLoading(true)
       window.api.sports.getSportsList()
-        .then((list: string[]) => {
+        .then((list: SportarrSport[]) => {
           store.setSportsList(list)
           store.setLoading(false)
         })
@@ -64,14 +94,28 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
           store.setLoading(false)
         })
     }
-  }, [store.view])
+  }, [])
 
-  const loadLeagues = useCallback(async (sport: string) => {
+  useEffect(() => {
+    if (!store.loading && containerRef.current) {
+      containerRef.current.focus()
+    }
+  }, [store.loading, store.view])
+
+  const getGridCols = useCallback(() => {
+    const el = contentRef.current
+    if (!el) return 1
+    const grid = el.querySelector('[data-grid]') as HTMLElement | null
+    if (!grid) return 1
+    const width = grid.clientWidth
+    return Math.max(1, Math.floor((width + 16) / (GRID_MIN_COL + 16)))
+  }, [])
+
+  const loadLeagues = useCallback(async (sport: SportarrSport) => {
     store.setLoading(true)
-    store.setSelectedSport(sport)
-    store.setView('leagues')
+    useSportsStore.setState({ selectedSport: sport, view: 'leagues', leagues: [] })
     try {
-      const leagues = await window.api.sports.getLeaguesBySport(sport)
+      const leagues = await window.api.sports.getLeaguesBySport(sport.id)
       store.setLeagues(leagues)
     } catch {
       store.setError('Failed to load leagues')
@@ -79,16 +123,28 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
     store.setLoading(false)
   }, [store])
 
-  const loadEvents = useCallback(async (league: any) => {
+  const loadSeasons = useCallback(async (league: SportsLeague) => {
     store.setLoading(true)
-    store.setSelectedLeague(league)
-    store.setView('events')
+    useSportsStore.setState({ selectedLeague: league, view: 'seasons', seasons: [] })
     try {
+      const seasons = await window.api.sports.getSeasons(league.id)
+      store.setSeasons(seasons)
+    } catch {
+      store.setError('Failed to load seasons')
+    }
+    store.setLoading(false)
+  }, [store])
+
+  const loadEvents = useCallback(async (season: SportsSeason) => {
+    store.setLoading(true)
+    useSportsStore.setState({ selectedSeason: season, view: 'events', upcomingEvents: [], pastEvents: [] })
+    try {
+      const leagueId = useSportsStore.getState().selectedLeague!.id
       const [upcoming, past] = await Promise.all([
-        window.api.sports.getUpcomingEvents(league.idLeague),
-        window.api.sports.getPastEvents(league.idLeague),
+        window.api.sports.getUpcomingEvents(leagueId, season.id),
+        window.api.sports.getPastEvents(leagueId, season.id),
       ])
-      store.setUpcomingEvents(upcoming)
+      store.setUpcomingEvents(season.isCurrent ? [] : upcoming)
       store.setPastEvents(past)
     } catch {
       store.setError('Failed to load events')
@@ -96,14 +152,13 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
     store.setLoading(false)
   }, [store])
 
-  const loadEventDetail = useCallback(async (event: any) => {
+  const loadEventDetail = useCallback(async (event: SportsEvent) => {
     store.setLoading(true)
-    store.setSelectedEvent(event)
-    store.setView('detail')
+    useSportsStore.setState({ selectedEvent: event, view: 'detail', homeTeam: null, awayTeam: null })
     try {
       const [homeTeam, awayTeam] = await Promise.all([
-        event.idHomeTeam ? window.api.sports.getTeamDetails(event.idHomeTeam) : Promise.resolve(null),
-        event.idAwayTeam ? window.api.sports.getTeamDetails(event.idAwayTeam) : Promise.resolve(null),
+        event.homeTeamId ? window.api.sports.getTeamDetails(event.homeTeamId) : Promise.resolve(null),
+        event.awayTeamId ? window.api.sports.getTeamDetails(event.awayTeamId) : Promise.resolve(null),
       ])
       store.setHomeTeam(homeTeam)
       store.setAwayTeam(awayTeam)
@@ -113,46 +168,81 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
     store.setLoading(false)
   }, [store])
 
-  const handlePlayEvent = useCallback(() => {
+  const isTeamEvent = useCallback((event: SportsEvent) => {
+    return !!(event.homeTeamName && event.awayTeamName)
+  }, [])
+
+  const handlePlayEvent = useCallback(async () => {
     const event = store.selectedEvent
     if (!event) return
-    const title = `${event.strHomeTeam} vs ${event.strAwayTeam} - ${event.strEvent || event.strLeague}`
-    onPlay(title, parseInt(event.dateEvent?.slice(0, 4)) || undefined)
-  }, [store.selectedEvent, onPlay])
+    const title = isTeamEvent(event)
+      ? `${event.homeTeamName} vs ${event.awayTeamName}`
+      : event.name
+
+    setReplaySearching(true)
+    setReplayResults([])
+    setReplayFocused(0)
+
+    try {
+      const results = await window.api.sports.searchReplays(title)
+      if (results.length > 0) {
+        setReplayResults(results)
+      } else {
+        onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined)
+      }
+    } catch {
+      onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined)
+    }
+    setReplaySearching(false)
+  }, [store.selectedEvent, onPlay, isTeamEvent])
 
   const goBack = useCallback(() => {
-    switch (store.view) {
+    const { view } = useSportsStore.getState()
+    switch (view) {
+      case 'sports':
+        onBack()
+        break
       case 'leagues':
-        store.setView('sports')
-        store.setSelectedSport(null)
+        useSportsStore.setState({
+          view: 'sports',
+          selectedSport: null, leagues: [],
+          selectedLeague: null, seasons: [],
+          selectedSeason: null, upcomingEvents: [], pastEvents: [],
+          selectedEvent: null, homeTeam: null, awayTeam: null,
+        })
+        setFocusedIndex(0)
+        setReplayResults([])
+        break
+      case 'seasons':
+        useSportsStore.setState({ view: 'leagues', selectedLeague: null, seasons: [] })
+        setFocusedIndex(0)
         break
       case 'events':
-        store.setView('leagues')
-        store.setSelectedLeague(null)
+        useSportsStore.setState({ view: 'seasons', selectedSeason: null, upcomingEvents: [], pastEvents: [] })
+        setFocusedIndex(0)
         break
       case 'detail':
-        store.setView('events')
-        store.setSelectedEvent(null)
-        store.setHomeTeam(null)
-        store.setAwayTeam(null)
+        useSportsStore.setState({ view: 'events', selectedEvent: null, homeTeam: null, awayTeam: null })
+        setReplayResults([])
+        setFocusedIndex(0)
         break
-      default:
-        onBack()
     }
-  }, [store, onBack])
+  }, [onBack])
 
-  const getItems = useCallback(() => {
+  const getItems = useCallback((): (SportarrSport | SportsLeague | SportsSeason | SportsEvent)[] => {
     switch (store.view) {
       case 'sports':
-        return store.sportsList
+        return visibleSports
       case 'leagues':
         return store.leagues
+      case 'seasons':
+        return store.seasons
       case 'events':
         return [...store.upcomingEvents, ...store.pastEvents]
       case 'detail':
         return []
     }
-  }, [store.view, store.sportsList, store.leagues, store.upcomingEvents, store.pastEvents])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents])
 
   const isFocused = (index: number, focusedIndex: number) => index === focusedIndex
 
@@ -162,48 +252,100 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
     function handleKeyDown(e: KeyboardEvent) {
       const items = getItems()
       if (store.view === 'detail') {
+        if (replayResults.length > 0) {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault(); e.stopPropagation()
+            setReplayFocused((i) => Math.min(i + 1, replayResults.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); e.stopPropagation()
+            setReplayFocused((i) => Math.max(i - 1, 0))
+          } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); e.stopPropagation()
+            const r = replayResults[replayFocused]
+            if (r && r.sources[0]) {
+              window.api.log('[Sports] Opening replay: ' + r.sources[0].url)
+              onPlayUrl(r.sources[0].url)
+            }
+          } else if (e.key === 'Backspace' || e.key === 'Escape') {
+            e.preventDefault(); e.stopPropagation()
+            setReplayResults([])
+          }
+          return
+        }
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
+          e.stopPropagation()
           handlePlayEvent()
+        }
+        if (e.key === 'Backspace' || e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          goBack()
         }
         return
       }
       if (items.length === 0) return
+      const cols = getGridCols()
+      const isGridView = store.view === 'sports' || store.view === 'leagues' || store.view === 'seasons'
+
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setFocusedIndex((i) => Math.min(i + 1, items.length - 1))
+        e.stopPropagation()
+        if (isGridView) {
+          setFocusedIndex((i) => Math.min(i + cols, items.length - 1))
+        } else {
+          setFocusedIndex((i) => Math.min(i + 1, items.length - 1))
+        }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setFocusedIndex((i) => Math.max(i - 1, 0))
-      } else if (e.key === 'ArrowRight' && store.view === 'sports') {
+        e.stopPropagation()
+        if (isGridView) {
+          setFocusedIndex((i) => Math.max(i - cols, 0))
+        } else {
+          setFocusedIndex((i) => Math.max(i - 1, 0))
+        }
+      } else if (e.key === 'ArrowRight' && isGridView) {
         e.preventDefault()
+        e.stopPropagation()
         setFocusedIndex((i) => Math.min(i + 1, items.length - 1))
-      } else if (e.key === 'ArrowLeft' && store.view === 'sports') {
+      } else if (e.key === 'ArrowLeft' && isGridView) {
         e.preventDefault()
+        e.stopPropagation()
         setFocusedIndex((i) => Math.max(i - 1, 0))
       } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
+        e.stopPropagation()
         const item = items[focusedIndex]
         if (!item) return
         if (store.view === 'sports') {
-          loadLeagues(item as string)
+          loadLeagues(item as SportarrSport)
         } else if (store.view === 'leagues') {
-          loadEvents(item)
+          loadSeasons(item as SportsLeague)
+        } else if (store.view === 'seasons') {
+          loadEvents(item as SportsSeason)
         } else if (store.view === 'events') {
-          loadEventDetail(item)
+          loadEventDetail(item as SportsEvent)
         }
       } else if (e.key === 'Backspace' || e.key === 'Escape') {
         e.preventDefault()
+        e.stopPropagation()
         goBack()
       }
     }
     el.addEventListener('keydown', handleKeyDown)
     return () => el.removeEventListener('keydown', handleKeyDown)
-  }, [store.view, store.sportsList, store.leagues, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused])
 
   useEffect(() => {
     setFocusedIndex(0)
-  }, [store.view, store.sportsList, store.leagues, store.upcomingEvents, store.pastEvents])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents])
+
+  useEffect(() => {
+    if (focusedIndex >= 0 && contentRef.current) {
+      const focused = contentRef.current.querySelector(`[data-focus-index="${focusedIndex}"]`) as HTMLElement | undefined
+      if (focused) focused.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [focusedIndex])
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return ''
@@ -213,6 +355,55 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
     } catch {
       return dateStr
     }
+  }
+
+  const formatTime = (dateStr: string) => {
+    if (!dateStr) return ''
+    try {
+      const d = new Date(dateStr)
+      return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return ''
+    }
+  }
+
+  const renderEventCard = (event: SportsEvent, i: number, isPast: boolean) => {
+    const teamEvent = isTeamEvent(event)
+    return (
+      <div
+        key={event.id}
+        data-focus-index={i}
+        className={`${styles.eventCard} ${isFocused(i, focusedIndex) ? styles.eventCardFocused : ''}`}
+        tabIndex={0}
+        onClick={() => loadEventDetail(event)}
+        onMouseEnter={() => setFocusedIndex(i)}
+      >
+        {teamEvent ? (
+          <>
+            <div className={styles.teamInfo}>
+              <div className={styles.teamName}>{event.homeTeamName}</div>
+              {isPast && <div className={styles.score}>{event.homeScore ?? '-'}</div>}
+            </div>
+            <div className={styles.vs}>VS</div>
+            <div className={styles.teamInfo}>
+              <div className={styles.teamName}>{event.awayTeamName}</div>
+              {isPast && <div className={styles.score}>{event.awayScore ?? '-'}</div>}
+            </div>
+          </>
+        ) : (
+          <div className={styles.teamInfo} style={{ flex: 1 }}>
+            <div className={styles.teamName} style={{ fontSize: 15 }}>{event.name}</div>
+            {event.venueName && <div className={styles.cardSub}>{event.venueName}</div>}
+            {isPast && event.homeScore !== null && event.homeScore !== undefined && (
+              <div className={styles.score}>{event.homeScore}</div>
+            )}
+          </div>
+        )}
+        <div className={styles.eventDate}>
+          {formatDate(event.scheduledStart)}{formatTime(event.scheduledStart) ? ` ${formatTime(event.scheduledStart)}` : ''}
+        </div>
+      </div>
+    )
   }
 
   const renderContent = () => {
@@ -227,32 +418,26 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
       case 'sports':
         return (
           <div>
-            {!hasApiKey && (
-              <div className={styles.apiKeyNotice}>
-                Add a TheSportsDB API key in Settings &gt; Sports for full access (uses test key otherwise)
-              </div>
-            )}
             <h2 className={styles.sectionTitle}>Choose a Sport</h2>
-            <div className={styles.grid}>
-              {store.sportsList.map((sport, i) => (
+            <div className={styles.grid} data-grid>
+              {visibleSports.map((sport, i) => (
                 <div
-                  key={sport}
+                  key={sport.id}
+                  data-focus-index={i}
                   className={`${styles.card} ${isFocused(i, focusedIndex) ? styles.cardFocused : ''}`}
                   tabIndex={0}
                   onClick={() => loadLeagues(sport)}
                   onMouseEnter={() => setFocusedIndex(i)}
                 >
                   <div className={styles.cardBody} style={{ alignItems: 'center', padding: 24 }}>
-                    <div className={styles.sportIcon}>{SPORT_ICONS[sport] || '🏅'}</div>
-                    <div className={styles.cardTitle} style={{ marginTop: 8 }}>{sport}</div>
+                    <div className={styles.sportIcon}>{SPORT_ICONS[sport.name] || '🏅'}</div>
+                    <div className={styles.cardTitle} style={{ marginTop: 8 }}>{sport.name}</div>
                   </div>
                 </div>
               ))}
             </div>
-            {store.sportsList.length === 0 && (
-              <div className={styles.emptyState}>
-                No sports available. Add a TheSportsDB API key in Settings.
-              </div>
+            {visibleSports.length === 0 && (
+              <div className={styles.emptyState}>No sports available.</div>
             )}
           </div>
         )
@@ -260,36 +445,64 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
       case 'leagues':
         return (
           <div>
-            <h2 className={styles.sectionTitle}>{store.selectedSport} Leagues</h2>
-            <div className={styles.grid}>
+            <h2 className={styles.sectionTitle}>{store.selectedSport?.name} Leagues</h2>
+            <div className={styles.grid} data-grid>
               {store.leagues.map((league, i) => (
                 <div
-                  key={league.idLeague}
+                  key={league.id}
+                  data-focus-index={i}
                   className={`${styles.card} ${isFocused(i, focusedIndex) ? styles.cardFocused : ''}`}
                   tabIndex={0}
-                  onClick={() => loadEvents(league)}
+                  onClick={() => loadSeasons(league)}
                   onMouseEnter={() => setFocusedIndex(i)}
                 >
-                  {(league.strBadge || league.strLogo) && (
+                  {league.logoUrl && (
                     <img
                       className={styles.cardImage}
-                      src={league.strBadge || league.strLogo}
-                      alt={league.strLeague}
+                      src={league.logoUrl}
+                      alt={league.name}
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                     />
                   )}
                   <div className={styles.cardBody}>
-                    <div className={styles.cardTitle}>{league.strLeague}</div>
-                    <div className={styles.cardSub}>{league.strCountry}{league.strDivision ? ` - ${league.strDivision}` : ''}</div>
-                    {league.strCurrentSeason && (
-                      <div className={styles.cardSub}>Season: {league.strCurrentSeason}</div>
-                    )}
+                    <div className={styles.cardTitle}>{league.name}</div>
+                    <div className={styles.cardSub}>{league.country}{league.abbreviation ? ` - ${league.abbreviation}` : ''}</div>
                   </div>
                 </div>
               ))}
             </div>
             {store.leagues.length === 0 && (
-              <div className={styles.emptyState}>No leagues found for {store.selectedSport}</div>
+              <div className={styles.emptyState}>No leagues found for {store.selectedSport?.name}</div>
+            )}
+          </div>
+        )
+
+      case 'seasons':
+        return (
+          <div>
+            <h2 className={styles.sectionTitle}>{store.selectedLeague?.name} — Seasons</h2>
+            <div className={styles.grid} data-grid>
+              {store.seasons.map((season, i) => (
+                <div
+                  key={season.id}
+                  data-focus-index={i}
+                  className={`${styles.card} ${isFocused(i, focusedIndex) ? styles.cardFocused : ''}`}
+                  tabIndex={0}
+                  onClick={() => loadEvents(season)}
+                  onMouseEnter={() => setFocusedIndex(i)}
+                >
+                  <div className={styles.cardBody} style={{ alignItems: 'center', padding: 24 }}>
+                    <div className={styles.cardTitle} style={{ fontSize: 18 }}>{season.name}</div>
+                    {season.isCurrent && <div className={styles.cardSub}>Current Season</div>}
+                    {season.startDate && (
+                      <div className={styles.cardSub}>{formatDate(season.startDate)} - {season.endDate ? formatDate(season.endDate) : '...'}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {store.seasons.length === 0 && (
+              <div className={styles.emptyState}>No seasons found for {store.selectedLeague?.name}</div>
             )}
           </div>
         )
@@ -301,85 +514,22 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
               <>
                 <h2 className={styles.sectionTitle}>Upcoming Events</h2>
                 <div className={styles.eventsList}>
-                  {store.upcomingEvents.map((event, i) => (
-                    <div
-                      key={event.idEvent}
-                      className={`${styles.eventCard} ${isFocused(i, focusedIndex) ? styles.eventCardFocused : ''}`}
-                      tabIndex={0}
-                      onClick={() => loadEventDetail(event)}
-                      onMouseEnter={() => setFocusedIndex(i)}
-                    >
-                      <div className={styles.teamInfo}>
-                        <img
-                          className={styles.teamBadge}
-                          src={event.strHomeTeamBadge}
-                          alt={event.strHomeTeam}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                        <div className={styles.teamName}>{event.strHomeTeam}</div>
-                      </div>
-                      <div className={styles.vs}>VS</div>
-                      <div className={styles.teamInfo}>
-                        <img
-                          className={styles.teamBadge}
-                          src={event.strAwayTeamBadge}
-                          alt={event.strAwayTeam}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                        <div className={styles.teamName}>{event.strAwayTeam}</div>
-                      </div>
-                      <div className={styles.eventDate}>
-                        {formatDate(event.dateEvent)}
-                        {event.strTime ? ` ${event.strTime}` : ''}
-                      </div>
-                    </div>
-                  ))}
+                  {store.upcomingEvents.map((event, i) => renderEventCard(event, i, false))}
                 </div>
               </>
             )}
             {store.pastEvents.length > 0 && (
               <>
-                <h2 className={styles.sectionTitle} style={{ marginTop: 24 }}>Past Results</h2>
+                <h2 className={styles.sectionTitle} style={{ marginTop: 24 }}>
+                  {store.selectedSeason?.isCurrent ? 'Results' : 'Past Results'}
+                </h2>
                 <div className={styles.eventsList}>
-                  {store.pastEvents.map((event, i) => (
-                    <div
-                      key={event.idEvent}
-                      className={`${styles.eventCard} ${isFocused(i + store.upcomingEvents.length, focusedIndex) ? styles.eventCardFocused : ''}`}
-                      tabIndex={0}
-                      onClick={() => loadEventDetail(event)}
-                      onMouseEnter={() => setFocusedIndex(i + store.upcomingEvents.length)}
-                    >
-                      <div className={styles.teamInfo}>
-                        <img
-                          className={styles.teamBadge}
-                          src={event.strHomeTeamBadge}
-                          alt={event.strHomeTeam}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                        <div className={styles.teamName}>{event.strHomeTeam}</div>
-                        <div className={styles.score}>{event.intHomeScore ?? '-'}</div>
-                      </div>
-                      <div className={styles.vs}>VS</div>
-                      <div className={styles.teamInfo}>
-                        <img
-                          className={styles.teamBadge}
-                          src={event.strAwayTeamBadge}
-                          alt={event.strAwayTeam}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                        <div className={styles.teamName}>{event.strAwayTeam}</div>
-                        <div className={styles.score}>{event.intAwayScore ?? '-'}</div>
-                      </div>
-                      <div className={styles.eventDate}>
-                        {formatDate(event.dateEvent)}
-                      </div>
-                    </div>
-                  ))}
+                  {store.pastEvents.map((event, i) => renderEventCard(event, i + store.upcomingEvents.length, true))}
                 </div>
               </>
             )}
             {store.upcomingEvents.length === 0 && store.pastEvents.length === 0 && (
-              <div className={styles.emptyState}>No events found</div>
+              <div className={styles.emptyState}>No events found for this season</div>
             )}
           </div>
         )
@@ -387,96 +537,122 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
       case 'detail': {
         const event = store.selectedEvent
         if (!event) return <div className={styles.emptyState}>No event selected</div>
+        const teamEvent = isTeamEvent(event)
+        const searchTitle = teamEvent
+          ? `${event.homeTeamName} vs ${event.awayTeamName}`
+          : event.name
         return (
           <div>
             <div className={styles.detailHeader}>
-              <div className={styles.detailTeams}>
-                <div className={styles.detailTeam}>
-                  <img
-                    className={styles.detailTeamBadge}
-                    src={store.homeTeam?.strTeamBadge || event.strHomeTeamBadge}
-                    alt={event.strHomeTeam}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                  <div className={styles.detailTeamName}>{store.homeTeam?.strTeam || event.strHomeTeam}</div>
-                  {event.intHomeScore && <div className={styles.detailScore}>{event.intHomeScore}</div>}
+              {teamEvent ? (
+                <div className={styles.detailTeams}>
+                  <div className={styles.detailTeam}>
+                    <img
+                      className={styles.detailTeamBadge}
+                      src={store.homeTeam?.logoUrl || ''}
+                      alt={event.homeTeamName}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                    <div className={styles.detailTeamName}>{store.homeTeam?.name || event.homeTeamName}</div>
+                    {event.homeScore !== null && event.homeScore !== undefined && <div className={styles.detailScore}>{event.homeScore}</div>}
+                  </div>
+                  <div className={styles.vs} style={{ fontSize: 20 }}>VS</div>
+                  <div className={styles.detailTeam}>
+                    <img
+                      className={styles.detailTeamBadge}
+                      src={store.awayTeam?.logoUrl || ''}
+                      alt={event.awayTeamName}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                    <div className={styles.detailTeamName}>{store.awayTeam?.name || event.awayTeamName}</div>
+                    {event.awayScore !== null && event.awayScore !== undefined && <div className={styles.detailScore}>{event.awayScore}</div>}
+                  </div>
                 </div>
-                <div className={styles.vs} style={{ fontSize: 20 }}>VS</div>
+              ) : (
                 <div className={styles.detailTeam}>
-                  <img
-                    className={styles.detailTeamBadge}
-                    src={store.awayTeam?.strTeamBadge || event.strAwayTeamBadge}
-                    alt={event.strAwayTeam}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                  <div className={styles.detailTeamName}>{store.awayTeam?.strTeam || event.strAwayTeam}</div>
-                  {event.intAwayScore && <div className={styles.detailScore}>{event.intAwayScore}</div>}
+                  <div className={styles.detailTeamName} style={{ fontSize: 20 }}>{event.name}</div>
                 </div>
-              </div>
-              <div className={styles.eventDate}>{formatDate(event.dateEvent)}{event.strTime ? ` at ${event.strTime}` : ''}</div>
+              )}
+              <div className={styles.eventDate}>{formatDate(event.scheduledStart)}{formatTime(event.scheduledStart) ? ` at ${formatTime(event.scheduledStart)}` : ''}</div>
             </div>
 
             <div className={styles.detailInfo}>
               <div className={styles.detailRow}>
                 <span className={styles.detailLabel}>Event</span>
-                <span className={styles.detailValue}>{event.strEvent || event.strEventAlternate || '-'}</span>
+                <span className={styles.detailValue}>{event.name || event.leagueName || '-'}</span>
               </div>
               <div className={styles.detailRow}>
                 <span className={styles.detailLabel}>League</span>
-                <span className={styles.detailValue}>{event.strLeague || store.selectedLeague?.strLeague || '-'}</span>
+                <span className={styles.detailValue}>{event.leagueName || store.selectedLeague?.name || '-'}</span>
               </div>
               <div className={styles.detailRow}>
                 <span className={styles.detailLabel}>Season</span>
-                <span className={styles.detailValue}>{event.strSeason || '-'}</span>
+                <span className={styles.detailValue}>{event.seasonName || store.selectedSeason?.name || '-'}</span>
               </div>
-              {event.strVenue && (
+              {event.venueName && (
                 <div className={styles.detailRow}>
                   <span className={styles.detailLabel}>Venue</span>
-                  <span className={styles.detailValue}>{event.strVenue}</span>
+                  <span className={styles.detailValue}>{event.venueName}</span>
                 </div>
               )}
-              {event.strCountry && (
-                <div className={styles.detailRow}>
-                  <span className={styles.detailLabel}>Country</span>
-                  <span className={styles.detailValue}>{event.strCountry}</span>
-                </div>
-              )}
-              {event.intHomeScore !== null && event.intAwayScore !== null && (
+              {teamEvent && event.homeScore !== null && event.awayScore !== null && (
                 <div className={styles.detailRow}>
                   <span className={styles.detailLabel}>Score</span>
-                  <span className={styles.detailValue}>{event.intHomeScore ?? '-'} - {event.intAwayScore ?? '-'}</span>
+                  <span className={styles.detailValue}>{event.homeScore ?? '-'} - {event.awayScore ?? '-'}</span>
                 </div>
               )}
             </div>
 
-            {(store.homeTeam?.strDescription || store.awayTeam?.strDescription) && (
-              <div className={styles.detailInfo} style={{ marginTop: 12 }}>
-                {store.homeTeam?.strDescription && (
-                  <div>
-                    <div className={styles.detailLabel}>About {store.homeTeam.strTeam}</div>
-                    <p className={styles.detailValue} style={{ fontSize: 13, lineHeight: 1.5, marginTop: 4 }}>
-                      {store.homeTeam.strDescription.slice(0, 300)}...
-                    </p>
-                  </div>
-                )}
-                {store.awayTeam?.strDescription && store.awayTeam.idTeam !== store.homeTeam?.idTeam && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className={styles.detailLabel}>About {store.awayTeam.strTeam}</div>
-                    <p className={styles.detailValue} style={{ fontSize: 13, lineHeight: 1.5, marginTop: 4 }}>
-                      {store.awayTeam.strDescription.slice(0, 300)}...
-                    </p>
-                  </div>
-                )}
+            {replaySearching && (
+              <div className={styles.loading}>Searching for replays...</div>
+            )}
+
+            {replayResults.length > 0 && (
+              <div className={styles.detailInfo} style={{ marginTop: 16 }}>
+                <h3 className={styles.sectionTitle} style={{ marginBottom: 12 }}>Replays Found</h3>
+                <div className={styles.eventsList}>
+                  {replayResults.map((r, i) => (
+                    <div
+                      key={i}
+                      className={`${styles.eventCard} ${replayFocused === i ? styles.eventCardFocused : ''}`}
+                      tabIndex={0}
+                      onClick={() => { if (r.sources[0]) onPlayUrl(r.sources[0].url) }}
+                      onMouseEnter={() => setReplayFocused(i)}
+                    >
+                      <div className={styles.teamInfo} style={{ flex: 1 }}>
+                        <div className={styles.teamName} style={{ fontSize: 14 }}>{r.title}</div>
+                        <div className={styles.cardSub}>{r.sport} - {r.category}</div>
+                        <div className={styles.cardSub}>{r.sources.length} source{r.sources.length !== 1 ? 's' : ''}</div>
+                      </div>
+                      {r.thumbnail && (
+                        <img src={r.thumbnail} alt="" className={styles.teamBadge} style={{ width: 56, height: 56, borderRadius: 6 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  className={styles.playBtn}
+                  onClick={() => {
+                    setReplayResults([])
+                    onPlay(searchTitle, new Date(event.scheduledStart).getFullYear() || undefined)
+                  }}
+                  tabIndex={0}
+                  style={{ marginTop: 12, opacity: 0.7 }}
+                >
+                  No replay? Search torrents for {searchTitle}
+                </button>
               </div>
             )}
 
-            <button
-              className={styles.playBtn}
-              onClick={handlePlayEvent}
-              tabIndex={0}
-            >
-              Search Torrents for {event.strHomeTeam} vs {event.strAwayTeam}
-            </button>
+            {replayResults.length === 0 && !replaySearching && (
+              <button
+                className={styles.playBtn}
+                onClick={handlePlayEvent}
+                tabIndex={0}
+              >
+                Search for {searchTitle}
+              </button>
+            )}
           </div>
         )
       }
@@ -493,12 +669,15 @@ export default function Sports({ onPlay, onBack }: SportsProps) {
         </button>
         <h1 className={styles.title}>
           {store.view === 'sports' && 'Sports'}
-          {store.view === 'leagues' && store.selectedSport}
-          {store.view === 'events' && store.selectedLeague?.strLeague}
-          {store.view === 'detail' && `${store.selectedEvent?.strHomeTeam ?? ''} vs ${store.selectedEvent?.strAwayTeam ?? ''}`}
+          {store.view === 'leagues' && store.selectedSport?.name}
+          {store.view === 'seasons' && store.selectedLeague?.name}
+          {store.view === 'events' && `${store.selectedLeague?.name} — ${store.selectedSeason?.name}`}
+          {store.view === 'detail' && (isTeamEvent(store.selectedEvent!)
+            ? `${store.selectedEvent?.homeTeamName ?? ''} vs ${store.selectedEvent?.awayTeamName ?? ''}`
+            : store.selectedEvent?.name ?? '')}
         </h1>
       </div>
-      <div className={styles.content}>
+      <div className={styles.content} ref={contentRef}>
         {renderContent()}
       </div>
     </div>

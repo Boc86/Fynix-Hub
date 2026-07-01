@@ -201,13 +201,14 @@ const api = {
     downloadAndSave: (fileId: number) => ipcRenderer.invoke('opensubtitles:download-and-save', fileId),
   },
   sports: {
-    getAllLeagues: () => ipcRenderer.invoke('sports:get-all-leagues'),
     getLeaguesBySport: (sport: string) => ipcRenderer.invoke('sports:get-leagues-by-sport', sport),
+    getSeasons: (leagueId: string) => ipcRenderer.invoke('sports:get-seasons', leagueId),
     getSportsList: () => ipcRenderer.invoke('sports:get-sports-list'),
-    getUpcomingEvents: (leagueId: string) => ipcRenderer.invoke('sports:get-upcoming-events', leagueId),
-    getPastEvents: (leagueId: string) => ipcRenderer.invoke('sports:get-past-events', leagueId),
+    getUpcomingEvents: (leagueId: string, seasonId?: string) => ipcRenderer.invoke('sports:get-upcoming-events', leagueId, seasonId),
+    getPastEvents: (leagueId: string, seasonId?: string) => ipcRenderer.invoke('sports:get-past-events', leagueId, seasonId),
     getEventDetails: (eventId: string) => ipcRenderer.invoke('sports:get-event-details', eventId),
     getTeamDetails: (teamId: string) => ipcRenderer.invoke('sports:get-team-details', teamId),
+    searchReplays: (query: string) => ipcRenderer.invoke('replayzone:search', query),
   },
 }
 

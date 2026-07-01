@@ -260,6 +260,7 @@ export default function App() {
     type: 'movie' | 'episode'
     season?: number
     episode?: number
+    query?: string
   }) => {
     // Re-entry guard: prevent concurrent searches
     if (searchRunningRef.current) {
@@ -477,6 +478,15 @@ export default function App() {
       tryAutoPlayResult(index + 1, session)
     }
   }, [playTorrent, accentColor, playerInfo?.mediaType, preferredAudioLang, preferredLangs])
+
+  const handlePlayUrl = useCallback(async (url: string) => {
+    try {
+      await window.api.mpv.start(url, undefined, accentColor, false, undefined)
+    } catch (err: any) {
+      window.api.log('[App] Playback failed:', err.message)
+      setStreamError(err?.message || 'Failed to start playback')
+    }
+  }, [accentColor])
 
   const handlePlay = useCallback(async (resumePosition?: number) => {
     // Guard: reject if a torrent search modal is already open or player is active
@@ -792,7 +802,7 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : view === 'sports' ? 'sports' : 'browser'}
+        currentView={view === 'sports' ? 'sports' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -817,17 +827,15 @@ export default function App() {
         </div>
       )}
       {view === 'player' && (
-        <div className="animate-fade-up">
-          <VideoPlayer
-            streamUrl={streamUrl}
-            streamError={streamError}
-            mediaInfo={playerInfo}
-            playerLoading={playerLoading}
-            onStreamError={onStreamError}
-            onBack={() => { autoPlayResultsRef.current = []; if (currentInfoHashRef.current) window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {}); currentInfoHashRef.current = null; setStreamUrl(undefined); setStreamError(null); setPlayerInfo(undefined); setPlayerLoading(false); goBack() }}
-            onNextEpisode={handleNextEpisode}
-          />
-        </div>
+        <VideoPlayer
+          streamUrl={streamUrl}
+          streamError={streamError}
+          mediaInfo={playerInfo}
+          playerLoading={playerLoading}
+          onStreamError={onStreamError}
+          onBack={() => { autoPlayResultsRef.current = []; if (currentInfoHashRef.current) window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {}); currentInfoHashRef.current = null; setStreamUrl(undefined); setStreamError(null); setPlayerInfo(undefined); setPlayerLoading(false); goBack() }}
+          onNextEpisode={handleNextEpisode}
+        />
       )}
       {view === 'settings' && (
         <div className="animate-fade">
@@ -841,7 +849,26 @@ export default function App() {
               setTorrentSearchTitle(title)
               setTorrentSearchYear(year)
               setTorrentSearchOpen(true)
-              runTorrentSearch({ title, year, type: 'movie' })
+              runTorrentSearch({ query: title, title, year, type: 'movie' })
+            }}
+            onPlayUrl={async (url) => {
+              setTorrentSearchOpen(false)
+              setFreeSearchOpen(false)
+              setFreeSearchQuery('')
+              setPlayerLoading(true)
+              setStreamError(null)
+              navigate('player')
+              try {
+                currentInfoHashRef.current = null
+                resumePositionRef.current = undefined
+                const audioLang = getAudioLang()
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang)
+                setPlayerLoading(false)
+              } catch (err: any) {
+                window.api.log('[App] Replay playback failed:', err.message)
+                setStreamError(err?.message || 'Failed to start replay')
+                setPlayerLoading(false)
+              }
             }}
             onBack={() => goBack()}
           />
