@@ -10,6 +10,7 @@ import Sidebar from './components/Sidebar/Sidebar'
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import Sports from './components/Sports/Sports'
+import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
@@ -855,7 +856,8 @@ export default function App() {
       )}
       {view === 'sports' && (
         <div className="animate-fade">
-          <Sports
+          <ErrorBoundary fallback={<div style={{ padding: 24, color: '#fff' }}>Sports view failed to load. Check console for details.</div>}>
+            <Sports
             onPlay={(title, year) => {
               setTorrentSearchTitle(title)
               setTorrentSearchYear(year)
@@ -883,6 +885,7 @@ export default function App() {
             }}
             onBack={() => goBack()}
           />
+          </ErrorBoundary>
         </div>
       )}
       {view === 'youtube' && (

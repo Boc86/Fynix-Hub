@@ -683,6 +683,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return SportsService.getPastEvents(leagueId, seasonId)
   })
 
+  ipcMain.handle('sports:get-events-in-range', async (_event, leagueId: string, seasonId: string, from: string, to: string) => {
+    return SportsService.getEventsInRange(leagueId, seasonId, from, to)
+  })
+
   ipcMain.handle('sports:get-event-details', async (_event, eventId: string) => {
     return SportsService.getEventDetails(eventId)
   })

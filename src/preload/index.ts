@@ -209,6 +209,7 @@ const api = {
     getUpcomingEvents: (leagueId: string, seasonId?: string) => ipcRenderer.invoke('sports:get-upcoming-events', leagueId, seasonId),
     getPastEvents: (leagueId: string, seasonId?: string) => ipcRenderer.invoke('sports:get-past-events', leagueId, seasonId),
     getEventDetails: (eventId: string) => ipcRenderer.invoke('sports:get-event-details', eventId),
+    getEventsInRange: (leagueId: string, seasonId: string, from: string, to: string) => ipcRenderer.invoke('sports:get-events-in-range', leagueId, seasonId, from, to),
     getTeamDetails: (teamId: string) => ipcRenderer.invoke('sports:get-team-details', teamId),
     searchReplays: (query: string) => ipcRenderer.invoke('replayzone:search', query),
   },

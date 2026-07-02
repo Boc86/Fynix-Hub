@@ -225,6 +225,23 @@ export async function getEventDetails(eventId: string): Promise<SportarrEvent | 
   }
 }
 
+export async function getEventsInRange(leagueId: string, seasonId: string, from: string, to: string): Promise<SportarrEvent[]> {
+  const cacheKey = `sports:events:range:${leagueId}:${seasonId}:${from}:${to}`
+  const cached = CacheService.getCache(cacheKey)
+  if (cached) return JSON.parse(cached) as SportarrEvent[]
+
+  try {
+    const path = `/events?league=${encodeURIComponent(leagueId)}&season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    const items = await fetchAll<SportarrEvent>(path)
+    const events = items.filter(e => e.isActive)
+    CacheService.setCache(cacheKey, JSON.stringify(events), CACHE_TTL)
+    return events
+  } catch (err: any) {
+    console.error(`[Sports] Failed to fetch events in range for ${leagueId}:`, err.message)
+    return []
+  }
+}
+
 export async function getTeamDetails(teamId: string): Promise<SportarrTeam | null> {
   const cacheKey = `sports:team:v2:${teamId}`
   const cached = CacheService.getCache(cacheKey)
