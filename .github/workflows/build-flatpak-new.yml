@@ -76,14 +76,14 @@ jobs:
               echo "GPG import failed, retrying without GPG..."
               flatpak build-import-bundle repo "$BUNDLE" 2>&1
             }
-            flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" repo 2>&1 || {
+            flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas repo 2>&1 || {
               echo "GPG update failed, retrying without GPG..."
-              flatpak build-update-repo repo 2>&1
+              flatpak build-update-repo --generate-static-deltas repo 2>&1
             }
           else
             echo "GPG_KEY_ID not set, importing without GPG signing."
             flatpak build-import-bundle repo "$BUNDLE" 2>&1
-            flatpak build-update-repo repo 2>&1
+            flatpak build-update-repo --generate-static-deltas repo 2>&1
           fi
 
       - name: Prepare website artifact
