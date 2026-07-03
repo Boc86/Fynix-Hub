@@ -121,8 +121,15 @@ jobs:
       - name: Copy flatpakrepo file
         run: cp com.fynix.hub.flatpakrepo public/repo.flatpakrepo
 
+      - name: Copy website to public root
+        run: |
+          cp -r docs/* public/
+          cp docs/.nojekyll public/ 2>/dev/null || true
+          # Ensure repo directory survives
+          ls -la public/
+
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: public
 
