@@ -1,9 +1,27 @@
 import { create } from 'zustand'
 import type { CustomIndexer } from '../../main/services/torrent-search.service'
 
+export interface UserProfile {
+  id: string
+  name: string
+  avatarPath?: string
+  avatarColor?: string
+  traktAccessToken?: string
+  traktRefreshToken?: string
+  sportsSelected: string[]
+}
+
+const AVATAR_COLORS = ['#E50914', '#FF6B00', '#007AFF', '#7B68EE', '#34C759', '#00B4D8', '#FF9500', '#FF2D55', '#5856D6', '#AF52DE']
+
+function pickAvatarColor(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = seed.charCodeAt(i) + ((hash << 5) - hash)
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
 const DEFAULT_LANGUAGES = ['English']
 const DEFAULT_RESOLUTIONS = ['4K', '1080p', '720p']
-const DEFAULT_ENABLED_INDEXERS = ['yts', 'eztv', 'thepiratebay', 'nyaa', '1337x']
+const DEFAULT_ENABLED_INDEXERS = ['yts', 'eztv', 'thepiratebay', 'nyaa', '1337x', 'torrentio', 'mediafusion', 'kickass', 'magnetdl', 'bitsearch', 'rutor', 'torrentz2', 'showrss']
 
 interface SettingsState {
   tmdbApiKey: string
@@ -37,6 +55,9 @@ interface SettingsState {
   remoteMapping: Record<string, string>
   sportsEnabled: boolean
   sportsSelected: string[]
+  profiles: UserProfile[]
+  activeProfileId: string | null
+  autoLoginProfileId: string | null
 
   setTmdbApiKey: (key: string) => void
   setFanartApiKey: (key: string) => void
@@ -69,6 +90,14 @@ interface SettingsState {
   setRemoteMapping: (mapping: Record<string, string>) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsSelected: (ids: string[]) => void
+
+  // Profile management
+  addProfile: (name: string, avatarPath?: string) => void
+  updateProfile: (id: string, updates: Partial<UserProfile>) => void
+  removeProfile: (id: string) => void
+  setActiveProfile: (id: string | null) => Promise<void>
+  getActiveProfile: () => UserProfile | undefined
+  setAutoLoginProfile: (id: string | null) => void
   loadFromDisk: () => Promise<void>
   saveToDisk: () => Promise<void>
 }
@@ -105,6 +134,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   remoteMapping: {} as Record<string, string>,
   sportsEnabled: false,
   sportsSelected: [],
+  profiles: [],
+  activeProfileId: null,
+  autoLoginProfileId: null,
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
   setFanartApiKey: (key) => set({ fanartApiKey: key }),
@@ -138,22 +170,154 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
 
+  // --- Profile Management Actions ---
+  addProfile: (name, avatarPath) => {
+    set((state) => {
+      if (state.profiles.length >= 5) return state; // Max 5 profiles
+      const id = Date.now().toString();
+      return {
+        profiles: [...state.profiles, {
+          id,
+          name,
+          avatarPath,
+          avatarColor: pickAvatarColor(id),
+          sportsSelected: state.sportsSelected || []
+        }]
+      };
+    });
+    get().saveToDisk()
+  },
+
+  updateProfile: (id, updates) => {
+    set((state) => ({
+      profiles: state.profiles.map((p) => p.id === id ? { ...p, ...updates } : p)
+    }));
+    get().saveToDisk()
+  },
+
+  removeProfile: (id) => {
+    set((state) => ({
+      profiles: state.profiles.filter((p) => p.id !== id),
+      activeProfileId: state.activeProfileId === id ? null : state.activeProfileId,
+      autoLoginProfileId: state.autoLoginProfileId === id ? null : state.autoLoginProfileId
+    }));
+    get().saveToDisk()
+  },
+
+  setActiveProfile: async (id) => {
+    const previousId = get().activeProfileId
+    // Save current profile's sportsSelected to the previously active profile
+    if (previousId) {
+      set((s) => ({
+        profiles: s.profiles.map((p) =>
+          p.id === previousId ? { ...p, sportsSelected: s.sportsSelected } : p
+        )
+      }))
+    }
+
+    set({ activeProfileId: id })
+
+    // Restore sportsSelected from the newly active profile
+    if (id) {
+      const profile = get().getActiveProfile()
+      if (profile) {
+        set({ sportsSelected: profile.sportsSelected || [] })
+        // Sync Trakt connection state with the new active profile
+        if (profile.traktAccessToken) {
+          try {
+            await window.api.trakt.setTokens(profile.traktAccessToken, profile.traktRefreshToken || null)
+          } catch { /* ignore */ }
+          set({ traktConnected: true })
+        } else {
+          try {
+            await window.api.trakt.setTokens(null, null)
+          } catch { /* ignore */ }
+          set({ traktConnected: false })
+        }
+      }
+    }
+    get().saveToDisk()
+  },
+
+  getActiveProfile: () => {
+    const { profiles, activeProfileId } = get();
+    return profiles.find((p) => p.id === activeProfileId);
+  },
+
+  setAutoLoginProfile: (id) => {
+    set({ autoLoginProfileId: id });
+    get().saveToDisk()
+  },
+
+  // --- /Profile Management Actions ---
+
   loadFromDisk: async () => {
     try {
       const settings = await window.api.settings.getAll()
-      if (settings) set(settings as Partial<SettingsState>)
-      const tokens = await window.api.trakt.getTokens()
-      if (tokens?.accessToken) set({ traktConnected: true })
-      const rdKey = await window.api.settings.get('realDebridApiKey')
-      if (rdKey) set({ realDebridConnected: true })
-      const tbKey = await window.api.settings.get('torboxApiKey')
-      if (tbKey) set({ torboxConnected: true })
-      const pmToken = await window.api.settings.get('premiumizeAccessToken')
-      if (pmToken) set({ premiumizeConnected: true })
-      const adToken = await window.api.settings.get('alldebridAccessToken')
-      if (adToken) set({ alldebridConnected: true })
-      const enabled = await window.api.settings.get('enabledIndexers')
-      if (!Array.isArray(enabled)) set({ enabledIndexers: DEFAULT_ENABLED_INDEXERS })
+      if (settings) {
+        // Migrate from old trakt tokens on first load
+        if (!settings.profiles && settings.traktAccessToken) {
+          const id = Date.now().toString();
+          set({
+            profiles: [{
+              id,
+              name: 'Default',
+              avatarPath: undefined,
+              avatarColor: pickAvatarColor(id),
+              traktAccessToken: settings.traktAccessToken,
+              traktRefreshToken: settings.traktRefreshToken,
+              sportsSelected: settings.sportsSelected || []
+            }],
+            activeProfileId: id,
+          });
+        } else {
+          // Backfill missing fields on stored profiles
+          if (settings.profiles) {
+            settings.profiles = (settings.profiles as any[]).map((p) => ({
+              ...p,
+              avatarColor: p.avatarColor || pickAvatarColor(p.id),
+              sportsSelected: p.sportsSelected || settings.sportsSelected || []
+            }))
+          }
+          set(settings as Partial<SettingsState>);
+        }
+      }
+
+      // Handle auto-login: if autologin profile is set, resolve to it
+      const { activeProfileId, autoLoginProfileId } = get();
+      if (autoLoginProfileId) {
+        if (activeProfileId !== autoLoginProfileId) {
+          set({ activeProfileId: autoLoginProfileId });
+        }
+      } else {
+        // Auto-login is off - don't restore last active profile
+        set({ activeProfileId: null });
+      }
+
+      // Sync trakt state with active profile
+      const activeProfile = get().getActiveProfile();
+      if (activeProfile && activeProfile.traktAccessToken) {
+        try {
+          await window.api.trakt.setTokens(
+            activeProfile.traktAccessToken,
+            activeProfile.traktRefreshToken || null
+          );
+        } catch { /* ignore */ }
+        set({ traktConnected: true });
+      } else {
+        set({ traktConnected: false });
+      }
+
+      const rdKey = await window.api.settings.get('realDebridApiKey');
+      if (rdKey) set({ realDebridConnected: true });
+      const tbKey = await window.api.settings.get('torboxApiKey');
+      if (tbKey) set({ torboxConnected: true });
+      const pmToken = await window.api.settings.get('premiumizeAccessToken');
+      if (pmToken) set({ premiumizeConnected: true });
+      const adToken = await window.api.settings.get('alldebridAccessToken');
+      if (adToken) set({ alldebridConnected: true });
+      const enabled = await window.api.settings.get('enabledIndexers');
+      if (!Array.isArray(enabled)) set({ enabledIndexers: DEFAULT_ENABLED_INDEXERS });
     } catch { /* ignore */ }
   },
 
@@ -188,6 +352,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('remoteMapping', state.remoteMapping),
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsSelected', state.sportsSelected),
+        window.api.settings.set('profiles', state.profiles),
+        window.api.settings.set('activeProfileId', state.activeProfileId),
+        window.api.settings.set('autoLoginProfileId', state.autoLoginProfileId),
       ])
     } catch { /* ignore */ }
   },

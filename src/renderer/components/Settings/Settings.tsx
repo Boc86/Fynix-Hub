@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
 import type { CustomIndexer } from '../../../main/services/torrent-search.service'
 import type { SportarrSport } from '../../types.d'
+import Prompt, { Confirm } from '../Prompt/Prompt'
 import styles from './Settings.module.css'
 
 interface BuiltInDefinition {
@@ -25,7 +26,7 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'profiles' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
@@ -33,8 +34,9 @@ const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'indexers', label: 'Indexers', shortcut: '3' },
   { id: 'youtube', label: 'YouTube', shortcut: '4' },
   { id: 'sports', label: 'Sports', shortcut: '5' },
-  { id: 'advanced', label: 'Advanced', shortcut: '6' },
-  { id: 'remote', label: 'Remote', shortcut: '7' },
+  { id: 'profiles', label: 'Profiles', shortcut: '6' },
+  { id: 'advanced', label: 'Advanced', shortcut: '7' },
+  { id: 'remote', label: 'Remote', shortcut: '8' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -66,6 +68,9 @@ export default function Settings({ onClose }: SettingsProps) {
   const [newCustom, setNewCustom] = useState({ name: '', url: '', apiKey: '' })
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null)
   const [sportsList, setSportsList] = useState<SportarrSport[]>([])
+  const [addProfilePromptOpen, setAddProfilePromptOpen] = useState(false)
+  const [deleteProfileConfirm, setDeleteProfileConfirm] = useState<string | null>(null)
+  const [debridStatuses, setDebridStatuses] = useState<Record<string, { valid: boolean; expiry?: string; error?: string }>>({})
 
   const resolutions = ['4K', '1080p', '720p', '480p']
 
@@ -97,6 +102,11 @@ export default function Settings({ onClose }: SettingsProps) {
 
   // Load sports list when sports tab is opened
   useEffect(() => {
+    if (activeTab === 'connections') {
+      window.api.debrid.checkAllAccountStatus().then((s: Record<string, { valid: boolean; expiry?: string; error?: string }>) => {
+        setDebridStatuses(s)
+      }).catch(() => {})
+    }
     if (activeTab === 'sports' && sportsList.length === 0) {
       window.api.sports.getSportsList().then((list: SportarrSport[]) => {
         setSportsList(list)
@@ -232,7 +242,13 @@ export default function Settings({ onClose }: SettingsProps) {
         const result = await window.api.trakt.pollForToken(code)
         if (result.access_token) {
           await window.api.trakt.setTokens(result.access_token, result.refresh_token)
-          await window.api.settings.set('traktConnected', true)
+          const activeId = useSettingsStore.getState().activeProfileId
+          if (activeId) {
+            useSettingsStore.getState().updateProfile(activeId, {
+              traktAccessToken: result.access_token,
+              traktRefreshToken: result.refresh_token
+            })
+          }
           store.setTraktConnected(true)
           setTraktAuthState('connected')
           setUserName(result.user?.username || '')
@@ -250,7 +266,13 @@ export default function Settings({ onClose }: SettingsProps) {
 
   const disconnect = useCallback(async () => {
     await window.api.trakt.setTokens(null, null)
-    await window.api.settings.set('traktConnected', false)
+    const activeId = useSettingsStore.getState().activeProfileId
+    if (activeId) {
+      useSettingsStore.getState().updateProfile(activeId, {
+        traktAccessToken: undefined,
+        traktRefreshToken: undefined
+      })
+    }
     store.setTraktConnected(false)
     setTraktAuthState('idle')
     setTraktUserCode('')
@@ -612,7 +634,9 @@ export default function Settings({ onClose }: SettingsProps) {
               )}
               {rdAuthState !== 'waiting' && store.realDebridConnected ? (
                 <div className={styles.connectedInfo}>
-                  <p className={styles.connected}>Connected</p>
+                  <p className={styles.connected}>
+                    Connected{debridStatuses['real-debrid'] ? ` · ${debridStatuses['real-debrid'].valid ? (debridStatuses['real-debrid'].expiry || 'Active') : 'Expired'}` : ''}
+                  </p>
                   <button tabIndex={0} className={styles.disconnectBtn} onClick={async () => {
                     await window.api.settings.set('realDebridApiKey', null)
                     store.setRealDebridApiKey('')
@@ -716,7 +740,9 @@ export default function Settings({ onClose }: SettingsProps) {
               )}
               {tbAuthState !== 'waiting' && store.torboxConnected ? (
                 <div className={styles.connectedInfo}>
-                  <p className={styles.connected}>Connected</p>
+                  <p className={styles.connected}>
+                    Connected{debridStatuses['torbox'] ? ` · ${debridStatuses['torbox'].valid ? (debridStatuses['torbox'].expiry || 'Active') : 'Expired'}` : ''}
+                  </p>
                   <button tabIndex={0} className={styles.disconnectBtn} onClick={async () => {
                     if (tbPollRef.current) {
                       clearInterval(tbPollRef.current)
@@ -806,7 +832,9 @@ export default function Settings({ onClose }: SettingsProps) {
               )}
               {pmAuthState !== 'waiting' && store.premiumizeConnected ? (
                 <div className={styles.connectedInfo}>
-                  <p className={styles.connected}>Connected</p>
+                  <p className={styles.connected}>
+                    Connected{debridStatuses['premiumize'] ? ` · ${debridStatuses['premiumize'].valid ? (debridStatuses['premiumize'].expiry || 'Active') : 'Expired'}` : ''}
+                  </p>
                   <button tabIndex={0} className={styles.disconnectBtn} onClick={async () => {
                     await window.api.settings.set('premiumizeAccessToken', null)
                     store.setPremiumizeConnected(false)
@@ -874,7 +902,9 @@ export default function Settings({ onClose }: SettingsProps) {
               )}
               {adAuthState !== 'waiting' && store.alldebridConnected ? (
                 <div className={styles.connectedInfo}>
-                  <p className={styles.connected}>Connected</p>
+                  <p className={styles.connected}>
+                    Connected{debridStatuses['alldebrid'] ? ` · ${debridStatuses['alldebrid'].valid ? (debridStatuses['alldebrid'].expiry || 'Active') : 'Expired'}` : ''}
+                  </p>
                   <button tabIndex={0} className={styles.disconnectBtn} onClick={async () => {
                     await window.api.settings.set('alldebridAccessToken', null)
                     store.setAlldebridConnected(false)
@@ -1279,6 +1309,100 @@ case 'advanced':
             </div>
           </div>
         )
+      case 'profiles': {
+        const profilesArr = store.profiles
+        const autoLoginId = store.autoLoginProfileId
+        const activeId = store.activeProfileId
+        const updateProfile = store.updateProfile
+        const removeProfile = store.removeProfile
+        const addProfile = store.addProfile
+        const setAutoLoginProfile = store.setAutoLoginProfile
+        const setActiveProfile = store.setActiveProfile
+        return (
+          <div className={styles.tabContent}>
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Auto-Login</h3>
+              <p className={styles.settingDesc}>Skip the profile picker when this profile is selected</p>
+              <select
+                className={styles.input}
+                value={autoLoginId || ''}
+                onChange={(e) => setAutoLoginProfile(e.target.value || null)}
+                tabIndex={0}
+              >
+                <option value="">Off</option>
+                {profilesArr.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Profiles ({profilesArr.length}/5)</h3>
+            </div>
+
+            {profilesArr.map((profile) => (
+              <div key={profile.id} className={styles.settingGroup} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 8,
+                  background: profile.avatarColor || '#007AFF',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 700, fontSize: 18,
+                  flexShrink: 0
+                }}>
+                  {profile.name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <input
+                    type="text"
+                    className={styles.input}
+                    value={profile.name}
+                    onChange={(e) => updateProfile(profile.id, { name: e.target.value })}
+                    tabIndex={0}
+                    style={{ fontSize: 16, fontWeight: 600, padding: '6px 8px' }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, color: profile.traktAccessToken ? 'var(--accent, #FF6B00)' : 'rgba(255,255,255,0.4)' }}>
+                      {profile.traktAccessToken ? '● Trakt Logged In' : '○ Trakt Logged Out'}
+                    </span>
+                    {profile.id === activeId && <span style={{ fontSize: 12, color: 'var(--accent, #FF6B00)' }}>● Active</span>}
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {profile.id !== activeId && (
+                    <button
+                      tabIndex={0}
+                      style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--accent, #FF6B00)', background: 'transparent', color: 'var(--accent, #FF6B00)', cursor: 'pointer', fontSize: 12 }}
+                      onClick={() => setActiveProfile(profile.id)}
+                    >
+                      Activate
+                    </button>
+                  )}
+                  <button
+                    tabIndex={0}
+                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(255,80,80,0.4)', background: 'transparent', color: '#ff5050', cursor: 'pointer', fontSize: 12 }}
+                    onClick={() => setDeleteProfileConfirm(profile.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {profilesArr.length < 5 && (
+              <div className={styles.settingGroup}>
+                <button
+                  tabIndex={0}
+                  className={styles.connectBtn}
+                  onClick={() => setAddProfilePromptOpen(true)}
+                >
+                  Add Profile
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      }
     }
   }
 
@@ -1312,6 +1436,36 @@ case 'advanced':
           {saved ? 'Saved!' : 'Save Settings'}
         </button>
       </div>
+
+      {addProfilePromptOpen && (
+        <Prompt
+          title="Add Profile"
+          placeholder="Profile name"
+          confirmLabel="Create"
+          onConfirm={(name) => {
+            store.addProfile(name)
+            setAddProfilePromptOpen(false)
+          }}
+          onCancel={() => setAddProfilePromptOpen(false)}
+        />
+      )}
+
+      {deleteProfileConfirm && (() => {
+        const prof = store.profiles.find((p) => p.id === deleteProfileConfirm)
+        return (
+          <Confirm
+            title={`Delete "${prof?.name}"?`}
+            message="This profile's watch history and settings will be lost."
+            confirmLabel="Delete"
+            destructive
+            onConfirm={() => {
+              store.removeProfile(deleteProfileConfirm)
+              setDeleteProfileConfirm(null)
+            }}
+            onCancel={() => setDeleteProfileConfirm(null)}
+          />
+        )
+      })()}
     </div>
   )
 }

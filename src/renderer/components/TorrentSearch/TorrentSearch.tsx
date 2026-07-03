@@ -122,7 +122,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
       if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, filteredResults.length - 1)); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
       if (e.key === 'Enter' && filteredResults[selectedIdx]) {

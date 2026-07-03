@@ -121,6 +121,12 @@ const api = {
       ipcRenderer.invoke('debrid:get-status', service),
     getServices: () =>
       ipcRenderer.invoke('debrid:get-services'),
+    checkAccountStatus: (service: string) =>
+      ipcRenderer.invoke('debrid:check-account-status', service),
+    checkAllAccountStatus: () =>
+      ipcRenderer.invoke('debrid:check-all-account-status'),
+    getValidServices: () =>
+      ipcRenderer.invoke('debrid:get-valid-services'),
     getPreferred: () =>
       ipcRenderer.invoke('debrid:get-preferred'),
     checkCached: (service: string, hash: string) =>

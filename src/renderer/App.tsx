@@ -12,6 +12,8 @@ import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import Sports from './components/Sports/Sports'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
+import ProfilePicker from './components/ProfilePicker/ProfilePicker'
+import Prompt from './components/Prompt/Prompt'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
 import type { TorrentResult } from './types.d'
@@ -41,6 +43,7 @@ export default function App() {
 
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null)
   const [virtualKeyboardOpen, setVirtualKeyboardOpen] = useState(false)
+  const [addProfilePromptOpen, setAddProfilePromptOpen] = useState(false)
   const [torrentResults, setTorrentResults] = useState<TorrentResult[]>([])
   const [torrentCachedMap, setTorrentCachedMap] = useState<Record<string, string[]>>({})
   const [torrentSearching, setTorrentSearching] = useState(false)
@@ -63,7 +66,7 @@ export default function App() {
   const keyboardInputRef = useRef<HTMLElement | null>(null)
   const savedFocusRef = useRef<HTMLElement | null>(null)
   const prevModalCountRef = useRef(0)
-  const { loadFromDisk, tmdbApiKey } = useSettingsStore()
+  const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
 
   // Listen for Escape key from YouTube BrowserView to return focus
@@ -107,7 +110,13 @@ export default function App() {
         window.api.youtube.hide()
         setView('browser')
       } else if (action === 'back') {
-        if (searchOpen) {
+        if (virtualKeyboardOpen) {
+          setVirtualKeyboardOpen(false)
+        } else if (freeSearchOpen) {
+          setFreeSearchOpen(false); setFreeSearchQuery('')
+        } else if (torrentSearchOpen) {
+          setTorrentSearchOpen(false)
+        } else if (searchOpen) {
           setSearchOpen(false)
         } else if (sidebarOpen) {
           setSidebarOpen(false)
@@ -148,6 +157,13 @@ export default function App() {
   }, [view, searchOpen, sidebarOpen, contextTarget])
 
   const DEBRID_SERVICES = useMemo(() => ['real-debrid', 'torbox', 'premiumize', 'alldebrid'], [])
+  const [validDebridServices, setValidDebridServices] = useState<string[]>(DEBRID_SERVICES)
+  useEffect(() => {
+    window.api.debrid.checkAllAccountStatus().then((statuses: Record<string, { valid: boolean }>) => {
+      const valid = DEBRID_SERVICES.filter(s => statuses[s]?.valid)
+      setValidDebridServices(valid.length > 0 ? valid : DEBRID_SERVICES)
+    }).catch(() => {})
+  }, [])
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const storeSeason = useMediaStore((s) => s.selectedSeason)
   const storeEpisode = useMediaStore((s) => s.selectedEpisode)
@@ -308,7 +324,7 @@ export default function App() {
       }
       const cached: Record<string, string[]> = {}
       perService = {}
-      await Promise.all(DEBRID_SERVICES.map(async (svc) => {
+      await Promise.all(validDebridServices.map(async (svc) => {
         try {
           const status = await window.api.debrid.getStatus(svc)
           if (status.configured) {
@@ -351,7 +367,7 @@ export default function App() {
       cachedCount: Object.keys(debridCachedMap).length,
       perService,
     }).catch(() => {})
-  }, [DEBRID_SERVICES])
+  }, [DEBRID_SERVICES, validDebridServices])
 
   // Run torrent search whenever the modal opens. Read selectedMedia from the store
   // inside the effect (not as a dep) to avoid re-triggering the search when the
@@ -393,7 +409,7 @@ export default function App() {
       return localResult.url
     }
 
-    const services = await window.api.debrid.getServices()
+    const services = validDebridServices
     const checkResults = await Promise.allSettled(
       services.map(async (service: string) => {
         const cached = await window.api.debrid.checkCached(service, result.infoHash)
@@ -778,13 +794,12 @@ export default function App() {
       }
       
       // Enter on text input - show virtual keyboard
-      if (e.key === 'Enter' && isTyping && !virtualKeyboardOpen) {
-        e.preventDefault()
-        keyboardInputRef.current = e.target as HTMLInputElement
-        savedFocusRef.current = e.target as HTMLElement
-        setVirtualKeyboardOpen(true)
-        return
-      }
+  if (e.key === 'Enter' && isTyping && !virtualKeyboardOpen && (e.target as HTMLElement).tagName !== 'SELECT') {
+    e.preventDefault()
+    keyboardInputRef.current = e.target as HTMLInputElement
+    savedFocusRef.current = e.target as HTMLElement
+    setVirtualKeyboardOpen(true)
+  }
       
       // 'c' key - context menus
       if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget) {
@@ -804,8 +819,49 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [view, searchOpen, sidebarOpen, torrentSearchOpen, freeSearchOpen, contextTarget, virtualKeyboardOpen, goBack])
 
-  if (!tmdbApiKey) {
-    return <Settings onClose={() => {}} initialOpen />
+  // --- Profile Logic (must be before any early returns — Rules of Hooks) ---
+  const handleProfileSelect = useCallback(async (profile: any) => {
+    await setActiveProfile(profile.id)
+    useMediaStore.getState().setSelectedMedia(null)
+    const hasApiKey = !!useSettingsStore.getState().tmdbApiKey
+    setView(hasApiKey ? 'browser' : 'settings')
+  }, [setActiveProfile])
+
+  const handleAddProfile = useCallback(() => {
+    setAddProfilePromptOpen(true)
+  }, [])
+
+  const handleConfirmAddProfile = useCallback((name: string) => {
+    addProfile(name)
+    setAddProfilePromptOpen(false)
+  }, [addProfile])
+
+  const handleCancelAddProfile = useCallback(() => {
+    setAddProfilePromptOpen(false)
+  }, [])
+
+  const showProfileSplash = !activeProfileId || profiles.length === 0
+  // --- /Profile Logic ---
+
+  if (showProfileSplash) {
+    return (
+      <>
+        <ProfilePicker
+          profiles={profiles}
+          onSelect={handleProfileSelect}
+          onAdd={handleAddProfile}
+        />
+        {addProfilePromptOpen && (
+          <Prompt
+            title="Add Profile"
+            placeholder="Profile name"
+            confirmLabel="Create"
+            onConfirm={handleConfirmAddProfile}
+            onCancel={handleCancelAddProfile}
+          />
+        )}
+      </>
+    )
   }
 
   const isEpisode = selectedMedia?.mediaType === 'tv' && storeEpisode !== null

@@ -425,12 +425,447 @@ function extractAttr(xml: string, name: string): string {
   return m ? m[1] : ''
 }
 
+// --- Torrentio (Stremio-based, uses IMDB ID) ---
+
+async function searchTorrentio(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    if (!query.imdbId) return []
+    const imdbId = query.imdbId.replace('tt', '')
+    const searchPath = query.type === 'episode'
+      ? `stream/series/tt${imdbId}:${String(query.season || 1).padStart(2, '0')}:${String(query.episode || 1).padStart(2, '0')}`
+      : `stream/movie/tt${imdbId}`
+    const res = await fetch(`https://torrentio.strem.fun/${searchPath}.json`)
+    if (!res.ok) return []
+    const data = await res.json()
+    if (!data?.streams) return []
+
+    const results: TorrentResult[] = []
+    for (const s of data.streams) {
+      const infoHash = s.infoHash || ''
+      if (!infoHash) continue
+      const titleParts = (s.title || '').split('\n')
+      const title = titleParts[0] || s.name || ''
+      const sizeMatch = titleParts[1]?.match(/([\d.]+)\s*(GB|MB|TB)/i)
+      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
+      const seedersMatch = titleParts[1]?.match(/👤\s*(\d+)/)
+      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+
+      results.push({
+        title,
+        seeders,
+        leechers: 0,
+        size,
+        magnetUri: buildMagnetUri(infoHash, title),
+        infoHash,
+        indexer: 'Torrentio',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- MediaFusion (Stremio-based, uses IMDB ID) ---
+
+async function searchMediafusion(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    if (!query.imdbId) return []
+    const imdbId = query.imdbId.replace('tt', '')
+    const searchPath = query.type === 'episode'
+      ? `stream/series/tt${imdbId}:${String(query.season || 1).padStart(2, '0')}:${String(query.episode || 1).padStart(2, '0')}`
+      : `stream/movie/tt${imdbId}`
+    const config = 'D-VB6XV7ihJSEIwDttLGJEBwGOm5jk0SauzzN776n-vpQACSP9gqDv6r_EOlRRgXABiH52LcNFY3QdsRHHlqHId-ZwrsLx3RkuaW4fp3LzLP8'
+    const res = await fetch(`https://mediafusion.stremio.ru/${config}/${searchPath}.json`)
+    if (!res.ok) return []
+    const data = await res.json()
+    if (!data?.streams) return []
+
+    const results: TorrentResult[] = []
+    for (const s of data.streams) {
+      const infoHash = s.infoHash || ''
+      if (!infoHash) continue
+      const desc = (s.description || '').replace('📂 - ', '').replace('📂 ', '')
+      const title = (s.name || '').replace(/\[.*?\]\s*/g, '')
+      const sizeMatch = desc.match(/([\d.]+)\s*(GB|MB|TB)/i)
+      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
+      const seedersMatch = desc.match(/💾\s*(\d+)/)
+      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+
+      results.push({
+        title,
+        seeders,
+        leechers: 0,
+        size,
+        magnetUri: buildMagnetUri(infoHash, title),
+        infoHash,
+        indexer: 'MediaFusion',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- Kickass ---
+
+async function searchKickass(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    let searchTerm = query.query
+    if (!searchTerm) {
+      if (query.type === 'episode') {
+        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim()
+      } else {
+        searchTerm = `${query.title || ''} ${query.year || ''}`.trim()
+      }
+    }
+    if (!searchTerm) return []
+
+    const category = query.type === 'episode' ? 'tv' : 'movies'
+    const domains = ['https://kickass.id', 'https://kickass.love', 'https://kickass.name', 'https://kickass.earth', 'https://thekat.app']
+    const base = domains[0]
+
+    const res = await fetch(`${base}/usearch/${encodeURIComponent(searchTerm)}%20category:${category}/`)
+    if (!res.ok) return []
+    const html = await res.text()
+
+    const results: TorrentResult[] = []
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+    let rowMatch: RegExpExecArray | null
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+      const row = rowMatch[1]
+      const titleMatch = /<a[^>]*class="[^"]*cellMainLink[^"]*"[^>]*>([\s\S]*?)<\/a>/i.exec(row)
+      if (!titleMatch) continue
+      const title = titleMatch[1].replace(/<[^>]+>/g, '').trim()
+      const magnetMatch = /href="(magnet:\?[^"]*)"/i.exec(row)
+      const magnetUri = magnetMatch ? magnetMatch[1] : ''
+      const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{32,40})/i)
+      const infoHash = infoHashMatch?.[1] || ''
+      if (!title || !infoHash) continue
+
+      const sizeText = row.match(/<td[^>]*>([\d.]+\s*(?:GB|MB|TB))<\/td>/i)?.[1] || '0 MB'
+      const seedersMatch = row.match(/>\s*(\d+)\s*<\/td>/g)
+      const seeders = seedersMatch ? parseInt(seedersMatch[0].replace(/<[^>]+>/g, '').trim()) || 0 : 0
+
+      results.push({
+        title,
+        seeders,
+        leechers: 0,
+        size: parseSize(sizeText),
+        magnetUri: magnetUri || buildMagnetUri(infoHash, title),
+        infoHash,
+        indexer: 'Kickass',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- MagnetDL ---
+
+async function searchMagnetdl(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    let searchTerm = query.query
+    if (!searchTerm) {
+      if (query.type === 'episode') {
+        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim()
+      } else {
+        searchTerm = `${query.title || ''} ${query.year || ''}`.trim()
+      }
+    }
+    if (!searchTerm) return []
+
+    const firstLetter = searchTerm[0].toLowerCase()
+    const slug = encodeURIComponent(searchTerm).replace(/%20/g, '-').replace(/\+/g, '-').toLowerCase()
+    const res = await fetch(`https://torrentquest.com/${firstLetter}/${slug}/se/desc/1/`, {
+      headers: { 'Accept': 'text/html' },
+    })
+    if (!res.ok) return []
+    const html = await res.text()
+
+    const results: TorrentResult[] = []
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+    let rowMatch: RegExpExecArray | null
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+      const row = rowMatch[1]
+      const magnetMatch = /href="(magnet:\?[^"]*)"/i.exec(row)
+      if (!magnetMatch) continue
+      const magnetUri = magnetMatch[1]
+      const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{32,40})/i)
+      const infoHash = infoHashMatch?.[1] || ''
+      if (!infoHash) continue
+
+      const titleMatch = /<a[^>]*title="([^"]*)"[^>]*>/i.exec(row)
+      const title = titleMatch ? titleMatch[1].trim() : ''
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+      const sizeText = cells[1] ? cells[1][1].replace(/<[^>]+>/g, '').trim() : '0 MB'
+      const seedersText = cells[3] ? cells[3][1].replace(/<[^>]+>/g, '').trim() : '0'
+
+      results.push({
+        title,
+        seeders: parseInt(seedersText) || 0,
+        leechers: 0,
+        size: parseSize(sizeText),
+        magnetUri,
+        infoHash,
+        indexer: 'MagnetDL',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- BitSearch ---
+
+async function searchBitsearch(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    let searchTerm = query.query
+    if (!searchTerm) {
+      if (query.type === 'episode') {
+        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim()
+      } else {
+        searchTerm = `${query.title || ''} ${query.year || ''}`.trim()
+      }
+    }
+    if (!searchTerm) return []
+
+    const res = await fetch(`https://bitsearch.to/search?q=${encodeURIComponent(searchTerm)}&sort=size&limit=100`)
+    if (!res.ok) return []
+    const html = await res.text()
+
+    const results: TorrentResult[] = []
+    const itemRegex = /<li[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/li>/gi
+    let itemMatch: RegExpExecArray | null
+    while ((itemMatch = itemRegex.exec(html)) !== null) {
+      const item = itemMatch[1]
+      const titleMatch = /<a[^>]*href="\/torrent\/\d+"[^>]*>([\s\S]*?)<\/a>/i.exec(item)
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      const magnetMatch = /href="(magnet:\?[^"]*)"/i.exec(item)
+      const magnetUri = magnetMatch ? magnetMatch[1] : ''
+      const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{32,40})/i)
+      const infoHash = infoHashMatch?.[1] || ''
+      if (!title || !infoHash) continue
+
+      const sizeMatch = item.match(/([\d.]+)\s*(GB|MB|TB)/i)
+      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
+      const seedersMatch = item.match(/class="[^"]*seeds[^"]*"[^>]*>\s*(\d+)/i)
+      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+
+      results.push({
+        title,
+        seeders,
+        leechers: 0,
+        size,
+        magnetUri: magnetUri || buildMagnetUri(infoHash, title),
+        infoHash,
+        indexer: 'BitSearch',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- RuTor ---
+
+async function searchRutor(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    let searchTerm = query.query
+    if (!searchTerm) {
+      if (query.type === 'episode') {
+        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim()
+      } else {
+        searchTerm = `${query.title || ''} ${query.year || ''}`.trim()
+      }
+    }
+    if (!searchTerm) return []
+
+    const res = await fetch(`https://rutor.info/search/0/0/000/2/${encodeURIComponent(searchTerm)}`)
+    if (!res.ok) return []
+    const html = await res.text()
+
+    const results: TorrentResult[] = []
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+    let rowMatch: RegExpExecArray | null
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+      const row = rowMatch[1]
+      const magnetMatch = row.match(/(magnet:\?[^"&]*)(?:&dn=([^&"]*))?/)
+      if (!magnetMatch) continue
+      const magnetUri = magnetMatch[0]
+      const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{32,40})/i)
+      const infoHash = infoHashMatch?.[1] || ''
+      if (!infoHash) continue
+
+      const titleMatch = row.match(/\/\s*(.*?)\s*\|/)
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      if (!title) continue
+
+      const sizeMatch = row.match(/([\d.]+)\s*(GB|MB|TB|КБ|МБ|ГБ)/i)
+      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
+      const seedersMatch = row.match(/<span[^>]*>(\d+)<\/span>/i)
+      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+
+      results.push({
+        title,
+        seeders,
+        leechers: 0,
+        size,
+        magnetUri: magnetUri.includes('&dn=') ? magnetUri : `${magnetUri}&dn=${encodeURIComponent(title)}`,
+        infoHash,
+        indexer: 'RuTor',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- Torrentz2 ---
+
+async function searchTorrentz2(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    let searchTerm = query.query
+    if (!searchTerm) {
+      if (query.type === 'episode') {
+        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim()
+      } else {
+        searchTerm = `${query.title || ''} ${query.year || ''}`.trim()
+      }
+    }
+    if (!searchTerm) return []
+
+    const res = await fetch(`https://torrentz2.nz/search?q=${encodeURIComponent(searchTerm)}`)
+    if (!res.ok) return []
+    const html = await res.text()
+
+    const results: TorrentResult[] = []
+    const itemRegex = /<dl[^>]*>([\s\S]*?)<\/dl>/gi
+    let itemMatch: RegExpExecArray | null
+    while ((itemMatch = itemRegex.exec(html)) !== null) {
+      const item = itemMatch[1]
+      const titleMatch = /<a[^>]*>([\s\S]*?)<\/a>/i.exec(item)
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      if (!title) continue
+
+      const hashMatch = item.match(/([a-fA-F0-9]{40})/)
+      const infoHash = hashMatch ? hashMatch[1] : ''
+      if (!infoHash) continue
+
+      const sizeMatch = item.match(/([\d.]+)\s*(GB|MB|TB)/i)
+      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
+      const seedersMatch = item.match(/♥\s*(\d+)/)
+      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+      const leechersMatch = item.match(/✗\s*(\d+)/)
+      const leechers = leechersMatch ? parseInt(leechersMatch[1]) : 0
+
+      results.push({
+        title,
+        seeders,
+        leechers,
+        size,
+        magnetUri: buildMagnetUri(infoHash, title),
+        infoHash,
+        indexer: 'Torrentz2',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
+// --- ShowRSS (TV only, RSS-based) ---
+
+async function searchShowrss(query: TorrentQuery): Promise<TorrentResult[]> {
+  try {
+    if (query.type !== 'episode') return []
+    const showTitle = query.title || ''
+    if (!showTitle) return []
+
+    const listRes = await fetch('https://showrss.info/browse')
+    if (!listRes.ok) return []
+    const listHtml = await listRes.text()
+
+    const optionRegex = /<option[^>]*value="(\d+)"[^>]*>(.*?)<\/option>/gi
+    let optionMatch: RegExpExecArray | null
+    let showId: string | null = null
+    const cleanTitle = showTitle.toLowerCase().replace(/[^a-z0-9]/g, '')
+    while ((optionMatch = optionRegex.exec(listHtml)) !== null) {
+      const optionTitle = optionMatch[2].toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (optionTitle.startsWith(cleanTitle) || cleanTitle.startsWith(optionTitle)) {
+        showId = optionMatch[1]
+        break
+      }
+    }
+    if (!showId) return []
+
+    const feedRes = await fetch(`https://showrss.info/show/${showId}.rss`)
+    if (!feedRes.ok) return []
+    const feedHtml = await feedRes.text()
+
+    const results: TorrentResult[] = []
+    const itemRegex = /<item>([\s\S]*?)<\/item>/gi
+    let itemMatch: RegExpExecArray | null
+    while ((itemMatch = itemRegex.exec(feedHtml)) !== null) {
+      const item = itemMatch[1]
+      const titleMatch = /<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/i.exec(item)
+      const title = titleMatch ? titleMatch[1].trim() : ''
+      const magnetMatch = /"(magnet:\?[^"]*)"/i.exec(item)
+      const magnetUri = magnetMatch ? magnetMatch[1] : ''
+      const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{32,40})/i)
+      const infoHash = infoHashMatch?.[1] || ''
+      if (!title || !infoHash) continue
+
+      if (query.season !== undefined && query.episode !== undefined) {
+        const sxxeyy = new RegExp(`S${String(query.season).padStart(2, '0')}E${String(query.episode).padStart(2, '0')}`, 'i')
+        if (!sxxeyy.test(title)) continue
+      }
+
+      results.push({
+        title,
+        seeders: 0,
+        leechers: 0,
+        size: 0,
+        magnetUri: magnetUri || buildMagnetUri(infoHash, title),
+        infoHash,
+        indexer: 'ShowRSS',
+        quality: qualityFromTitle(title),
+      })
+    }
+    return results
+  } catch {
+    return []
+  }
+}
+
 const BUILT_IN_INDEXERS: BuiltInIndexer[] = [
   { id: 'yts', name: 'YTS', type: 'movie', search: searchYts },
   { id: 'eztv', name: 'EZTV', type: 'tv', search: searchEztv },
   { id: 'thepiratebay', name: 'TPB', type: 'general', search: searchThePirateBay },
   { id: 'nyaa', name: 'Nyaa', type: 'general', search: searchNyaa },
   { id: '1337x', name: '1337x', type: 'general', search: search1337x },
+  { id: 'torrentio', name: 'Torrentio', type: 'general', search: searchTorrentio },
+  { id: 'mediafusion', name: 'MediaFusion', type: 'general', search: searchMediafusion },
+  { id: 'kickass', name: 'Kickass', type: 'general', search: searchKickass },
+  { id: 'magnetdl', name: 'MagnetDL', type: 'general', search: searchMagnetdl },
+  { id: 'bitsearch', name: 'BitSearch', type: 'general', search: searchBitsearch },
+  { id: 'rutor', name: 'RuTor', type: 'general', search: searchRutor },
+  { id: 'torrentz2', name: 'Torrentz2', type: 'general', search: searchTorrentz2 },
+  { id: 'showrss', name: 'ShowRSS', type: 'tv', search: searchShowrss },
 ]
 
 export function getBuiltInIndexerDefinitions(): BuiltInIndexer[] {

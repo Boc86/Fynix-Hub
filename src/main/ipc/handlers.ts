@@ -371,6 +371,23 @@ export async function registerIpcHandlers(): Promise<void> {
     return DebridService.getServices()
   })
 
+  ipcMain.handle('debrid:check-account-status', async (_event, service: string) => {
+    return DebridService.checkAccountStatus(service)
+  })
+
+  ipcMain.handle('debrid:check-all-account-status', async () => {
+    const services = DebridService.getServices()
+    const results: Record<string, { valid: boolean; expiry?: string; error?: string }> = {}
+    await Promise.all(services.map(async (svc) => {
+      results[svc] = await DebridService.checkAccountStatus(svc)
+    }))
+    return results
+  })
+
+  ipcMain.handle('debrid:get-valid-services', async () => {
+    return DebridService.getValidServices()
+  })
+
   ipcMain.handle('debrid:get-preferred', () => {
     return { service: DebridService.getPreferred() }
   })

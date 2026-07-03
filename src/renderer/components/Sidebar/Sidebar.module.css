@@ -205,6 +205,119 @@
   flex: 1;
 }
 
+.navSection {
+  display: flex;
+  flex-direction: column;
+}
+
+.profileRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
+  position: relative;
+  font-weight: 500;
+}
+
+.profileRow:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.profileRow.focused {
+  background: linear-gradient(90deg, rgba(255, 107, 0, 0.1) 0%, transparent 100%);
+  color: var(--accent);
+}
+
+.bottomControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 6px;
+  padding: 8px 16px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.bottomControls .controlBtn {
+  flex: 1;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.bottomControls .controlBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.bottomControls .controlBtn.focused {
+  background: rgba(255, 107, 0, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bottomControls .controlBtn:focus-visible {
+  outline: none;
+}
+
+.profileMenu {
+  position: absolute;
+  bottom: 100px;
+  left: 12px;
+  right: 12px;
+  background: rgba(20, 20, 20, 0.98);
+  border: 1px solid var(--accent, #FF6B00);
+  border-radius: 8px;
+  padding: 8px;
+  z-index: 100;
+}
+
+.profileMenuHeader {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 4px 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.profileMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 13px;
+  text-align: left;
+  margin-top: 4px;
+  transition: background 0.15s ease;
+}
+
+.profileMenuItem:hover,
+.profileMenuFocused {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .searchNavBtn {
   display: flex;
   align-items: center;
