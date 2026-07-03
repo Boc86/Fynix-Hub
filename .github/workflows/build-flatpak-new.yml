@@ -55,15 +55,8 @@ jobs:
           ostree init --mode=archive-z2 --repo=repo
           flatpak build-import-bundle repo "$BUNDLE"
           
-          # Sign and update the repository metadata if GPG key is provided
-          if [ -n "${{ secrets.GPG_KEY_ID }}" ]; then
-            echo "Importing GPG Key..."
-            echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --import --batch --passphrase "${{ secrets.GPG_PASSPHRASE }}"
-            flatpak build-update-repo --gpg-sign="${{ secrets.GPG_KEY_ID }}" repo
-          else
-            echo "GPG key not found, skipping signature..."
-            flatpak build-update-repo repo
-          fi
+          # Update the repository metadata
+          flatpak build-update-repo repo
 
       - name: Prepare website artifact
         run: |
@@ -83,35 +76,17 @@ jobs:
           echo "Description=Fynix Hub — Stream movies and shows with Real-Debrid" >> site/repo.flatpakrepo
           echo "Icon=https://Boc86.github.io/Fynix-Hub/assets/logo/logo.png" >> site/repo.flatpakrepo
 
-          # If signed, export the GPG key to the flatpakrepo
-          if [ -n "${{ secrets.GPG_KEY_ID }}" ]; then
-            echo "Exporting public key to repo.flatpakrepo..."
-            echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --import --batch --passphrase "${{ secrets.GPG_PASSPHRASE }}" || true
-            GPG_BASE64=$(gpg --export "${{ secrets.GPG_KEY_ID }}" | base64 -w0)
-            echo "GPGKey=$GPG_BASE64" >> site/repo.flatpakrepo
-            
-          # Write instructions for GPG remote
-            echo "Flatpak is available via our custom repository (GPG Signed)." > site/flatpak-install.txt
-            echo "" >> site/flatpak-install.txt
-            echo "To install, add the repository and install the app:" >> site/flatpak-install.txt
-            echo "" >> site/flatpak-install.txt
-            echo "1. Add repository:" >> site/flatpak-install.txt
-            echo "   flatpak remote-add --if-not-exists fynix-hub https://Boc86.github.io/Fynix-Hub/repo.flatpakrepo" >> site/flatpak-install.txt
-            echo "" >> site/flatpak-install.txt
-            echo "2. Install app:" >> site/flatpak-install.txt
-            echo "   flatpak install fynix-hub io.github.Boc86.FynixHub" >> site/flatpak-install.txt
-          else
-            # Unsigned remote instructions (fallback)
-            echo "Flatpak is available via our custom repository." > site/flatpak-install.txt
-            echo "" >> site/flatpak-install.txt
-            echo "To install, add the repository and install the app:" >> site/flatpak-install.txt
-            echo "" >> site/flatpak-install.txt
-            echo "1. Add repository (unverified):" >> site/flatpak-install.txt
-            echo "   flatpak remote-add --if-not-exists --no-gpg-verify fynix-hub https://Boc86.github.io/Fynix-Hub/repo/" >> site/flatpak-install.txt
-            echo "" >> site/flatpak-install.txt
-            echo "2. Install app:" >> site/flatpak-install.txt
-            echo "   flatpak install fynix-hub io.github.Boc86.FynixHub" >> site/flatpak-install.txt
-          fi
+          # Write simple installation instructions
+          echo "Flatpak is available via our custom repository." > site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "To install, add the repository and install the app:" >> site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "1. Add repository (unverified):" >> site/flatpak-install.txt
+          echo "   flatpak remote-add --if-not-exists --no-gpg-verify fynix-hub https://Boc86.github.io/Fynix-Hub/repo/" >> site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "2. Install app:" >> site/flatpak-install.txt
+          echo "   flatpak install fynix-hub io.github.Boc86.FynixHub" >> site/flatpak-install.txt
+          
           touch site/.nojekyll
 
       - name: Upload website artifact
