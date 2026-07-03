@@ -27,7 +27,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     continueWatching, upNext, isLoading, error, traktWatched,
     setTrending, setPopularMovies, setPopularTvShows,
     setTopRatedMovies, setContinueWatching, setUpNext,
-    setTraktWatched, setTraktPlayback, showUnwatchedCount, setShowUnwatchedCount,
+    setTraktWatched, setTraktPlayback,
     setLoading, setError, refreshVersion, setEpisodeWatched
   } = useMediaStore()
 
@@ -186,16 +186,9 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       // Fetch Up Next (shows with next episode to watch)
       try {
         const progress = await window.api.trakt.getWatchedProgress()
-        if (progress && Array.isArray(progress) && progress.length > 0) {
-          // Build unwatched count map for show cards
-          const unwatchedMap = new Map<number, number>()
-          for (const p of progress) {
-            const tmdbId = p?.show?.ids?.tmdb
-            if (!tmdbId) continue
-            const unwatched = Math.max((p.aired || 0) - (p.completed || 0), p.next_episode ? 1 : 0)
-            if (unwatched > 0) unwatchedMap.set(tmdbId, unwatched)
-          }
-          setShowUnwatchedCount(unwatchedMap)
+            if (progress && Array.isArray(progress) && progress.length > 0) {
+               
+                const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
 
            const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
              const tmdbId = p?.show?.ids?.tmdb
@@ -510,11 +503,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                   }
                   onSelectMedia()
                 }}
-                rowIndex={idx}
-                focusedCardIndex={idx === focusedRow ? focusedCard : undefined}
-                watchedIds={traktWatched}
-                unwatchedCounts={showUnwatchedCount}
-                animationDelay={idx * 50}
+                 rowIndex={idx}
+                 focusedCardIndex={idx === focusedRow ? focusedCard : undefined}
+                 watchedIds={traktWatched}
+                 animationDelay={idx * 50}
               />
             )
           })}
