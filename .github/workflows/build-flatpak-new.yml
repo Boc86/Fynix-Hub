@@ -43,7 +43,7 @@ jobs:
 
       - name: Create OSTree Repository
         run: |
-          mkdir -p repo
+          rm -rf repo
           BUNDLE=$(find out/make -name "*.flatpak" | head -1)
           if [ -z "$BUNDLE" ]; then
             echo "Error: Flatpak bundle not found in out/make"
