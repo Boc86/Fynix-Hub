@@ -51,8 +51,11 @@ jobs:
 
       - name: Push to GHCR
         run: |
-          flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/
-          flatpak build-push ghcr.io/boc86/fynix-hub --user --tag=latest out/make/flatpak/x86_64/*.flatpak
+          flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/ || true
+          mkdir -p ostree-repo
+          ostree init --repo=ostree-repo --branch
+          flatpak build-export ostree-repo out/make/flatpak/x86_64/*.flatpak
+          flatpak build-push ghcr.io/boc86/fynix-hub --repo=ostree-repo --user --tag=latest
 
       - name: Prepare website artifact
         run: |
@@ -78,3 +81,16 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: out/make/flatpak/x86_64/*.flatpak
+          generate_release_notes: true
