@@ -963,6 +963,13 @@ export default function Settings({ onClose }: SettingsProps) {
                       type="checkbox"
                       checked={localEnabledIndexers.includes(idx.id)}
                       onChange={() => toggleBuiltIn(idx.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleBuiltIn(idx.id);
+                        }
+                      }}
                     />
                     <span className={styles.indexerName}>{idx.name}</span>
                     <span className={styles.indexerMeta}>{idx.type}</span>
@@ -1016,6 +1023,13 @@ export default function Settings({ onClose }: SettingsProps) {
                             type="checkbox"
                             checked={idx.enabled}
                             onChange={(e) => updateCustomIndexer(idx.id, { enabled: e.target.checked })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                updateCustomIndexer(idx.id, { enabled: !idx.enabled });
+                              }
+                            }}
                           />
                           <span className={styles.indexerName}>{idx.name}</span>
                           <span className={styles.indexerMeta}>{idx.url}</span>
