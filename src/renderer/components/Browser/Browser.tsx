@@ -101,9 +101,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
             if (!tmdbId) continue
             const seasonsMap = new Map<number, Set<number>>()
             for (const season of (s.seasons || [])) {
+              if (!season.number || season.number === 0) continue
               const epSet = new Set<number>()
               for (const ep of (season.episodes || [])) {
-                if (ep.number) epSet.add(ep.number)
+                if (ep.number && ep.number > 0) epSet.add(ep.number)
               }
               if (epSet.size > 0) seasonsMap.set(season.number, epSet)
             }
@@ -191,37 +192,37 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           for (const p of progress) {
             const tmdbId = p?.show?.ids?.tmdb
             if (!tmdbId) continue
-            const unwatched = (p.aired || 0) - (p.completed || 0)
+            const unwatched = Math.max((p.aired || 0) - (p.completed || 0), p.next_episode ? 1 : 0)
             if (unwatched > 0) unwatchedMap.set(tmdbId, unwatched)
           }
           setShowUnwatchedCount(unwatchedMap)
 
-          const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
-            const tmdbId = p?.show?.ids?.tmdb
-            if (!tmdbId || !p?.next_episode) return null
-            try {
-              const detail = await window.api.tmdb.getDetails('tv', tmdbId)
-              if (!detail) return null
-              return {
-                item: {
-                  id: detail.id,
-                  title: detail.title || detail.name || '',
-                  overview: detail.overview || '',
-                  posterPath: detail.posterPath || null,
-                  backdropPath: detail.backdropPath || null,
-                  releaseDate: detail.releaseDate || '',
-                  voteAverage: detail.voteAverage || 0,
-                  mediaType: 'tv' as const,
-                  genreIds: (detail.genres || []).map((g: any) => g.id),
-                },
-                season: p.next_episode.season || 1,
-                episode: p.next_episode.number || 1,
-                episodeTitle: p.next_episode.title || '',
-              }
-            } catch { return null }
-          })
-          const upNextItems = (await Promise.all(upNextPromises)).filter((x): x is NonNullable<typeof x> => x !== null)
-          setUpNext(upNextItems)
+           const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
+             const tmdbId = p?.show?.ids?.tmdb
+             if (!tmdbId || !p?.next_episode) return null
+             try {
+               const detail = await window.api.tmdb.getDetails('tv', tmdbId)
+               if (!detail) return null
+               return {
+                 item: {
+                   id: detail.id,
+                   title: detail.title || detail.name || '',
+                   overview: detail.overview || '',
+                   posterPath: detail.posterPath || null,
+                   backdropPath: detail.backdropPath || null,
+                   releaseDate: detail.releaseDate || '',
+                   voteAverage: detail.voteAverage || 0,
+                   mediaType: 'tv' as const,
+                   genreIds: (detail.genres || []).map((g: any) => g.id),
+                 },
+                 season: p.next_episode.season || 1,
+                 episode: p.next_episode.number || 1,
+                 episodeTitle: p.next_episode.title || '',
+               }
+             } catch { return null }
+           })
+           const upNextItems = (await Promise.all(upNextPromises)).filter((x): x is NonNullable<typeof x> => x !== null)
+           setUpNext(upNextItems)
         }
       } catch (err: any) {
         console.log('[Browser] getWatchedProgress failed:', err?.message)

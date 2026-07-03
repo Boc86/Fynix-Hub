@@ -181,11 +181,18 @@ export async function getWatchedShowsWithProgress() {
     const show = entry.show
     if (!show || !show.ids || !show.ids.tmdb) continue
 
-    const aired = show.aired_episodes || 0
-    // Compute watched count from seasons data — the API does not return watched_episodes at root level
+    const aired = entry.aired_episodes || show.aired_episodes || 0
+    // Compute watched count from seasons data — use Set for dedup, exclude specials (season 0, episode 0)
     const watchedCount = (entry.seasons || []).reduce((total: number, s: any) => {
-      return total + (s.episodes || []).filter((e: any) => e.number !== undefined).length
+      if (!s.number || s.number === 0) return total
+      const epSet = new Set<number>()
+      for (const ep of (s.episodes || [])) {
+        if (ep.number && ep.number > 0) epSet.add(ep.number)
+      }
+      return total + epSet.size
     }, 0)
+
+    console.log(`[Trakt Progress] ${show.title}: aired=${aired} (entry=${entry.aired_episodes}, show=${show.aired_episodes}), watched=${watchedCount}, seasons=${JSON.stringify((entry.seasons || []).map((s: any) => ({ n: s.number, eps: (s.episodes || []).map((e: any) => e.number) })))}`)
 
     // In progress = more episodes aired than watched
     if (aired <= watchedCount) continue
@@ -197,6 +204,7 @@ export async function getWatchedShowsWithProgress() {
       // Sort seasons by number
       const sortedSeasons = [...entry.seasons].sort((a, b) => (a.number || 0) - (b.number || 0))
       for (const season of sortedSeasons) {
+        if (!season.number || season.number === 0) continue
         if (!season.episodes || !Array.isArray(season.episodes)) continue
         // Build a set of watched episode numbers for this season
         const watchedEpisodes = new Set<number>()

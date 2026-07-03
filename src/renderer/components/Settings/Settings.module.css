@@ -443,6 +443,12 @@
   border-color: rgba(var(--accent-rgb), 0.2);
 }
 
+.indexerRow:focus-within {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .indexerRow input[type="checkbox"] {
   width: 18px;
   height: 18px;

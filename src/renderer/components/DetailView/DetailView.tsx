@@ -601,7 +601,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
             {ep.voteAverage > 0 && (
               <span className={styles.episodeRating}>{ep.voteAverage.toFixed(1)}</span>
             )}
-            <span>{ep.airDate?.slice(0, 4) || ''}</span>
+                    <span>{ep.airDate || ''}</span>
             </div>
             <p className={styles.episodeOverview}>{ep.overview}</p>
             </div>
