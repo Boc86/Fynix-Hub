@@ -65,17 +65,15 @@ jobs:
           mkdir -p site/repo
           cp -r repo/* site/repo/
           
-          cat > site/flatpak-install.txt << 'EOF'
-Flatpak is available via our custom repository.
-
-To install, add the remote and install the app:
-
-1. Add remote:
-   flatpak remote-add --if-not-exists fynix-hub https://Boc86.github.io/Fynix-Hub/repo/
-
-2. Install app:
-   flatpak install fynix-hub io.github.Boc86.FynixHub
-EOF
+          echo "Flatpak is available via our custom repository." > site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "To install, add the remote and install the app:" >> site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "1. Add remote:" >> site/flatpak-install.txt
+          echo "   flatpak remote-add --if-not-exists fynix-hub https://Boc86.github.io/Fynix-Hub/repo/" >> site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "2. Install app:" >> site/flatpak-install.txt
+          echo "   flatpak install fynix-hub io.github.Boc86.FynixHub" >> site/flatpak-install.txt
           touch site/.nojekyll
 
       - name: Upload website artifact
