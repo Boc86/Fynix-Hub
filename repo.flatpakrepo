@@ -1,6 +1,6 @@
 [Flatpak Repo]
 Title=Fynix Hub
-Url=https://cdn.jsdelivr.net/gh/Boc86/Fynix-Hub@flatpak-repo/repo/
+Url=https://github.com/Boc86/Fynix-Hub/tree/flatpak-repo
 HomepageURL=https://github.com/Boc86/Fynix-Hub
 Comment=Fynix Hub media center
 Description=Fynix Hub — Stream movies and shows with Real-Debrid
