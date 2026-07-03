@@ -9,6 +9,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  packages: write
 
 concurrency:
   group: pages
@@ -41,17 +42,25 @@ jobs:
       - name: Build Flatpak bundle
         run: TMPDIR=/var/tmp npm run make:flatpak
 
-      - name: Upload flatpak bundle
-        uses: actions/upload-artifact@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          name: flatpak-bundle
-          path: out/make/flatpak/x86_64/*.flatpak
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+- name: Push to GHCR
+        run: |
+          flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/
+          flatpak build-push ghcr.io/boc86/fynix-hub --user --tag=latest out/make/flatpak/x86_64/*.flatpak
 
       - name: Prepare website artifact
         run: |
           mkdir -p site
           cp -r docs/* site/
-          cp com.fynix.hub.flatpakrepo site/repo.flatpakrepo 2>/dev/null || true
+          echo "Flatpak pushed to GHCR. Install with:" > site/flatpak-install.txt
+          echo "flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/" >> site/flatpak-install.txt
+          echo "flatpak install ghcr.io/boc86/fynix-hub" >> site/flatpak-install.txt
           touch site/.nojekyll
 
       - name: Upload website artifact
