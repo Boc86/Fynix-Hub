@@ -267,6 +267,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           saveProgress()
           await scrobble('stop')
           await markAsWatched()
+          useMediaStore.getState().triggerRefresh()
           if (mediaInfo?.isTrailer) {
             onBack()
           } else if (mediaInfo?.mediaType === 'tv') {
@@ -280,6 +281,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           saveProgress()
           scrobble('stop').catch(() => {})
           markAsWatched().catch(() => {})
+          useMediaStore.getState().triggerRefresh()
           const code = await window.api.mpv.getLastExitCode().catch(() => null)
           if (code === 42) {
             onNextEpisode()

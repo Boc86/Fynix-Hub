@@ -38,12 +38,12 @@
 .brandPrimary {
   font-size: 72px;
   font-weight: 800;
-  background: linear-gradient(135deg, #e50914 0%, #ff1a1a 50%, #e50914 100%);
+  background: var(--accent);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   letter-spacing: 2px;
-  text-shadow: 0 0 60px rgba(229, 9, 20, 0.4);
+  text-shadow: 0 0 60px rgba(var(--accent-rgb), 0.4);
   line-height: 1;
 }
 
@@ -94,16 +94,16 @@
 .profileCard:hover {
   transform: translateY(-6px);
   background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(229, 9, 20, 0.25);
-  box-shadow: 0 12px 40px rgba(229, 9, 20, 0.15);
+  border-color: rgba(var(--accent-rgb), 0.25);
+  box-shadow: 0 12px 40px rgba(var(--accent-rgb), 0.15);
   color: rgba(255, 255, 255, 0.85);
 }
 
 .profileCard.focused {
   transform: translateY(-6px);
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(229, 9, 20, 0.4);
-  box-shadow: 0 0 30px rgba(229, 9, 20, 0.25), 0 12px 40px rgba(229, 9, 20, 0.15);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  box-shadow: 0 0 30px rgba(var(--accent-rgb), 0.25), 0 12px 40px rgba(var(--accent-rgb), 0.15);
   color: #fff;
 }
 
@@ -119,7 +119,7 @@
 
 .profileCard.focused .avatar,
 .profileCard:hover .avatar {
-  border-color: #e50914;
+  border-color: var(--accent);
   transform: scale(1.05);
 }
 
@@ -150,30 +150,30 @@
 
 .addCard {
   border-style: dashed;
-  border-color: rgba(229, 9, 20, 0.2);
-  background: rgba(229, 9, 20, 0.03);
+  border-color: rgba(var(--accent-rgb), 0.2);
+  background: rgba(var(--accent-rgb), 0.03);
 }
 
 .addCard:hover {
-  border-color: rgba(229, 9, 20, 0.4);
-  background: rgba(229, 9, 20, 0.06);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.06);
 }
 
 .addCard.focused {
-  border-color: rgba(229, 9, 20, 0.5);
-  background: rgba(229, 9, 20, 0.08);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .addAvatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(229, 9, 20, 0.6);
+  color: rgba(var(--accent-rgb), 0.6);
   transition: color 0.3s ease, transform 0.3s ease;
 }
 
 .profileCard.focused .addAvatar,
 .addCard:hover .addAvatar {
-  color: #e50914;
+  color: var(--accent);
   transform: scale(1.1);
 }

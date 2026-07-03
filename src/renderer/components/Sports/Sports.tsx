@@ -83,12 +83,24 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [scheduleStreams, setScheduleStreams] = useState<{ source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[]>([])
   const [scheduleStreamLoading, setScheduleStreamLoading] = useState(false)
   const [viewKey, setViewKey] = useState(0)
+  const [selectedCountry, setSelectedCountry] = useState<string>('')
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
     if (settingsStore.sportsSelected.length === 0) return store.sportsList
     return store.sportsList.filter((s: any) => settingsStore.sportsSelected.includes(s.id))
   }, [store.sportsList, settingsStore.sportsSelected])
+
+  const leagueCountries = useMemo(() => {
+    const countries = new Set<string>()
+    store.leagues.forEach((l: any) => { if (l.country) countries.add(l.country) })
+    return Array.from(countries).sort()
+  }, [store.leagues])
+
+  const filteredLeagues = useMemo(() => {
+    if (!selectedCountry) return store.leagues
+    return store.leagues.filter((l: any) => l.country === selectedCountry)
+  }, [store.leagues, selectedCountry])
 
   useEffect(() => {
     const { view } = useSportsStore.getState()
@@ -123,6 +135,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
   const loadLeagues = useCallback(async (sport: any) => {
     store.setLoading(true)
+    setSelectedCountry('')
     useSportsStore.setState({ selectedSport: sport, view: 'leagues', leagues: [] })
     try {
       const leagues = await window.api.sports.getLeaguesBySport(sport.id)
@@ -553,8 +566,33 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         return (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>{store.selectedSport?.name} Leagues</h2>
+            {leagueCountries.length > 1 && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setSelectedCountry('')}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600,
+                    background: !selectedCountry ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
+                    color: !selectedCountry ? '#fff' : 'rgba(255,255,255,0.7)',
+                  }}
+                >All</button>
+                {leagueCountries.map(country => (
+                  <button
+                    key={country}
+                    onClick={() => setSelectedCountry(country)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 600,
+                      background: selectedCountry === country ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
+                      color: selectedCountry === country ? '#fff' : 'rgba(255,255,255,0.7)',
+                    }}
+                  >{country}</button>
+                ))}
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }} data-grid>
-              {store.leagues.map((league: any, i: number) => (
+              {filteredLeagues.map((league: any, i: number) => (
                 <div key={league.id} data-focus-index={i} tabIndex={0}
                   style={cardStyle(isFocused(i, focusedIndex))}
                   onClick={() => loadSeasons(league)}
@@ -568,7 +606,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 </div>
               ))}
             </div>
-            {store.leagues.length === 0 && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No leagues found for {store.selectedSport?.name}</div>}
+            {filteredLeagues.length === 0 && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No leagues found{selectedCountry ? ` for ${selectedCountry}` : ` for ${store.selectedSport?.name}`}</div>}
           </div>
         )
 

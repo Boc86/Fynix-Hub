@@ -68,7 +68,7 @@
 
 .key:active {
   transform: scale(0.95);
-  background: rgba(229, 9, 20, 0.3);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 
 .key:focus-visible {
@@ -103,9 +103,9 @@
 }
 
 .specialActive {
-  background: rgba(229, 9, 20, 0.2);
+  background: rgba(var(--accent-rgb), 0.2);
   color: var(--accent);
-  border-color: rgba(229, 9, 20, 0.3);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 
 .backspaceKey {
@@ -164,8 +164,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(229, 9, 20, 0.15);
-  border: 1px solid rgba(229, 9, 20, 0.2);
+  background: rgba(var(--accent-rgb), 0.15);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   border-radius: 6px;
   color: var(--accent);
   cursor: pointer;
@@ -173,7 +173,7 @@
 }
 
 .enterKey:hover {
-  background: rgba(229, 9, 20, 0.3);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 
 .enterKey:focus-visible {
@@ -204,8 +204,8 @@
 }
 
 .highlighted {
-  background: rgba(229, 9, 20, 0.35) !important;
-  border-color: rgba(229, 9, 20, 0.5) !important;
+  background: rgba(var(--accent-rgb), 0.35) !important;
+  border-color: rgba(var(--accent-rgb), 0.5) !important;
   color: var(--text-primary) !important;
   transform: scale(1.08);
 }

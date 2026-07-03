@@ -229,22 +229,45 @@ app.on('before-quit', async () => {
 })
 
 ipcMain.on('youtube:show', () => {
-  createYouTubeView()
-  youtubeView?.webContents.focus()
+  try {
+    createYouTubeView()
+    youtubeView?.webContents.focus()
+  } catch (err: any) {
+    console.error('[IPC Error] youtube:show:', err?.message || String(err))
+  }
 })
 
 ipcMain.on('youtube:hide', () => {
-  destroyYouTubeView()
+  try {
+    destroyYouTubeView()
+  } catch (err: any) {
+    console.error('[IPC Error] youtube:hide:', err?.message || String(err))
+  }
 })
 
 ipcMain.handle('tizentube:check-updates', async () => {
-  return TizenTubeService.checkForUpdates()
+  try {
+    return await TizenTubeService.checkForUpdates()
+  } catch (err: any) {
+    console.error('[IPC Error] tizentube:check-updates:', err?.message || String(err))
+    throw err
+  }
 })
 
 ipcMain.handle('tizentube:update', async () => {
-  return TizenTubeService.updateScripts()
+  try {
+    return await TizenTubeService.updateScripts()
+  } catch (err: any) {
+    console.error('[IPC Error] tizentube:update:', err?.message || String(err))
+    throw err
+  }
 })
 
 ipcMain.handle('tizentube:get-version', async () => {
-  return TizenTubeService.getVersion()
+  try {
+    return await TizenTubeService.getVersion()
+  } catch (err: any) {
+    console.error('[IPC Error] tizentube:get-version:', err?.message || String(err))
+    throw err
+  }
 })

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useMediaStore } from '../../store/mediaStore';
 import type { Episode, TvDetails, MovieDetails, MediaItem, CastMember, CrewMember, Video } from '../../types';
 import type { ContextTarget } from '../ContextMenu/ContextMenu';
@@ -37,12 +37,20 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     setResumeProgress,
     resumeProgress,
     traktWatched,
+    traktPlayback,
+    showUnwatchedCount,
   } = useMediaStore();
 
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [clearlogo, setClearlogo] = useState<string | null>(null);
   const [similar, setSimilar] = useState<MediaItem[]>([]);
   const [isTv, setIsTv] = useState(false);
+
+  const episodeWatched = useMediaStore((s) => s.episodeWatched);
+  const watchedEpisodeNums = useMemo(() => {
+    if (!isTv || !selectedMedia) return new Set<number>();
+    return episodeWatched.get(selectedMedia.id)?.get(selectedSeason) ?? new Set<number>();
+  }, [episodeWatched, selectedMedia?.id, selectedSeason, isTv]);
 
   // Keyboard navigation state
   const [focusedSection, setFocusedSection] = useState(0);
@@ -92,7 +100,50 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       try {
         const data = await window.api.tmdb.getSeason(tv.id, seasonNum);
         if (data?.episodes) {
-          setSeasonEpisodes(data.episodes);
+          // Filter out episodes that haven't aired yet
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const airedEpisodes = data.episodes.filter((ep: any) => {
+            if (!ep.airDate) return false;
+            const d = new Date(ep.airDate);
+            return !isNaN(d.getTime()) && d <= today;
+          });
+          setSeasonEpisodes(airedEpisodes);
+
+          // Read watched state from store
+          const store = useMediaStore.getState();
+          const seasonWatched = store.episodeWatched.get(tv.id)?.get(seasonNum);
+          const watchedNums: Set<number> = seasonWatched ?? new Set();
+          const hasTraktData = seasonWatched !== undefined;
+          const episodes = airedEpisodes;
+
+          // 1. Find in-progress episode from traktPlayback for this season
+          const inProgress = traktPlayback.find(
+            (pb: any) => pb.tmdbId === tv.id && pb.season === seasonNum
+          );
+          if (inProgress && inProgress.episode) {
+            setSelectedEpisode(inProgress.episode);
+            return;
+          }
+
+          // 2. Find newest unwatched (highest episode number not fully watched)
+          if (hasTraktData) {
+            for (let i = episodes.length - 1; i >= 0; i--) {
+              if (!watchedNums.has(episodes[i].episodeNumber)) {
+                setSelectedEpisode(episodes[i].episodeNumber);
+                return;
+              }
+            }
+          }
+
+          // 3. Fallback: first aired episode (or last if all watched)
+          setSelectedEpisode(
+            episodes.length > 0
+              ? hasTraktData
+                ? episodes[episodes.length - 1]?.episodeNumber || null
+                : episodes[0]?.episodeNumber || null
+              : null
+          );
         }
       } catch {
         // ignore
@@ -101,7 +152,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       }
     }
     loadEpisodes();
-  }, [selectedMedia?.id, selectedSeason, isTv, setSeasonEpisodes]);
+  }, [selectedMedia?.id, selectedSeason, isTv, setSeasonEpisodes, setSelectedEpisode]);
 
   useEffect(() => {
     if (!selectedMedia) return;
@@ -401,7 +452,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     ) : (
       <h1 className={styles.title}>
       {selectedMedia.title}
-      {traktWatched.has(selectedMedia.id) && <span className={styles.watchedBadge}>Watched</span>}
+      {traktWatched.has(selectedMedia.id) && !showUnwatchedCount.has(selectedMedia.id) && <span className={styles.watchedBadge}>Watched</span>}
       </h1>
     )}
 
@@ -540,7 +591,12 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
               <div className={styles.episodeNumber}>{ep.episodeNumber}</div>
             )}
             <div className={styles.episodeInfo}>
-            <div className={styles.episodeTitle}>{ep.name}</div>
+            <div className={styles.episodeTitle}>
+              {ep.name}
+              {watchedEpisodeNums.has(ep.episodeNumber) && (
+                <span className={styles.episodeWatchedBadge}>Watched</span>
+              )}
+            </div>
             <div className={styles.episodeMeta}>
             {ep.voteAverage > 0 && (
               <span className={styles.episodeRating}>{ep.voteAverage.toFixed(1)}</span>

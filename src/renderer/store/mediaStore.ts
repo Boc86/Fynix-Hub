@@ -16,6 +16,8 @@ interface MediaState {
   resumeProgress: number | null
   traktWatched: Set<number>
   traktPlayback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
+  showUnwatchedCount: Map<number, number>
+  episodeWatched: Map<number, Map<number, Set<number>>>
   isLoading: boolean
   error: string | null
   refreshVersion: number
@@ -33,6 +35,8 @@ interface MediaState {
   setResumeProgress: (progress: number | null) => void
   setTraktWatched: (ids: Set<number>) => void
   setTraktPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
+  setShowUnwatchedCount: (counts: Map<number, number>) => void
+  setEpisodeWatched: (data: Map<number, Map<number, Set<number>>>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   triggerRefresh: () => void
@@ -53,6 +57,8 @@ export const useMediaStore = create<MediaState>((set) => ({
   resumeProgress: null,
   traktWatched: new Set<number>(),
   traktPlayback: [],
+  showUnwatchedCount: new Map<number, number>(),
+  episodeWatched: new Map<number, Map<number, Set<number>>>(),
   isLoading: false,
   error: null,
   refreshVersion: 0,
@@ -77,6 +83,8 @@ export const useMediaStore = create<MediaState>((set) => ({
   setResumeProgress: (progress) => set({ resumeProgress: progress }),
   setTraktWatched: (ids) => set({ traktWatched: ids }),
   setTraktPlayback: (items) => set({ traktPlayback: items }),
+  setShowUnwatchedCount: (counts) => set({ showUnwatchedCount: counts }),
+  setEpisodeWatched: (data) => set({ episodeWatched: data }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   triggerRefresh: () => set((state) => ({ refreshVersion: state.refreshVersion + 1 })),

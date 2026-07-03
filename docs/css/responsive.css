@@ -1,0 +1,113 @@
+/* Desktop large */
+@media (max-width: 1200px) {
+  .container { padding: 0 32px; }
+  .hero-title { font-size: 3.8rem; }
+}
+
+/* Desktop */
+@media (max-width: 1024px) {
+  .products-grid { grid-template-columns: repeat(2, 1fr); }
+  .products-grid > :last-child { grid-column: 1 / -1; max-width: 50%; justify-self: center; }
+  .section-title { font-size: 2.4rem; }
+  .hero-title { font-size: 3.2rem; }
+}
+
+/* Tablet */
+@media (max-width: 768px) {
+  .navbar-links {
+    position: fixed;
+    top: 0;
+    right: -100%;
+    width: 280px;
+    height: 100vh;
+    background: rgba(9, 9, 9, 0.98);
+    backdrop-filter: blur(20px);
+    flex-direction: column;
+    padding: 80px 32px 32px;
+    gap: 8px;
+    transition: right var(--transition);
+    border-left: 1px solid var(--glass-border);
+  }
+
+  .navbar-links.open {
+    right: 0;
+  }
+
+  .navbar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .hero-title { font-size: 2.6rem; }
+  .hero-subtitle { font-size: 1rem; }
+  
+  .products-grid {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  .products-grid > :last-child { max-width: 100%; }
+
+  .why-grid { grid-template-columns: 1fr; max-width: 480px; margin: 0 auto; }
+
+  .gallery-grid { gap: 16px; justify-content: flex-start; }
+  .gallery-item { height: 350px; flex: 0 0 auto; }
+  .hub-gallery { --hub-item-height: 110px; }
+
+  .github-stats { grid-template-columns: repeat(2, 1fr); max-width: 400px; }
+
+  .section { padding: 72px 0; }
+  .section-title { font-size: 2rem; }
+
+  .footer-content { flex-direction: column; text-align: center; }
+
+  .lightbox-nav { width: 40px; height: 40px; }
+  .lightbox-nav.prev { left: 12px; }
+  .lightbox-nav.next { right: 12px; }
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .hero-title { font-size: 2rem; }
+  .hero-actions { flex-direction: column; align-items: center; }
+  .hero-actions .btn { width: 100%; justify-content: center; }
+
+  .section-title { font-size: 1.6rem; }
+  .section { padding: 56px 0; }
+
+  .gallery-grid { gap: 12px; }
+  .gallery-item { height: 250px; }
+  .hub-gallery { --hub-item-height: 85px; }
+
+  .product-card { padding: 28px 20px; }
+  .why-card { padding: 28px 20px; }
+
+  .github-stat { padding: 16px; }
+  .github-stat-value { font-size: 1.4rem; }
+
+  .roadmap-timeline::before { left: 20px; }
+  .roadmap-dot { margin-left: 13px; width: 14px; height: 14px; }
+
+  .support-btn { width: 100%; justify-content: center; }
+}
+
+/* TV browsers */
+@media (min-width: 1600px) {
+  .hero-title { font-size: 5.5rem; }
+  .container { max-width: 1400px; }
+  .section-title { font-size: 3.2rem; }
+  .products-grid { gap: 32px; }
+  .hub-gallery { --hub-item-height: 170px; }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+  .reveal { opacity: 1; transform: none; }
+}

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <defs>
+    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7a00"/>
+      <stop offset="50%" stop-color="#ff9800"/>
+      <stop offset="100%" stop-color="#ffb347"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="20" width="160" height="160" rx="40" fill="url(#logoGrad)" opacity="0.1"/>
+  <rect x="30" y="30" width="140" height="140" rx="32" stroke="url(#logoGrad)" stroke-width="2.5" opacity="0.3"/>
+  <path d="M60 60 L60 140 L110 140 Q130 140 130 120 L130 100 Q130 80 110 80 L60 80" stroke="url(#logoGrad)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M60 100 L95 100 Q110 100 110 110 L110 120 Q110 130 95 130 L60 130" stroke="url(#logoGrad)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="148" cy="68" r="6" fill="#ff7a00" opacity="0.6"/>
+  <circle cx="156" cy="52" r="4" fill="#ff9800" opacity="0.4"/>
+  <circle cx="140" cy="56" r="3" fill="#ffb347" opacity="0.5"/>
+</svg>

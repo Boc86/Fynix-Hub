@@ -19,7 +19,7 @@
   padding: 0;
   transform: translateX(-100%);
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  border-right: 1px solid rgba(229, 9, 20, 0.15);
+  border-right: 1px solid rgba(var(--accent-rgb), 0.15);
   backdrop-filter: blur(24px);
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
 }
@@ -39,12 +39,12 @@
 .brandPrimary {
   font-size: 28px;
   font-weight: 800;
-  background: linear-gradient(135deg, #e50914 0%, #ff1a1a 50%, #e50914 100%);
+  background: var(--accent);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   letter-spacing: 2px;
-  text-shadow: 0 0 30px rgba(229, 9, 20, 0.4);
+  text-shadow: 0 0 30px rgba(var(--accent-rgb), 0.4);
 }
 
 .brandSecondary {
@@ -57,7 +57,7 @@
 
 .divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(229, 9, 20, 0.3) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(var(--accent-rgb), 0.3) 50%, transparent 100%);
   margin: 0 20px 12px;
 }
 
@@ -86,14 +86,14 @@
   transform: translateY(-50%) scaleY(0);
   width: 3px;
   height: 60%;
-  background: linear-gradient(180deg, #e50914 0%, #ff1a1a 100%);
+  background: var(--accent);
   border-radius: 0 4px 4px 0;
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 12px rgba(229, 9, 20, 0.6);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.6);
 }
 
 .navItem:hover {
-  background: linear-gradient(90deg, rgba(229, 9, 20, 0.08) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.08) 0%, transparent 100%);
   color: var(--text-primary);
   transform: translateX(4px);
 }
@@ -104,13 +104,13 @@
 
 .navItem.active {
   color: var(--accent);
-  background: linear-gradient(90deg, rgba(229, 9, 20, 0.12) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.12) 0%, transparent 100%);
 }
 
 .navItem.focused {
   transform: scale(1.02);
   animation: selectedPulse 2s ease-in-out infinite;
-  background: linear-gradient(90deg, rgba(229, 9, 20, 0.1) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.1) 0%, transparent 100%);
 }
 
 .navItem:focus-visible {
@@ -234,7 +234,7 @@
 }
 
 .profileRow.focused {
-  background: linear-gradient(90deg, rgba(255, 107, 0, 0.1) 0%, transparent 100%);
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.1) 0%, transparent 100%);
   color: var(--accent);
 }
 
@@ -267,7 +267,7 @@
 }
 
 .bottomControls .controlBtn.focused {
-  background: rgba(255, 107, 0, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -282,7 +282,7 @@
   left: 12px;
   right: 12px;
   background: rgba(20, 20, 20, 0.98);
-  border: 1px solid var(--accent, #FF6B00);
+  border: 1px solid var(--accent);
   border-radius: 8px;
   padding: 8px;
   z-index: 100;
@@ -323,9 +323,9 @@
   align-items: center;
   gap: 12px;
   padding: 14px 28px;
-  background: rgba(229, 9, 20, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
   border: none;
-  border-top: 1px solid rgba(229, 9, 20, 0.2);
+  border-top: 1px solid rgba(var(--accent-rgb), 0.2);
   color: var(--text-primary);
   font-size: 15px;
   cursor: pointer;
@@ -336,7 +336,7 @@
 }
 
 .searchNavBtn:hover {
-  background: rgba(229, 9, 20, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   color: var(--accent);
   transform: translateX(2px);
 }
@@ -386,5 +386,5 @@
   background: var(--accent);
   color: white;
   border-color: var(--accent);
-  box-shadow: 0 0 12px rgba(229, 9, 20, 0.4);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.4);
 }

@@ -3,8 +3,6 @@ name: Build & Deploy Flatpak
 on:
   push:
     branches: [master]
-  pull_request:
-    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -19,8 +17,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,10 +40,6 @@ jobs:
 
       - name: Build Flatpak bundle
         run: TMPDIR=/var/tmp npm run make:flatpak
-
-      - name: Get version
-        id: version
-        run: echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Upload flatpak bundle
         uses: actions/upload-artifact@v4
@@ -89,8 +81,8 @@ jobs:
             exit 1
           fi
 
-          mkdir -p public
-          ostree init --mode=archive-z2 --repo=public/repo
+          mkdir -p flatpak-repo
+          ostree init --mode=archive-z2 --repo=flatpak-repo/repo
 
           GPG_KEY_ID="${{ secrets.GPG_KEY_ID }}"
           GPG_PASSPHRASE="${{ secrets.GPG_PASSPHRASE }}"
@@ -100,90 +92,68 @@ jobs:
             if [ -n "$KEYGRIP" ] && [ -n "$GPG_PASSPHRASE" ]; then
               echo "$GPG_PASSPHRASE" | /usr/lib/gnupg2/gpg-preset-passphrase --preset "$KEYGRIP" 2>/dev/null || true
             fi
-            flatpak build-import-bundle --gpg-sign="$GPG_KEY_ID" public/repo "$BUNDLE" 2>&1 || {
+            flatpak build-import-bundle --gpg-sign="$GPG_KEY_ID" flatpak-repo/repo "$BUNDLE" 2>&1 || {
               echo "GPG import failed, retrying without GPG..."
-              flatpak build-import-bundle public/repo "$BUNDLE" 2>&1
+              flatpak build-import-bundle flatpak-repo/repo "$BUNDLE" 2>&1
             }
-            flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas public/repo 2>&1 || {
+            flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas flatpak-repo/repo 2>&1 || {
               echo "GPG update failed, retrying without GPG..."
-              flatpak build-update-repo --generate-static-deltas public/repo 2>&1
+              flatpak build-update-repo --generate-static-deltas flatpak-repo/repo 2>&1
             }
           else
             echo "GPG_KEY_ID not set, importing without GPG signing."
-            flatpak build-import-bundle public/repo "$BUNDLE" 2>&1
-            flatpak build-update-repo --generate-static-deltas public/repo 2>&1
+            flatpak build-import-bundle flatpak-repo/repo "$BUNDLE" 2>&1
+            flatpak build-update-repo --generate-static-deltas flatpak-repo/repo 2>&1
           fi
 
-          touch public/.nojekyll
+          cp com.fynix.hub.flatpakrepo flatpak-repo/repo.flatpakrepo
 
-          echo "--- Debug: Listing public contents ---"
-          ls -R public
-          echo "--- End Debug ---"
-
-      - name: Copy flatpakrepo file
-        run: cp com.fynix.hub.flatpakrepo public/repo.flatpakrepo
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload flatpak repo artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: public
+          name: flatpak-repo
+          path: flatpak-repo/
 
-  
+      - name: Prepare website artifact
+        run: |
+          mkdir -p site
+          cp -r docs/* site/
+          touch site/.nojekyll
+
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
   deploy-pages:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-  
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-  
-    permissions:
-      pages: write
-      id-token: write
-  
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
-  release:
+  deploy-flatpak-repo:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download flatpak bundle
+      - name: Download flatpak repo artifact
         uses: actions/download-artifact@v4
         with:
-          name: flatpak-bundle
-          path: bundle
+          name: flatpak-repo
+          path: flatpak-repo
 
-      - name: Get version from build
-        id: meta
-        run: echo "version=${{ needs.build.outputs.version }}" >> "$GITHUB_OUTPUT"
-
-      - name: Check if tag exists
-        id: check
+      - name: Deploy to flatpak-repo branch
         run: |
-          if git rev-parse "${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub Release
-        if: steps.check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.version }}
-          name: "Fynix Hub ${{ steps.meta.outputs.version }}"
-          files: |
-            bundle/*.flatpak
-            com.fynix.hub.flatpakrepo
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          cd flatpak-repo
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b flatpak-repo
+          git add -A
+          git commit -m "Update flatpak OSTree repo"
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push --force origin flatpak-repo
