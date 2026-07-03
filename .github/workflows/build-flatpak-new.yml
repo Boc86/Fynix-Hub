@@ -61,9 +61,11 @@ jobs:
         run: |
           mkdir -p site
           cp -r docs/* site/
-          echo "Flatpak pushed to GHCR. Install with:" > site/flatpak-install.txt
-          echo "flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/" >> site/flatpak-install.txt
-          echo "flatpak install ghcr.io/boc86/fynix-hub" >> site/flatpak-install.txt
+          echo "Flatpak pushed to GitHub Container Registry." > site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "Install with:" >> site/flatpak-install.txt
+          echo "  flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/" >> site/flatpak-install.txt
+          echo "  flatpak install ghcr.io/boc86/fynix-hub" >> site/flatpak-install.txt
           touch site/.nojekyll
 
       - name: Upload website artifact
@@ -81,16 +83,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: out/make/flatpak/x86_64/*.flatpak
-          generate_release_notes: true
