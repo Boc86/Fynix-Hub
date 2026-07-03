@@ -45,7 +45,14 @@ jobs:
         run: |
           mkdir -p repo
           BUNDLE=$(find out/make -name "*.flatpak" | head -1)
+          if [ -z "$BUNDLE" ]; then
+            echo "Error: Flatpak bundle not found in out/make"
+            ls -R out/make
+            exit 1
+          fi
+          echo "Importing bundle $BUNDLE into repo..."
           flatpak build-import-bundle repo "$BUNDLE"
+          echo "Updating repository metadata..."
           flatpak build-update-repo repo
 
       - name: Push Repository to Dedicated Repo
