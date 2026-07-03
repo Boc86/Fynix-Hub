@@ -61,15 +61,13 @@ jobs:
         run: |
           mkdir -p site
           cp -r docs/* site/
-          cat > site/flatpak-install.txt << 'EOF'
-Flatpak is available on GitHub Container Registry.
-
-Install with:
-  flatpak install ghcr.io/boc86/fynix-hub
-
-You may need to authenticate first:
-  echo YOUR_GITHUB_TOKEN | flatpak remote-modify --user --password= ghcr
-EOF
+          echo "Flatpak is available on GitHub Container Registry." > site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "Install with:" >> site/flatpak-install.txt
+          echo "  flatpak install ghcr.io/boc86/fynix-hub" >> site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "You may need to authenticate first:" >> site/flatpak-install.txt
+          echo "  echo YOUR_GITHUB_TOKEN | flatpak remote-modify --user --password= ghcr" >> site/flatpak-install.txt
           touch site/.nojekyll
 
       - name: Upload website artifact
