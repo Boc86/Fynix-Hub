@@ -90,7 +90,7 @@ jobs:
             GPG_BASE64=$(gpg --export "${{ secrets.GPG_KEY_ID }}" | base64 -w0)
             echo "GPGKey=$GPG_BASE64" >> site/repo.flatpakrepo
             
-            # Write instructions for GPG remote
+          # Write instructions for GPG remote
             echo "Flatpak is available via our custom repository (GPG Signed)." > site/flatpak-install.txt
             echo "" >> site/flatpak-install.txt
             echo "To install, add the repository and install the app:" >> site/flatpak-install.txt
