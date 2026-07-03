@@ -55,11 +55,14 @@ jobs:
           # 1. Build the application into a build directory
           flatpak-builder --user --force-clean build-dir "$MANIFEST"
           
-          # 2. Export the build directory into a local OSTree repository
-          # This creates the repo directory and populates it
+          # 2. Initialize a static OSTree repository for distribution
+          mkdir -p repo
+          ostree init --mode=archive-z2 --repo=repo
+          
+          # 3. Export the build directory into the repository
           flatpak-builder --user --repo=repo build-dir "$MANIFEST"
           
-          # 3. Update the repository metadata for Flatpak managers
+          # 4. Update the repository metadata for Flatpak managers
           flatpak build-update-repo repo
 
       - name: Push Repository to Dedicated Repo
