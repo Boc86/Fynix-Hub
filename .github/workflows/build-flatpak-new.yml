@@ -52,14 +52,14 @@ jobs:
           fi
           echo "Building from manifest: $MANIFEST"
           
-          # Build the application into a build directory
+          # 1. Build the application into a build directory
           flatpak-builder --user --force-clean build-dir "$MANIFEST"
           
-          # Push the build directory into a local OSTree repository
-          mkdir -p repo
-          flatpak build-push --user --repo=repo build-dir
+          # 2. Export the build directory into a local OSTree repository
+          # This creates the repo directory and populates it
+          flatpak-builder --user --repo=repo build-dir "$MANIFEST"
           
-          # Update the repository metadata for Flatpak managers
+          # 3. Update the repository metadata for Flatpak managers
           flatpak build-update-repo repo
 
       - name: Push Repository to Dedicated Repo
