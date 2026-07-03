@@ -21,7 +21,7 @@
 .title {
   font-size: 1.75rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #e50914 0%, #ff1a1a 50%, #e50914 100%);
+  background: var(--accent);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -63,15 +63,15 @@
   transform: translateX(-50%) scaleX(0);
   width: 80%;
   height: 2px;
-  background: linear-gradient(90deg, #e50914 0%, #ff1a1a 100%);
+  background: var(--accent);
   border-radius: 2px 2px 0 0;
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 12px rgba(229, 9, 20, 0.6);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.6);
 }
 
 .tab:hover {
   color: var(--text-primary);
-  background: rgba(229, 9, 20, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .tab.active {
@@ -111,8 +111,8 @@
 }
 
 .tab.active .tabShortcut {
-  background: rgba(229, 9, 20, 0.2);
-  border-color: rgba(229, 9, 20, 0.3);
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.3);
   color: var(--accent);
 }
 
@@ -153,7 +153,7 @@
 
 .saveBtn {
   padding: 14px 32px;
-  background: linear-gradient(135deg, #e50914 0%, #c50812 100%);
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -161,19 +161,19 @@
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: 0 4px 16px rgba(229, 9, 20, 0.3);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.3);
 }
 
 .saveBtn:hover {
-  background: linear-gradient(135deg, #f40612 0%, #e50914 100%);
+  background: var(--accent);
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(229, 9, 20, 0.4);
+  box-shadow: 0 6px 24px rgba(var(--accent-rgb), 0.4);
 }
 
 .saveBtn:focus-visible {
   outline: none;
   transform: scale(1.05);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3), 0 6px 24px rgba(229, 9, 20, 0.4);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3), 0 6px 24px rgba(var(--accent-rgb), 0.4);
 }
 
 .settingGroup {
@@ -229,7 +229,7 @@
 
 .connectBtn {
   padding: 12px 24px;
-  background: linear-gradient(135deg, #e50914 0%, #c50812 100%);
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -237,13 +237,13 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: 0 2px 8px rgba(229, 9, 20, 0.25);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.25);
 }
 
 .connectBtn:hover {
-  background: linear-gradient(135deg, #f40612 0%, #e50914 100%);
+  background: var(--accent);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(229, 9, 20, 0.35);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.35);
 }
 
 .connectBtn:disabled {
@@ -255,7 +255,7 @@
 .connectBtn:focus-visible {
   outline: none;
   transform: scale(1.05);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3), 0 4px 16px rgba(229, 9, 20, 0.35);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3), 0 4px 16px rgba(var(--accent-rgb), 0.35);
 }
 
 .disconnectBtn {
@@ -301,7 +301,7 @@
   text-align: center;
   padding: 24px;
   background: rgba(20, 20, 20, 0.8);
-  border: 1px solid rgba(229, 9, 20, 0.15);
+  border: 1px solid rgba(var(--accent-rgb), 0.15);
   border-radius: 10px;
   position: relative;
 }
@@ -319,7 +319,7 @@
   font-family: monospace;
   user-select: text;
   -webkit-user-select: text;
-  box-shadow: inset 0 0 20px rgba(229, 9, 20, 0.1);
+  box-shadow: inset 0 0 20px rgba(var(--accent-rgb), 0.1);
 }
 
 .authHint {
@@ -398,18 +398,18 @@
 .toggle:hover {
   border-color: var(--accent);
   color: var(--text-primary);
-  background: rgba(229, 9, 20, 0.1);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .toggleActive {
-  background: linear-gradient(135deg, #e50914 0%, #c50812 100%);
+  background: var(--accent);
   color: white;
   border-color: var(--accent);
-  box-shadow: 0 2px 8px rgba(229, 9, 20, 0.3);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.3);
 }
 
 .toggleActive:hover {
-  background: linear-gradient(135deg, #f40612 0%, #e50914 100%);
+  background: var(--accent);
   transform: translateY(-1px);
 }
 
@@ -439,8 +439,8 @@
 }
 
 .indexerRow:hover {
-  background: rgba(229, 9, 20, 0.08);
-  border-color: rgba(229, 9, 20, 0.2);
+  background: rgba(var(--accent-rgb), 0.08);
+  border-color: rgba(var(--accent-rgb), 0.2);
 }
 
 .indexerRow input[type="checkbox"] {

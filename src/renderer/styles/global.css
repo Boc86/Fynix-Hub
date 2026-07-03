@@ -6,8 +6,9 @@
   --text-primary: #ffffff;
   --text-secondary: #b3b3b3;
   --text-muted: #808080;
-  --accent: #e50914;
-  --accent-hover: #f40612;
+  --accent: #FF6B00;
+  --accent-rgb: 255, 107, 0;
+  --accent-hover: #FF6B00;
   --accent-green: #46d369;
   --overlay: rgba(0, 0, 0, 0.7);
   --transition-fast: 150ms ease;

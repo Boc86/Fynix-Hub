@@ -27,8 +27,8 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     continueWatching, upNext, isLoading, error, traktWatched,
     setTrending, setPopularMovies, setPopularTvShows,
     setTopRatedMovies, setContinueWatching, setUpNext,
-    setTraktWatched, setTraktPlayback,
-    setLoading, setError, refreshVersion
+    setTraktWatched, setTraktPlayback, showUnwatchedCount, setShowUnwatchedCount,
+    setLoading, setError, refreshVersion, setEpisodeWatched
   } = useMediaStore()
 
   const loadedRef = useRef(false)
@@ -92,6 +92,25 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
         if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
         setTraktWatched(ids)
+
+        // Build episode-level watched map from show data
+        const epMap = new Map<number, Map<number, Set<number>>>()
+        if (watchedShows) {
+          for (const s of watchedShows) {
+            const tmdbId = s.show?.ids?.tmdb
+            if (!tmdbId) continue
+            const seasonsMap = new Map<number, Set<number>>()
+            for (const season of (s.seasons || [])) {
+              const epSet = new Set<number>()
+              for (const ep of (season.episodes || [])) {
+                if (ep.number) epSet.add(ep.number)
+              }
+              if (epSet.size > 0) seasonsMap.set(season.number, epSet)
+            }
+            if (seasonsMap.size > 0) epMap.set(tmdbId, seasonsMap)
+          }
+        }
+        setEpisodeWatched(epMap)
       }
 
       const pbItems: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }> = []
@@ -167,6 +186,16 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       try {
         const progress = await window.api.trakt.getWatchedProgress()
         if (progress && Array.isArray(progress) && progress.length > 0) {
+          // Build unwatched count map for show cards
+          const unwatchedMap = new Map<number, number>()
+          for (const p of progress) {
+            const tmdbId = p?.show?.ids?.tmdb
+            if (!tmdbId) continue
+            const unwatched = (p.aired || 0) - (p.completed || 0)
+            if (unwatched > 0) unwatchedMap.set(tmdbId, unwatched)
+          }
+          setShowUnwatchedCount(unwatchedMap)
+
           const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
             const tmdbId = p?.show?.ids?.tmdb
             if (!tmdbId || !p?.next_episode) return null
@@ -483,6 +512,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                 rowIndex={idx}
                 focusedCardIndex={idx === focusedRow ? focusedCard : undefined}
                 watchedIds={traktWatched}
+                unwatchedCounts={showUnwatchedCount}
                 animationDelay={idx * 50}
               />
             )

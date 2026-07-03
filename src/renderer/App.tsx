@@ -102,6 +102,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty('--accent', accentColor)
     document.documentElement.style.setProperty('--accent-hover', accentColor + '80')
+    const r = parseInt(accentColor.slice(1, 3), 16)
+    const g = parseInt(accentColor.slice(3, 5), 16)
+    const b = parseInt(accentColor.slice(5, 7), 16)
+    document.documentElement.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`)
   }, [accentColor])
 
   useEffect(() => {
@@ -966,6 +970,10 @@ export default function App() {
               setFreeSearchQuery(query)
               setFreeSearchOpen(true)
               runTorrentSearch({ title: query, type: 'movie' })
+            }}
+            onTorrentSelect={(torrent) => {
+              setSearchOpen(false)
+              startPlayback(torrent)
             }}
           />
         )}

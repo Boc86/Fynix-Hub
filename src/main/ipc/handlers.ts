@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, app, dialog } from 'electron'
+import { handle } from './handler-wrapper'
 import fs from 'fs'
 import path from 'path'
 import * as TmdbService from '../services/tmdb.service'
@@ -34,14 +35,14 @@ export async function registerIpcHandlers(): Promise<void> {
     })
   }
 
-  ipcMain.handle('app:get-version', () => '1.0.0')
+  handle('app:get-version', () => '1.0.0')
 
   // Forward renderer logs to main process stdout (visible in terminal)
-  ipcMain.handle('log:info', (_event, ...args: unknown[]) => {
+  handle('log:info', (_event, ...args: unknown[]) => {
     console.log('[Renderer]', ...args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)))
   })
 
-  ipcMain.handle('app:write-debug-file', (_event, data) => {
+  handle('app:write-debug-file', (_event, data) => {
     try {
       const filePath = path.join(app.getPath('userData'), 'fynix-search-debug.json')
       let logs: any[] = []
@@ -59,7 +60,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('app:clear-image-cache', () => {
+  handle('app:clear-image-cache', () => {
     try {
       CacheService.clearImageCache()
       return { success: true }
@@ -68,18 +69,18 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('app:select-file', async (event, options) => {
+  handle('app:select-file', async (event, options) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return { canceled: true, filePaths: [] }
     const result = await dialog.showOpenDialog(win, options || {})
     return result
   })
 
-  ipcMain.handle('app:minimize', (event) => {
+  handle('app:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
   })
 
-  ipcMain.handle('app:quit', async () => {
+  handle('app:quit', async () => {
     try {
       await MpvService.stopPlayback()
     } catch {}
@@ -88,34 +89,34 @@ export async function registerIpcHandlers(): Promise<void> {
     } catch {}
     app.quit()
   })
-  ipcMain.handle('window:minimize', (event) => {
+  handle('window:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
   })
 
-  ipcMain.handle('window:maximize', (event) => {
+  handle('window:maximize', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       win.isMaximized() ? win.unmaximize() : win.maximize()
     }
   })
 
-  ipcMain.handle('window:close', (event) => {
+  handle('window:close', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close()
   })
 
-  ipcMain.handle('window:is-maximized', (event) => {
+  handle('window:is-maximized', (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
   })
 
-  ipcMain.handle('tmdb:get-trending', async (_event, type, timeWindow) => {
+  handle('tmdb:get-trending', async (_event, type, timeWindow) => {
     return TmdbService.getTrending(type, timeWindow)
   })
 
-  ipcMain.handle('tmdb:get-popular', async (_event, type, page) => {
+  handle('tmdb:get-popular', async (_event, type, page) => {
     return TmdbService.getPopular(type, page)
   })
 
-  ipcMain.handle('tmdb:get-details', async (_event, type, id) => {
+  handle('tmdb:get-details', async (_event, type, id) => {
     const cacheKey = `tmdb:details:${type}:${id}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) {
@@ -128,11 +129,11 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:search', async (_event, query, type) => {
+  handle('tmdb:search', async (_event, query, type) => {
     return TmdbService.search(query, type)
   })
 
-  ipcMain.handle('tmdb:get-season', async (_event, tvId, seasonNumber) => {
+  handle('tmdb:get-season', async (_event, tvId, seasonNumber) => {
     const cacheKey = `tmdb:season:${tvId}:${seasonNumber}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -141,7 +142,7 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:get-episode', async (_event, tvId, seasonNumber, episodeNumber) => {
+  handle('tmdb:get-episode', async (_event, tvId, seasonNumber, episodeNumber) => {
     const cacheKey = `tmdb:episode:${tvId}:${seasonNumber}:${episodeNumber}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -150,11 +151,11 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:get-image-url', (_event, path, size) => {
+  handle('tmdb:get-image-url', (_event, path, size) => {
     return TmdbService.getImageUrl(path, size)
   })
 
-  ipcMain.handle('tmdb:get-movie-genres', async () => {
+  handle('tmdb:get-movie-genres', async () => {
     const cacheKey = 'tmdb:genres:movie'
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -163,7 +164,7 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:get-tv-genres', async () => {
+  handle('tmdb:get-tv-genres', async () => {
     const cacheKey = 'tmdb:genres:tv'
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -172,7 +173,7 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:discover-by-genre', async (_event, type, genreId, page) => {
+  handle('tmdb:discover-by-genre', async (_event, type, genreId, page) => {
     const cacheKey = `tmdb:discover:${type}:${genreId}:${page || 1}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -181,7 +182,7 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:get-similar', async (_event, type, id, page) => {
+  handle('tmdb:get-similar', async (_event, type, id, page) => {
     const cacheKey = `tmdb:similar:${type}:${id}:${page || 1}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -190,7 +191,7 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('tmdb:get-recommendations', async (_event, type, id, page) => {
+  handle('tmdb:get-recommendations', async (_event, type, id, page) => {
     const cacheKey = `tmdb:recommendations:${type}:${id}:${page || 1}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) return JSON.parse(cached)
@@ -199,55 +200,55 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  ipcMain.handle('trakt:get-device-code', async () => {
+  handle('trakt:get-device-code', async () => {
     return TraktService.getDeviceCode()
   })
 
-  ipcMain.handle('trakt:poll-for-token', async (_event, deviceCode) => {
+  handle('trakt:poll-for-token', async (_event, deviceCode) => {
     return TraktService.pollForToken(deviceCode)
   })
 
-  ipcMain.handle('trakt:get-watched-movies', async () => {
+  handle('trakt:get-watched-movies', async () => {
     return TraktService.getWatchedMovies()
   })
 
-  ipcMain.handle('trakt:get-watched-shows', async () => {
+  handle('trakt:get-watched-shows', async () => {
     return TraktService.getWatchedShows()
   })
 
-  ipcMain.handle('trakt:scrobble', async (_event, action, media) => {
+  handle('trakt:scrobble', async (_event, action, media) => {
     return TraktService.scrobble(action, media)
   })
 
-  ipcMain.handle('trakt:mark-watched', async (_event, media) => {
+  handle('trakt:mark-watched', async (_event, media) => {
     return TraktService.markWatched(media)
   })
 
-  ipcMain.handle('trakt:mark-unwatched', async (_event, media) => {
+  handle('trakt:mark-unwatched', async (_event, media) => {
     return TraktService.markUnwatched(media)
   })
 
-  ipcMain.handle('trakt:get-auth-status', () => {
+  handle('trakt:get-auth-status', () => {
     return { authenticated: TraktService.isAuthenticated() }
   })
 
-  ipcMain.handle('trakt:get-watchlist', async (_event, type) => {
+  handle('trakt:get-watchlist', async (_event, type) => {
     return TraktService.getWatchlist(type)
   })
 
-  ipcMain.handle('trakt:get-playback', async () => {
+  handle('trakt:get-playback', async () => {
     return TraktService.getPlayback()
   })
 
-  ipcMain.handle('trakt:get-playback-movies', async () => {
+  handle('trakt:get-playback-movies', async () => {
     return TraktService.getPlaybackMovies()
   })
 
-  ipcMain.handle('trakt:get-playback-episodes', async () => {
+  handle('trakt:get-playback-episodes', async () => {
     return TraktService.getPlaybackEpisodes()
   })
 
-  ipcMain.handle('trakt:get-watched-progress', async () => {
+  handle('trakt:get-watched-progress', async () => {
     try {
       return await TraktService.getWatchedShowsWithProgress()
     } catch (err: any) {
@@ -256,15 +257,15 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
+  handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
     TraktService.setTokens(accessToken, refreshToken)
   })
 
-  ipcMain.handle('trakt:get-tokens', () => {
+  handle('trakt:get-tokens', () => {
     return TraktService.getTokens()
   })
 
-  ipcMain.handle('torrent:search', async (_event, query) => {
+  handle('torrent:search', async (_event, query) => {
     console.log('[Handler] torrent:search', JSON.stringify(query).slice(0, 200))
     const enabledIndexers = CacheService.getSetting<string[]>('enabledIndexers') || TorrentSearchService.getDefaultEnabledIndexers()
     const customIndexers = CacheService.getSetting<TorrentSearchService.CustomIndexer[]>('customIndexers') || []
@@ -280,7 +281,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('torrent:refresh-trackers', async () => {
+  handle('torrent:refresh-trackers', async () => {
     try {
       const trackers = await TorrentSearchService.refreshTrackers()
       return { count: trackers.length }
@@ -290,18 +291,18 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('indexer-catalog:get', () => {
+  handle('indexer-catalog:get', () => {
     return {
       catalog: IndexerCatalogService.getStoredCatalog(),
       lastUpdated: IndexerCatalogService.getCatalogLastUpdated(),
     }
   })
 
-  ipcMain.handle('indexer-catalog:should-refresh', () => {
+  handle('indexer-catalog:should-refresh', () => {
     return IndexerCatalogService.shouldRefreshCatalog()
   })
 
-  ipcMain.handle('indexer-catalog:refresh', async () => {
+  handle('indexer-catalog:refresh', async () => {
     try {
       const catalog = await IndexerCatalogService.refreshIndexerCatalog()
       return { count: catalog.length }
@@ -311,11 +312,11 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('indexer-catalog:built-ins', () => {
+  handle('indexer-catalog:built-ins', () => {
     return TorrentSearchService.getBuiltInIndexerDefinitions().map(i => ({ id: i.id, name: i.name, type: i.type }))
   })
 
-  ipcMain.handle('torrent:add', async (_event, magnetUri) => {
+  handle('torrent:add', async (_event, magnetUri) => {
     console.log('[Handler] torrent:add', magnetUri.slice(0, 80) + '...')
     try {
       const torrent = await WebTorrentService.addTorrent(magnetUri)
@@ -327,15 +328,15 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('torrent:remove', (_event, infoHash) => {
+  handle('torrent:remove', (_event, infoHash) => {
     WebTorrentService.removeTorrent(infoHash)
   })
 
-  ipcMain.handle('torrent:prioritize-resume', (_event, infoHash, resumePositionSec, estimatedDurationSec) => {
+  handle('torrent:prioritize-resume', (_event, infoHash, resumePositionSec, estimatedDurationSec) => {
     WebTorrentService.prioritizeResume(infoHash, resumePositionSec, estimatedDurationSec)
   })
 
-  ipcMain.handle('torrent:get-progress', async (_event, infoHash) => {
+  handle('torrent:get-progress', async (_event, infoHash) => {
     const torrent = await WebTorrentService.getTorrent(infoHash)
     if (!torrent) return null
     return {
@@ -348,7 +349,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('torrent:get-stream-url', async (_event, infoHash, fileIndex) => {
+  handle('torrent:get-stream-url', async (_event, infoHash, fileIndex) => {
     console.log('[Handler] torrent:get-stream-url', infoHash, 'fileIndex:', fileIndex)
     try {
       const result = await WebTorrentService.getStreamUrl(infoHash, fileIndex)
@@ -359,23 +360,23 @@ export async function registerIpcHandlers(): Promise<void> {
       throw err
     }
   })
-  ipcMain.handle("intros:get-segments", async (_event, params) => {
+  handle("intros:get-segments", async (_event, params) => {
     return IntroDBService.getSegments(params)
   })
 
-  ipcMain.handle('debrid:get-status', (_event, service) => {
+  handle('debrid:get-status', (_event, service) => {
     return { configured: DebridService.isConfigured(service) }
   })
 
-  ipcMain.handle('debrid:get-services', () => {
+  handle('debrid:get-services', () => {
     return DebridService.getServices()
   })
 
-  ipcMain.handle('debrid:check-account-status', async (_event, service: string) => {
+  handle('debrid:check-account-status', async (_event, service: string) => {
     return DebridService.checkAccountStatus(service)
   })
 
-  ipcMain.handle('debrid:check-all-account-status', async () => {
+  handle('debrid:check-all-account-status', async () => {
     const services = DebridService.getServices()
     const results: Record<string, { valid: boolean; expiry?: string; error?: string }> = {}
     await Promise.all(services.map(async (svc) => {
@@ -384,20 +385,20 @@ export async function registerIpcHandlers(): Promise<void> {
     return results
   })
 
-  ipcMain.handle('debrid:get-valid-services', async () => {
+  handle('debrid:get-valid-services', async () => {
     return DebridService.getValidServices()
   })
 
-  ipcMain.handle('debrid:get-preferred', () => {
+  handle('debrid:get-preferred', () => {
     return { service: DebridService.getPreferred() }
   })
 
-  ipcMain.handle('debrid:check-cached', async (_event, service, hash) => {
+  handle('debrid:check-cached', async (_event, service, hash) => {
     const result = await DebridService.checkBatchCached([hash], service)
     return { cached: result[hash] ?? false }
   })
 
-  ipcMain.handle('debrid:check-cached-batch', async (_event, service, hashes, magnets) => {
+  handle('debrid:check-cached-batch', async (_event, service, hashes, magnets) => {
     const result = await DebridService.checkBatchCached(hashes, service, magnets)
     const keys = Object.keys(result)
     const count = keys.filter(k => result[k]).length
@@ -405,7 +406,7 @@ export async function registerIpcHandlers(): Promise<void> {
     return result
   })
 
-  ipcMain.handle('debrid:add-and-wait', async (_event, magnet, service) => {
+  handle('debrid:add-and-wait', async (_event, magnet, service) => {
     console.log('[Handler] debrid:add-and-wait', service, magnet.slice(0, 60) + '...')
     try {
       const url = await DebridService.addAndWait(magnet, service || undefined)
@@ -422,7 +423,7 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   // Premiumize OAuth
-  ipcMain.handle('debrid:premiumize-get-device-code', async () => {
+  handle('debrid:premiumize-get-device-code', async () => {
     try {
       return await DebridService.premiumizeGetDeviceCode()
     } catch (err: any) {
@@ -430,7 +431,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('debrid:premiumize-poll-token', async (_event, deviceCode) => {
+  handle('debrid:premiumize-poll-token', async (_event, deviceCode) => {
     try {
       return await DebridService.premiumizePollForToken(deviceCode)
     } catch (err: any) {
@@ -439,7 +440,7 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   // AllDebrid OAuth
-  ipcMain.handle('debrid:alldebrid-get-device-pin', async () => {
+  handle('debrid:alldebrid-get-device-pin', async () => {
     try {
       return await DebridService.alldebridGetDevicePin()
     } catch (err: any) {
@@ -447,7 +448,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('debrid:alldebrid-poll-token', async (_event, pin, deviceId) => {
+  handle('debrid:alldebrid-poll-token', async (_event, pin, deviceId) => {
     try {
       return await DebridService.alldebridPollForToken(pin, deviceId)
     } catch (err: any) {
@@ -456,7 +457,7 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   // Real-Debrid
-  ipcMain.handle('debrid:real-debrid-device-code', async () => {
+  handle('debrid:real-debrid-device-code', async () => {
     try {
       return await DebridService.realDebridGetDeviceCode()
     } catch (err: any) {
@@ -464,7 +465,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('debrid:real-debrid-poll-credentials', async (_event, deviceCode) => {
+  handle('debrid:real-debrid-poll-credentials', async (_event, deviceCode) => {
     try {
       return await DebridService.realDebridPollForCredentials(deviceCode)
     } catch (err: any) {
@@ -473,7 +474,7 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   // TorBox
-  ipcMain.handle('debrid:torbox-get-device-code', async () => {
+  handle('debrid:torbox-get-device-code', async () => {
     try {
       return await DebridService.torboxGetDeviceCode()
     } catch (err: any) {
@@ -481,7 +482,7 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('debrid:torbox-poll-token', async (_event, deviceCode) => {
+  handle('debrid:torbox-poll-token', async (_event, deviceCode) => {
     try {
       return await DebridService.torboxPollForToken(deviceCode)
     } catch (err: any) {
@@ -489,19 +490,19 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('debrid:torbox-settings-url', async () => {
+  handle('debrid:torbox-settings-url', async () => {
     return { url: DebridService.getTorboxSettingsUrl() }
   })
 
-  ipcMain.handle('fanart:get-images', async (_event, tmdbId, type) => {
+  handle('fanart:get-images', async (_event, tmdbId, type) => {
     return FanartService.getImages(tmdbId, type)
   })
 
-  ipcMain.handle('settings:get', (_event, key) => {
+  handle('settings:get', (_event, key) => {
     return CacheService.getSetting(key)
   })
 
-  ipcMain.handle('settings:set', (_event, key, value) => {
+  handle('settings:set', (_event, key, value) => {
     CacheService.setSetting(key, value)
     if (key === 'tmdbApiKey') TmdbService.setApiKey(String(value))
     if (key === 'realDebridApiKey') DebridService.setRealDebridKey(String(value) || null)
@@ -513,23 +514,23 @@ export async function registerIpcHandlers(): Promise<void> {
     // SportsService uses public Sportarr API, no key needed
 })
 
-  ipcMain.handle('settings:get-all', () => {
+  handle('settings:get-all', () => {
     return CacheService.getAllSettings()
   })
 
-  ipcMain.handle('watch:update-progress', (_event, tmdbId, mediaType, progress, season, episode) => {
+  handle('watch:update-progress', (_event, tmdbId, mediaType, progress, season, episode) => {
     CacheService.updateWatchProgress(tmdbId, mediaType, progress, season, episode)
   })
 
-  ipcMain.handle('watch:get-progress', (_event, tmdbId, mediaType, season, episode) => {
+  handle('watch:get-progress', (_event, tmdbId, mediaType, season, episode) => {
     return CacheService.getWatchProgress(tmdbId, mediaType, season, episode)
   })
 
-  ipcMain.handle('watch:get-history', () => {
+  handle('watch:get-history', () => {
     return CacheService.getFullWatchHistory()
   })
 
-  ipcMain.handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string) => {
+  handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string) => {
     console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default', 'audioLang:', audioLanguage ?? 'none')
     try {
       await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage)
@@ -542,63 +543,63 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('mpv:stop', async () => {
+  handle('mpv:stop', async () => {
     await MpvService.stopPlayback()
   })
 
-  ipcMain.handle('mpv:get-time-pos', async () => {
+  handle('mpv:get-time-pos', async () => {
     return MpvService.getTimePos()
   })
 
-  ipcMain.handle('mpv:get-duration', async () => {
+  handle('mpv:get-duration', async () => {
     return MpvService.getDuration()
   })
 
-  ipcMain.handle('mpv:get-paused', async () => {
+  handle('mpv:get-paused', async () => {
     return MpvService.getPaused()
   })
 
-  ipcMain.handle('mpv:is-running', () => {
+  handle('mpv:is-running', () => {
     return MpvService.isRunning()
   })
 
-  ipcMain.handle('mpv:add-subtitle', async (_event, filePath: string) => {
+  handle('mpv:add-subtitle', async (_event, filePath: string) => {
     await MpvService.addSubtitle(filePath)
   })
 
-  ipcMain.handle('mpv:is-available', () => {
+  handle('mpv:is-available', () => {
     return MpvService.isAvailable()
   })
 
-  ipcMain.handle('mpv:toggle-pause', async () => {
+  handle('mpv:toggle-pause', async () => {
     await MpvService.togglePause()
   })
 
-  ipcMain.handle('mpv:seek', async (_event, seconds: number) => {
+  handle('mpv:seek', async (_event, seconds: number) => {
     await MpvService.seek(seconds)
   })
 
-  ipcMain.handle('mpv:show-skip-intro', async (_event, endMs: number) => {
+  handle('mpv:show-skip-intro', async (_event, endMs: number) => {
     await MpvService.showSkipIntro(endMs)
   })
 
-  ipcMain.handle('mpv:hide-skip-intro', async () => {
+  handle('mpv:hide-skip-intro', async () => {
     await MpvService.hideSkipIntro()
   })
 
-  ipcMain.handle('mpv:show-splash', async () => {
+  handle('mpv:show-splash', async () => {
     await MpvService.showSplash()
   })
 
-  ipcMain.handle('mpv:hide-splash', async () => {
+  handle('mpv:hide-splash', async () => {
     await MpvService.hideSplash()
   })
 
-  ipcMain.handle('mpv:set-has-next', async (_event, hasNext: boolean) => {
+  handle('mpv:set-has-next', async (_event, hasNext: boolean) => {
     await MpvService.setHasNext(hasNext)
   })
 
-  ipcMain.handle('mpv:set-clearlogo', async (_event, text: string) => {
+  handle('mpv:set-clearlogo', async (_event, text: string) => {
     if (!text) {
       await MpvService.clearClearlogo()
       return
@@ -606,15 +607,15 @@ export async function registerIpcHandlers(): Promise<void> {
     await MpvService.setClearlogo(text)
   })
 
-  ipcMain.handle('mpv:clear-clearlogo', async () => {
+  handle('mpv:clear-clearlogo', async () => {
     await MpvService.clearClearlogo()
   })
 
-  ipcMain.handle('mpv:set-plot', async (_event, text: string) => {
+  handle('mpv:set-plot', async (_event, text: string) => {
     await MpvService.setPlot(text || '')
   })
 
-  ipcMain.handle('mpv:set-up-next', async (_event, opts: { title: string; subtitle: string; countdown: number }) => {
+  handle('mpv:set-up-next', async (_event, opts: { title: string; subtitle: string; countdown: number }) => {
     if (!opts.title) {
       await MpvService.clearUpNext()
       return
@@ -627,43 +628,43 @@ export async function registerIpcHandlers(): Promise<void> {
     })
   })
 
-  ipcMain.handle('mpv:clear-up-next', async () => {
+  handle('mpv:clear-up-next', async () => {
     await MpvService.clearUpNext()
   })
 
-  ipcMain.handle('mpv:get-last-exit-code', () => {
+  handle('mpv:get-last-exit-code', () => {
     return MpvService.getLastExitCode()
   })
 
-  ipcMain.handle('local-cache:get-url', async (_event, infoHash) => {
+  handle('local-cache:get-url', async (_event, infoHash) => {
     const url = LocalCacheService.getCacheUrl(infoHash)
     return { url }
   })
 
-  ipcMain.handle('local-cache:is-cached', async (_event, infoHash) => {
+  handle('local-cache:is-cached', async (_event, infoHash) => {
     return LocalCacheService.isCached(infoHash)
   })
 
-  ipcMain.handle('local-cache:status', () => {
+  handle('local-cache:status', () => {
     return LocalCacheService.getCacheStatus()
   })
 
-  ipcMain.handle('local-cache:clear', async () => {
+  handle('local-cache:clear', async () => {
     await LocalCacheService.clearCache()
   })
 
-  ipcMain.handle('opensubtitles:search', async (_event, params) => {
+  handle('opensubtitles:search', async (_event, params) => {
     return OpenSubtitlesService.searchSubtitles(params)
   })
 
-  ipcMain.handle('opensubtitles:download', async (_event, fileId) => {
+  handle('opensubtitles:download', async (_event, fileId) => {
     const content = await OpenSubtitlesService.downloadSubtitle(fileId)
     if (!content) return null
     const vtt = OpenSubtitlesService.srtToVtt(content)
     return { vtt }
   })
 
-  ipcMain.handle('opensubtitles:download-and-save', async (_event, fileId: number) => {
+  handle('opensubtitles:download-and-save', async (_event, fileId: number) => {
     const content = await OpenSubtitlesService.downloadSubtitle(fileId)
     if (!content) return null
     const filePath = `/tmp/fynix-sub-${fileId}.srt`
@@ -671,11 +672,11 @@ export async function registerIpcHandlers(): Promise<void> {
     return filePath
   })
 
-  ipcMain.handle('sports:get-leagues-by-sport', async (_event, sport: string) => {
+  handle('sports:get-leagues-by-sport', async (_event, sport: string) => {
     return SportsService.getLeaguesBySport(sport)
   })
 
-  ipcMain.handle('youtube:get-stream-url', async (_event, videoUrl: string) => {
+  handle('youtube:get-stream-url', async (_event, videoUrl: string) => {
     try {
       const url = await YoutubeService.resolveStreamUrl(videoUrl)
       return { success: true, url }
@@ -684,51 +685,51 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  ipcMain.handle('sports:get-seasons', async (_event, leagueId: string) => {
+  handle('sports:get-seasons', async (_event, leagueId: string) => {
     return SportsService.getSeasons(leagueId)
   })
 
-  ipcMain.handle('sports:get-sports-list', async () => {
+  handle('sports:get-sports-list', async () => {
     return SportsService.getSportsList()
   })
 
-  ipcMain.handle('sports:get-upcoming-events', async (_event, leagueId: string, seasonId?: string) => {
+  handle('sports:get-upcoming-events', async (_event, leagueId: string, seasonId?: string) => {
     return SportsService.getUpcomingEvents(leagueId, seasonId)
   })
 
-  ipcMain.handle('sports:get-past-events', async (_event, leagueId: string, seasonId?: string) => {
+  handle('sports:get-past-events', async (_event, leagueId: string, seasonId?: string) => {
     return SportsService.getPastEvents(leagueId, seasonId)
   })
 
-  ipcMain.handle('sports:get-events-in-range', async (_event, leagueId: string, seasonId: string, from: string, to: string) => {
+  handle('sports:get-events-in-range', async (_event, leagueId: string, seasonId: string, from: string, to: string) => {
     return SportsService.getEventsInRange(leagueId, seasonId, from, to)
   })
 
-  ipcMain.handle('sports:get-event-details', async (_event, eventId: string) => {
+  handle('sports:get-event-details', async (_event, eventId: string) => {
     return SportsService.getEventDetails(eventId)
   })
 
-  ipcMain.handle('sports:get-team-details', async (_event, teamId: string) => {
+  handle('sports:get-team-details', async (_event, teamId: string) => {
     return SportsService.getTeamDetails(teamId)
   })
 
-  ipcMain.handle('replayzone:search', async (_event, query: string) => {
+  handle('replayzone:search', async (_event, query: string) => {
     return ReplayZoneService.searchReplays(query)
   })
 
-  ipcMain.handle('streamedpk:get-today', async () => {
+  handle('streamedpk:get-today', async () => {
     return StreamedPkService.getTodayMatches()
   })
 
-  ipcMain.handle('streamedpk:get-streams', async (_event, source: string, id: string) => {
+  handle('streamedpk:get-streams', async (_event, source: string, id: string) => {
     return StreamedPkService.getStream(source, id)
   })
 
-  ipcMain.handle('mpv:get-sub-action', async () => {
+  handle('mpv:get-sub-action', async () => {
     return MpvService.getSubAction()
   })
 
-  ipcMain.handle('mpv:clear-sub-action', async () => {
+  handle('mpv:clear-sub-action', async () => {
     await MpvService.clearSubAction()
   })
 

@@ -71,7 +71,8 @@ function Particles() {
 
         ctx.beginPath()
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(229, 9, 20, ${p.alpha})`
+        const accentRgb = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '255, 107, 0'
+        ctx.fillStyle = `rgba(${accentRgb}, ${p.alpha})`
         ctx.fill()
       }
 
@@ -85,7 +86,7 @@ function Particles() {
             ctx.beginPath()
             ctx.moveTo(particles[i].x, particles[i].y)
             ctx.lineTo(particles[j].x, particles[j].y)
-            ctx.strokeStyle = `rgba(229, 9, 20, ${0.06 * (1 - dist / 150)})`
+            ctx.strokeStyle = `rgba(${accentRgb}, ${0.06 * (1 - dist / 150)})`
             ctx.lineWidth = 0.5
             ctx.stroke()
           }

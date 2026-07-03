@@ -323,7 +323,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
                   </div>
                 )}
                 <span style={{ flex: 1 }}>{p.name}</span>
-                {p.id === activeProfileId && <span style={{ color: 'var(--accent, #FF6B00)' }}>●</span>}
+                {p.id === activeProfileId && <span style={{ color: 'var(--accent)' }}>●</span>}
               </button>
             ))}
           </div>

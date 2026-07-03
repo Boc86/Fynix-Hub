@@ -114,3 +114,66 @@
   color: var(--text-muted);
   padding: 40px;
 }
+
+.torrentList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.torrentRow {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.torrentRow:hover {
+  background: var(--bg-hover);
+}
+
+.torrentRow.focused {
+  background: rgba(var(--accent-rgb), 0.15);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  box-shadow: inset 3px 0 0 var(--accent);
+  animation: selectedPulse 2s ease-in-out infinite;
+}
+
+.torrentInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.torrentTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.torrentMeta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.torrentQuality {
+  padding: 1px 6px;
+  background: rgba(var(--accent-rgb), 0.2);
+  color: var(--accent);
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.7rem;
+}
+
+.torrentIndexer {
+  color: var(--text-secondary);
+}

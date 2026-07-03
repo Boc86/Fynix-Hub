@@ -1,4 +1,5 @@
 import * as CacheService from './cache.service'
+import { withCache, TTL } from './cache-helpers.service'
 
 const TRAKT_BASE = 'https://api.trakt.tv'
 const TRAKT_AUTH_BASE = 'https://api.trakt.tv/oauth'
@@ -107,11 +108,13 @@ export async function pollForToken(deviceCode: string) {
 }
 
 export async function getWatchedMovies() {
-  return fetchTrakt('/sync/watched/movies')
+  return withCache('trakt:watched-movies', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/watched/movies'))
 }
 
 export async function getWatchedShows() {
-  return fetchTrakt('/sync/watched/shows')
+  return withCache('trakt:watched-shows', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/watched/shows'))
 }
 
 export async function scrobble(action: 'start' | 'pause' | 'stop', media: object) {
@@ -140,30 +143,36 @@ export async function getSettings() {
 }
 
 export async function getWatchlist(type: 'movies' | 'shows') {
-  return fetchTrakt(`/sync/watchlist/${type}`)
+  return withCache(`trakt:watchlist:${type}`, TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt(`/sync/watchlist/${type}`))
 }
 
 export async function getPlayback() {
-  return fetchTrakt('/sync/playback')
+  return withCache('trakt:playback', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/playback'))
 }
 
 export async function getPlaybackMovies() {
-  return fetchTrakt('/sync/playback/movies')
+  return withCache('trakt:playback-movies', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/playback/movies'))
 }
 
 export async function getPlaybackEpisodes() {
-  return fetchTrakt('/sync/playback/episodes')
+  return withCache('trakt:playback-episodes', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/playback/episodes'))
 }
 
 export async function getShowProgress(showTraktId: number) {
-  return fetchTrakt(`/shows/${showTraktId}/progress?extended=full`)
+  return withCache(`trakt:show-progress:${showTraktId}`, TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt(`/shows/${showTraktId}/progress?extended=full`))
 }
 
 export async function getWatchedShowsWithProgress() {
   // Single API call — matches the Kodi TMDB Helper plugin approach
   // /sync/watched/shows?extended=full returns aired_episodes, watched_episodes,
   // last_watched_at, and nested seasons/episodes watched data
-  const watched = await fetchTrakt('/sync/watched/shows?extended=full') as any[]
+  const watched = await withCache('trakt:watched-progress', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/watched/shows?extended=full')) as any[]
   if (!watched || !Array.isArray(watched)) return []
 
   const results: any[] = []
@@ -173,7 +182,10 @@ export async function getWatchedShowsWithProgress() {
     if (!show || !show.ids || !show.ids.tmdb) continue
 
     const aired = show.aired_episodes || 0
-    const watchedCount = entry.watched_episodes || 0
+    // Compute watched count from seasons data — the API does not return watched_episodes at root level
+    const watchedCount = (entry.seasons || []).reduce((total: number, s: any) => {
+      return total + (s.episodes || []).filter((e: any) => e.number !== undefined).length
+    }, 0)
 
     // In progress = more episodes aired than watched
     if (aired <= watchedCount) continue

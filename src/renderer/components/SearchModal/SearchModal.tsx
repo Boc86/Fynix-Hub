@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import type { MediaItem } from '../../types'
+import type { MediaItem, TorrentResult } from '../../types'
 import MediaCard from '../MediaCard/MediaCard'
 import styles from './SearchModal.module.css'
 
@@ -8,21 +8,29 @@ interface SearchModalProps {
   onSelect: (item: MediaItem) => void
   keyboardOpen?: boolean
   onFreeSearch?: (query: string) => void
+  onTorrentSelect?: (torrent: TorrentResult) => void
 }
 
-type SearchFilter = 'all' | 'movie' | 'tv'
+type SearchFilter = 'all' | 'movie' | 'tv' | 'free'
 
-const FILTERS: Array<{ id: SearchFilter | 'free'; label: string }> = [
+const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'TV Shows' },
-  { id: 'free', label: 'Free' },
+  { id: 'free', label: 'Torrents' },
 ]
 
-export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSearch }: SearchModalProps) {
+function formatSize(bytes: number): string {
+  if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB'
+  if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB'
+  return bytes + ' B'
+}
+
+export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSearch, onTorrentSelect }: SearchModalProps) {
   const [query, setQuery] = useState('')
   const [movieResults, setMovieResults] = useState<MediaItem[]>([])
   const [tvResults, setTvResults] = useState<MediaItem[]>([])
+  const [torrentResults, setTorrentResults] = useState<TorrentResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [filter, setFilter] = useState<SearchFilter>('all')
   const [focusedSection, setFocusedSection] = useState<'input' | 'filter' | 'result'>('input')
@@ -40,23 +48,32 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
     if (!q.trim()) {
       setMovieResults([])
       setTvResults([])
+      setTorrentResults([])
       return
     }
     setIsSearching(true)
-    try {
-      const [movies, tv] = await Promise.all([
-        window.api.tmdb.search(q, 'movie'),
-        window.api.tmdb.search(q, 'tv'),
-      ])
-      setMovieResults(movies?.results || [])
-      setTvResults(tv?.results || [])
-    } catch {
-      setMovieResults([])
-      setTvResults([])
-    } finally {
-      setIsSearching(false)
+    if (filter === 'free') {
+      try {
+        const results = await window.api.torrent.search({ query: q, type: 'movie' })
+        setTorrentResults(results || [])
+      } catch {
+        setTorrentResults([])
+      }
+    } else {
+      try {
+        const [movies, tv] = await Promise.all([
+          window.api.tmdb.search(q, 'movie'),
+          window.api.tmdb.search(q, 'tv'),
+        ])
+        setMovieResults(movies?.results || [])
+        setTvResults(tv?.results || [])
+      } catch {
+        setMovieResults([])
+        setTvResults([])
+      }
     }
-  }, [])
+    setIsSearching(false)
+  }, [filter])
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
@@ -69,10 +86,19 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
     ? [...movieResults, ...tvResults].slice(0, 24)
     : filter === 'movie'
       ? movieResults.slice(0, 20)
-      : tvResults.slice(0, 20)
+      : filter === 'tv'
+        ? tvResults.slice(0, 20)
+        : []
 
   const filterCount = query.trim() ? FILTERS.length : 0
-  const resultCount = results.length
+  const resultCount = filter === 'free' ? torrentResults.length : results.length
+  const isTorrentView = filter === 'free'
+
+  useEffect(() => {
+    if (filter === 'free' && query.trim()) {
+      doSearch(query)
+    }
+  }, [filter])
 
   useEffect(() => {
     const sections = (): Array<{ id: 'input' | 'filter' | 'result'; count: number }> => [
@@ -134,26 +160,27 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
             setFocusedIdx(prev => (prev - 1 + count) % count)
           }
           break
-          case 'Enter':
-            if (focusedSection === 'filter') {
-              e.preventDefault()
-              const sel = FILTERS[focusedIdx].id
-              if (sel === 'free') {
-                onFreeSearch?.(query.trim())
-                return
-              }
-              setFilter(sel as SearchFilter)
-            } else if (focusedSection === 'result') {
-              e.preventDefault()
+        case 'Enter':
+          if (focusedSection === 'filter') {
+            e.preventDefault()
+            const sel = FILTERS[focusedIdx].id
+            setFilter(sel)
+            if (sel !== 'free') onFreeSearch?.(query.trim())
+          } else if (focusedSection === 'result') {
+            e.preventDefault()
+            if (isTorrentView) {
+              onTorrentSelect?.(torrentResults[focusedIdx])
+            } else {
               onSelect(results[focusedIdx])
             }
-            break
+          }
+          break
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [focusedSection, focusedIdx, filterCount, resultCount, results, filter, onSelect, keyboardOpen])
+  }, [focusedSection, focusedIdx, filterCount, resultCount, results, torrentResults, filter, onSelect, keyboardOpen, isTorrentView])
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -185,7 +212,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
                 ref={(el) => { tabRefs.current[idx] = el }}
                 tabIndex={-1}
                 className={`${styles.filterTab} ${filter === f.id ? styles.filterActive : ''} ${focusedSection === 'filter' && focusedIdx === idx ? styles.focused : ''}`}
-                 onClick={() => f.id !== 'free' && setFilter(f.id as SearchFilter)}
+                onClick={() => setFilter(f.id)}
                 onMouseDown={(e) => e.preventDefault()}
               >
                 {f.label}
@@ -195,14 +222,41 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
         )}
         <div className={styles.results}>
           {isSearching && <p className={styles.status}>Searching...</p>}
-          {!isSearching && results.length === 0 && query && (
+          {!isSearching && isTorrentView && query && torrentResults.length === 0 && (
+            <p className={styles.status}>No torrents found</p>
+          )}
+          {!isSearching && !isTorrentView && results.length === 0 && query && (
             <p className={styles.status}>No results found</p>
           )}
-          <div className={styles.grid}>
-            {results.map((item, idx) => (
-              <MediaCard key={`${item.mediaType}-${item.id}`} item={item} onSelect={onSelect} isFocused={focusedSection === 'result' && focusedIdx === idx} />
-            ))}
-          </div>
+          {isTorrentView ? (
+            <div className={styles.torrentList}>
+              {torrentResults.map((torrent, idx) => (
+                <div
+                  key={`${torrent.infoHash}-${idx}`}
+                  className={`${styles.torrentRow} ${focusedSection === 'result' && focusedIdx === idx ? styles.focused : ''}`}
+                  onClick={() => onTorrentSelect?.(torrent)}
+                  role="button"
+                  tabIndex={-1}
+                >
+                  <div className={styles.torrentInfo}>
+                    <div className={styles.torrentTitle}>{torrent.title}</div>
+                    <div className={styles.torrentMeta}>
+                      <span className={styles.torrentQuality}>{torrent.quality}</span>
+                      <span>{formatSize(torrent.size)}</span>
+                      <span>{torrent.seeders} SE</span>
+                      <span className={styles.torrentIndexer}>{torrent.indexer}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.grid}>
+              {results.map((item, idx) => (
+                <MediaCard key={`${item.mediaType}-${item.id}`} item={item} onSelect={onSelect} isFocused={focusedSection === 'result' && focusedIdx === idx} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

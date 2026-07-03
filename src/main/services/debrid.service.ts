@@ -1,4 +1,5 @@
 import * as CacheService from './cache.service'
+import { withCache, TTL } from './cache-helpers.service'
 
 class CachedCheckFailedError extends Error {
   constructor(message: string) {
@@ -567,47 +568,51 @@ export async function alldebridAddAndWait(magnet: string): Promise<string> {
 // --- Unified ---
 
 export async function checkAccountStatus(service: string): Promise<{ valid: boolean; expiry?: string; error?: string }> {
-  try {
-    if (service === 'real-debrid') {
-      if (!realDebridKey) return { valid: false, error: 'Not configured' }
-      const data = await realDebridFetch('/user')
-      return { valid: true, expiry: data?.premium ? new Date(data.premium * 1000).toISOString().split('T')[0] : undefined }
+  return withCache(`debrid:status:${service}`, TTL.DEBRID_CACHE, async () => {
+    try {
+      if (service === 'real-debrid') {
+        if (!realDebridKey) return { valid: false, error: 'Not configured' }
+        const data = await realDebridFetch('/user')
+        return { valid: true, expiry: data?.premium ? new Date(data.premium * 1000).toISOString().split('T')[0] : undefined }
+      }
+      if (service === 'torbox') {
+        if (!torboxKey) return { valid: false, error: 'Not configured' }
+        const data = await torboxFetch('/me')
+        const u = data?.data?.user
+        return { valid: true, expiry: u?.plan === 'free' ? 'Free' : (u?.expires_at ? new Date(u.expires_at * 1000).toISOString().split('T')[0] : undefined) }
+      }
+      if (service === 'premiumize') {
+        if (!premiumizeToken) return { valid: false, error: 'Not configured' }
+        const res = await fetch(`${PREMIUMIZE_BASE}/account/info?apikey=${premiumizeToken}`)
+        if (!res.ok) return { valid: false, error: `HTTP ${res.status}` }
+        const data = await res.json()
+        return { valid: true, expiry: data?.premium_until ? new Date(data.premium_until * 1000).toISOString().split('T')[0] : undefined }
+      }
+      if (service === 'alldebrid') {
+        if (!alldebridToken) return { valid: false, error: 'Not configured' }
+        const data = await alldebridApiFetch('/user')
+        const u = data?.user
+        return { valid: true, expiry: u?.premiumUntil ? new Date(u.premiumUntil * 1000).toISOString().split('T')[0] : (u?.isTrial ? 'Trial' : undefined) }
+      }
+      return { valid: false, error: 'Unknown service' }
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      const expired = msg.includes('401') || msg.includes('403') || msg.includes('expired') || msg.includes('unauthorized')
+      return { valid: false, error: expired ? 'Expired' : msg, expiry: expired ? 'Expired' : undefined }
     }
-    if (service === 'torbox') {
-      if (!torboxKey) return { valid: false, error: 'Not configured' }
-      const data = await torboxFetch('/me')
-      const u = data?.data?.user
-      return { valid: true, expiry: u?.plan === 'free' ? 'Free' : (u?.expires_at ? new Date(u.expires_at * 1000).toISOString().split('T')[0] : undefined) }
-    }
-    if (service === 'premiumize') {
-      if (!premiumizeToken) return { valid: false, error: 'Not configured' }
-      const res = await fetch(`${PREMIUMIZE_BASE}/account/info?apikey=${premiumizeToken}`)
-      if (!res.ok) return { valid: false, error: `HTTP ${res.status}` }
-      const data = await res.json()
-      return { valid: true, expiry: data?.premium_until ? new Date(data.premium_until * 1000).toISOString().split('T')[0] : undefined }
-    }
-    if (service === 'alldebrid') {
-      if (!alldebridToken) return { valid: false, error: 'Not configured' }
-      const data = await alldebridApiFetch('/user')
-      const u = data?.user
-      return { valid: true, expiry: u?.premiumUntil ? new Date(u.premiumUntil * 1000).toISOString().split('T')[0] : (u?.isTrial ? 'Trial' : undefined) }
-    }
-    return { valid: false, error: 'Unknown service' }
-  } catch (e: any) {
-    const msg = e?.message || String(e)
-    const expired = msg.includes('401') || msg.includes('403') || msg.includes('expired') || msg.includes('unauthorized')
-    return { valid: false, error: expired ? 'Expired' : msg, expiry: expired ? 'Expired' : undefined }
-  }
+  })
 }
 
 export async function getValidServices(): Promise<string[]> {
-  const services = getServices()
-  const valid: string[] = []
-  for (const svc of services) {
-    const status = await checkAccountStatus(svc)
-    if (status.valid) valid.push(svc)
-  }
-  return valid
+  return withCache('debrid:valid-services', TTL.DEBRID_CACHE, async () => {
+    const services = getServices()
+    const valid: string[] = []
+    for (const svc of services) {
+      const status = await checkAccountStatus(svc)
+      if (status.valid) valid.push(svc)
+    }
+    return valid
+  })
 }
 
 export async function addAndWait(magnet: string, service?: string): Promise<string> {

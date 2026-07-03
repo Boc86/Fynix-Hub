@@ -104,7 +104,7 @@
 
 .osdEpisode {
   font-size: 0.85rem;
-  color: var(--accent, #e50914);
+  color: var(--accent);
   font-weight: 600;
   background: rgba(0,0,0,0.5);
   padding: 2px 8px;
@@ -174,7 +174,7 @@
 
 .scrubFilled {
   height: 4px;
-  background: var(--accent, #e50914);
+  background: var(--accent);
   border-radius: 2px;
   position: absolute;
   left: 0;
