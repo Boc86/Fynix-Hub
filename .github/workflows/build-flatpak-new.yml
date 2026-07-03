@@ -9,7 +9,6 @@ permissions:
   contents: write
   pages: write
   id-token: write
-  packages: write
 
 concurrency:
   group: pages
@@ -42,32 +41,40 @@ jobs:
       - name: Build Flatpak bundle
         run: TMPDIR=/var/tmp npm run make:flatpak
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push to GHCR
+      - name: Create OSTree Repository
         run: |
-          flatpak remote-add --user --if-not-exists ghcr https://ghcr.io/v2/ || true
-          mkdir -p ostree-repo
-          ostree init --repo=ostree-repo --branch
-          flatpak build-export ostree-repo out/make/flatpak/x86_64/*.flatpak
-          flatpak build-push ghcr.io/boc86/fynix-hub --repo=ostree-repo --user --tag=latest
+          mkdir -p repo
+          BUNDLE=$(find out/make -name "*.flatpak" | head -1)
+          flatpak build-import-bundle repo "$BUNDLE"
+          flatpak build-update-repo repo
+
+      - name: Push Repository to Dedicated Repo
+        env:
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git clone https://x-access-token:${REPO_TOKEN}@github.com/Boc86/fynix-hub-repo.git repo-push
+          cp -r repo/* repo-push/
+          cd repo-push
+          git add .
+          git commit -m "Update flatpak repository" || echo "No changes to commit"
+          git push
 
       - name: Prepare website artifact
         run: |
           mkdir -p site
           cp -r docs/* site/
-          echo "Flatpak is available on GitHub Container Registry." > site/flatpak-install.txt
+          echo "Flatpak is available via our custom repository." > site/flatpak-install.txt
           echo "" >> site/flatpak-install.txt
-          echo "Install with:" >> site/flatpak-install.txt
-          echo "  flatpak install ghcr.io/boc86/fynix-hub" >> site/flatpak-install.txt
+          echo "To install, add the remote and install the app:" >> site/flatpak-install.txt
           echo "" >> site/flatpak-install.txt
-          echo "You may need to authenticate first:" >> site/flatpak-install.txt
-          echo "  echo YOUR_GITHUB_TOKEN | flatpak remote-modify --user --password= ghcr" >> site/flatpak-install.txt
+          echo "1. Add remote:" >> site/flatpak-install.txt
+          echo "   flatpak remote-add --if-not-exists fynix-hub https://Boc86.github.io/fynix-hub-repo/" >> site/flatpak-install.txt
+          echo "" >> site/flatpak-install.txt
+          echo "2. Install app:" >> site/flatpak-install.txt
+          echo "   flatpak install fynix-hub io.github.Boc86.FynixHub" >> site/flatpak-install.txt
           touch site/.nojekyll
 
       - name: Upload website artifact
