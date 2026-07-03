@@ -65,12 +65,10 @@ jobs:
 Flatpak is available on GitHub Container Registry.
 
 Install with:
-  echo YOUR_GITHUB_TOKEN | flatpak remote-modify --user --password= ghcr
   flatpak install ghcr.io/boc86/fynix-hub
 
-Or authenticate first:
-  flatpak login ghcr.io
-  flatpak install ghcr.io/boc86/fynix-hub
+You may need to authenticate first:
+  echo YOUR_GITHUB_TOKEN | flatpak remote-modify --user --password= ghcr
 EOF
           touch site/.nojekyll
 
