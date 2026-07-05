@@ -500,21 +500,18 @@ export default function Settings({ onClose }: SettingsProps) {
               <p className={styles.settingDesc}>Choose your theme accent color</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                 {['#FF6B00', '#E50914', '#007AFF', '#7B68EE', '#34C759', '#00B4D8', '#FFFFFF', '#FF9500'].map((c) => (
-                  <button
-                    key={c}
-                    tabIndex={0}
-                    onClick={() => store.setAccentColor(c)}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      border: store.accentColor === c ? '3px solid rgba(255,255,255,0.9)' : '2px solid rgba(255,255,255,0.2)',
-                      background: c,
-                      cursor: 'pointer',
-                      outline: 'none',
-                    }}
-                    title={c}
-                  />
+                      <button
+                        key={c}
+                        tabIndex={0}
+                        onClick={() => store.setAccentColor(c)}
+                        className={`${styles.colorCircle} ${store.accentColor === c ? styles.colorSelected : ''}`}
+                        style={{
+                          background: c,
+                          cursor: 'pointer',
+                          outline: 'none',
+                        }}
+                        title={c}
+                      />
                 ))}
               </div>
             </div>
@@ -766,7 +763,7 @@ export default function Settings({ onClose }: SettingsProps) {
                       setTbVerificationUrl(result.verification_url)
                       setTbInterval(result.interval || 5)
                       setTbAuthState('waiting')
-                      if (result.verification_url) window.open(result.verification_url, '_blank')
+                      // Removed window.open(result.verification_url, '_blank') to prevent unwanted popups
                       const expiresAt = result.expires_at ? new Date(result.expires_at).getTime() : Date.now() + 600000
                       if (tbPollRef.current) clearInterval(tbPollRef.current)
                       tbPollRef.current = setInterval(async () => {

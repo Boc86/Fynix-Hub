@@ -113,8 +113,9 @@ export async function getWatchedMovies() {
 }
 
 export async function getWatchedShows() {
-  return withCache('trakt:watched-shows', TTL.TRAKT_PROGRESS, () =>
-    fetchTrakt('/sync/watched/shows'))
+  const data = await withCache('trakt:watched-shows', TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt('/sync/watched/shows?extended=progress'))
+  return data
 }
 
 export async function scrobble(action: 'start' | 'pause' | 'stop', media: object) {
@@ -162,71 +163,79 @@ export async function getPlaybackEpisodes() {
     fetchTrakt('/sync/playback/episodes'))
 }
 
-export async function getShowProgress(showTraktId: number) {
-  return withCache(`trakt:show-progress:${showTraktId}`, TTL.TRAKT_PROGRESS, () =>
-    fetchTrakt(`/shows/${showTraktId}/progress?extended=full`))
+export async function getShowWatchedProgress(showId: string) {
+  return withCache(`trakt:show-progress:${showId}`, TTL.TRAKT_PROGRESS, () =>
+    fetchTrakt(`/shows/${showId}/progress/watched?specials=false&hidden=false`))
+}
+
+function findNextEpisodeFromProgress(progress: any): { season: number; number: number; first_aired?: string } | null {
+  // Prefer the API-computed next_episode if available
+  if (progress.next_episode?.season && progress.next_episode?.number) {
+    // Skip if the episode's air date is in the future
+    if (progress.next_episode.first_aired && new Date(progress.next_episode.first_aired) > new Date()) {
+      return null
+    }
+    // Skip if no air date is known and all currently aired episodes are watched
+    // (the next_episode is a placeholder for a future season)
+    if (!progress.next_episode.first_aired && progress.completed >= progress.aired) {
+      return null
+    }
+    return {
+      season: progress.next_episode.season,
+      number: progress.next_episode.number,
+      first_aired: progress.next_episode.first_aired,
+    }
+  }
+
+  // Fallback: scan seasons array for first unwatched aired episode
+  if (!progress.seasons || !Array.isArray(progress.seasons)) return null
+  for (const season of progress.seasons) {
+    if (!season.number || season.number === 0) continue
+    if (!season.episodes || !Array.isArray(season.episodes)) continue
+    if (season.completed >= season.aired) continue
+    for (const ep of season.episodes) {
+      if (ep.number && ep.number > 0 && ep.completed === false) {
+        return { season: season.number, number: ep.number }
+      }
+    }
+  }
+  return null
 }
 
 export async function getWatchedShowsWithProgress() {
-  // Single API call — matches the Kodi TMDB Helper plugin approach
-  // /sync/watched/shows?extended=full returns aired_episodes, watched_episodes,
-  // last_watched_at, and nested seasons/episodes watched data
   const watched = await withCache('trakt:watched-progress', TTL.TRAKT_PROGRESS, () =>
-    fetchTrakt('/sync/watched/shows?extended=full')) as any[]
+    fetchTrakt('/sync/watched/shows?extended=progress,full')) as any[]
   if (!watched || !Array.isArray(watched)) return []
+
+  // Filter to shows we can resolve, then fetch per-show progress in parallel
+  const candidates = watched.filter(e =>
+    e.show?.ids?.tmdb && (e.show?.ids?.imdb || e.show?.ids?.trakt)
+  )
+
+  const progressResults = await Promise.all(
+    candidates.map(async (entry) => {
+      try {
+        // Match Umbrella: prefer IMDB ID, fall back to Trakt ID
+        const showId = entry.show.ids.imdb || String(entry.show.ids.trakt)
+        const progress = await getShowWatchedProgress(showId)
+        return { entry, progress }
+      } catch {
+        return null
+      }
+    })
+  )
 
   const results: any[] = []
 
-  for (const entry of watched) {
-    const show = entry.show
-    if (!show || !show.ids || !show.ids.tmdb) continue
+  for (const item of progressResults) {
+    if (!item) continue
+    const { entry, progress } = item
+    if (!progress) continue
 
-    const aired = entry.aired_episodes || show.aired_episodes || 0
-    // Compute watched count from seasons data — use Set for dedup, exclude specials (season 0, episode 0)
-    const watchedCount = (entry.seasons || []).reduce((total: number, s: any) => {
-      if (!s.number || s.number === 0) return total
-      const epSet = new Set<number>()
-      for (const ep of (s.episodes || [])) {
-        if (ep.number && ep.number > 0) epSet.add(ep.number)
-      }
-      return total + epSet.size
-    }, 0)
-
-    console.log(`[Trakt Progress] ${show.title}: aired=${aired} (entry=${entry.aired_episodes}, show=${show.aired_episodes}), watched=${watchedCount}, seasons=${JSON.stringify((entry.seasons || []).map((s: any) => ({ n: s.number, eps: (s.episodes || []).map((e: any) => e.number) })))}`)
-
-    // In progress = more episodes aired than watched
-    if (aired <= watchedCount) continue
-
-    // Find next unwatched episode from nested seasons data
-    let nextEpisode: { season: number; number: number; title?: string } | null = null
-
-    if (entry.seasons && Array.isArray(entry.seasons)) {
-      // Sort seasons by number
-      const sortedSeasons = [...entry.seasons].sort((a, b) => (a.number || 0) - (b.number || 0))
-      for (const season of sortedSeasons) {
-        if (!season.number || season.number === 0) continue
-        if (!season.episodes || !Array.isArray(season.episodes)) continue
-        // Build a set of watched episode numbers for this season
-        const watchedEpisodes = new Set<number>()
-        for (const ep of season.episodes) {
-          if (ep.number !== undefined) watchedEpisodes.add(ep.number)
-        }
-        // Find the first unwatched episode in this season
-        // Episodes are 1-indexed, find lowest unwatched
-        for (let epNum = 1; epNum <= 100; epNum++) {
-          if (!watchedEpisodes.has(epNum)) {
-            nextEpisode = { season: season.number || 1, number: epNum }
-            break
-          }
-        }
-        if (nextEpisode) break
-      }
-    }
-
+    const nextEpisode = findNextEpisodeFromProgress(progress)
     if (!nextEpisode) continue
 
-    const completion = aired > 0 ? watchedCount / aired : 0
-
+    const show = entry.show
     results.push({
       show: {
         title: show.title,
@@ -234,18 +243,18 @@ export async function getWatchedShowsWithProgress() {
         ids: show.ids,
       },
       next_episode: nextEpisode,
-      completion,
-      aired,
-      completed: watchedCount,
-      last_watched_at: entry.last_watched_at || entry.reset_at,
+      completion: progress.aired > 0 ? progress.completed / progress.aired : 0,
+      aired: progress.aired,
+      completed: progress.completed,
+      last_watched_at: progress.last_watched_at || entry.last_watched_at || entry.reset_at,
     })
   }
 
-  // Sort by last_watched_at descending (most recently watched first)
   results.sort((a, b) => {
-    const aTime = new Date(a.last_watched_at || 0).getTime()
-    const bTime = new Date(b.last_watched_at || 0).getTime()
-    return bTime - aTime
+    // Sort by next episode air date first (most recently aired next episode on top)
+    const aAired = new Date(a.next_episode.first_aired || a.last_watched_at || 0).getTime()
+    const bAired = new Date(b.next_episode.first_aired || b.last_watched_at || 0).getTime()
+    return bAired - aAired
   })
 
   return results

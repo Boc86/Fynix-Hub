@@ -187,7 +187,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       try {
         const progress = await window.api.trakt.getWatchedProgress()
             if (progress && Array.isArray(progress) && progress.length > 0) {
-                const upNextPromises = progress.slice(0, 20).map(async (p: any) => {
+                const upNextPromises = progress.map(async (p: any) => {
              const tmdbId = p?.show?.ids?.tmdb
              if (!tmdbId || !p?.next_episode) return null
              try {
@@ -504,6 +504,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                  focusedCardIndex={idx === focusedRow ? focusedCard : undefined}
                  watchedIds={traktWatched}
                  animationDelay={idx * 50}
+
               />
             )
           })}

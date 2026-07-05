@@ -11,10 +11,9 @@ interface MediaRowProps {
   focusedCardIndex?: number
   watchedIds?: Set<number>
   animationDelay?: number
-  unwatchedCounts?: Map<number, number>
 }
 
-export default function MediaRow({ title, items, onSelect, rowIndex, focusedCardIndex, watchedIds, animationDelay, unwatchedCounts }: MediaRowProps) {
+export default function MediaRow({ title, items, onSelect, rowIndex, focusedCardIndex, watchedIds, animationDelay }: MediaRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
 
   const handleScroll = useCallback(() => {
@@ -45,7 +44,6 @@ export default function MediaRow({ title, items, onSelect, rowIndex, focusedCard
               onSelect={onSelect}
               isFocused={focusedCardIndex === idx}
               isWatched={watchedIds?.has(item.id)}
-              unwatchedCount={unwatchedCounts?.get(item.id)}
             />
           ))}
         </div>

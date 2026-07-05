@@ -38,7 +38,6 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     resumeProgress,
     traktWatched,
     traktPlayback,
-    showUnwatchedCount,
   } = useMediaStore();
 
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
@@ -46,6 +45,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
   const [similar, setSimilar] = useState<MediaItem[]>([]);
   const [isTv, setIsTv] = useState(false);
 
+  // Sync watched state from store every time episodeWatched changes
   const episodeWatched = useMediaStore((s) => s.episodeWatched);
   const watchedEpisodeNums = useMemo(() => {
     if (!isTv || !selectedMedia) return new Set<number>();
@@ -126,17 +126,24 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
             return;
           }
 
-           // 2. Find newest unwatched (highest episode number not fully watched)
-           if (hasTraktData) {
-             // Removed automatic "next up" selection to avoid jumping to random episodes
-           }
+          // 2. Find newest unwatched (highest episode number not fully watched)
+          if (hasTraktData) {
+            for (let i = episodes.length - 1; i >= 0; i--) {
+              if (!watchedNums.has(episodes[i].episodeNumber)) {
+                setSelectedEpisode(episodes[i].episodeNumber);
+                return;
+              }
+            }
+          }
 
-           // 3. Fallback: first aired episode (or last if all watched)
-           setSelectedEpisode(
-             episodes.length > 0
-               ? episodes[0]?.episodeNumber || null
-               : null
-           );
+          // 3. Fallback: first aired episode (or last if all watched)
+          setSelectedEpisode(
+            episodes.length > 0
+              ? hasTraktData
+                ? episodes[episodes.length - 1]?.episodeNumber || null
+                : episodes[0]?.episodeNumber || null
+              : null
+          );
         }
       } catch {
         // ignore
@@ -445,7 +452,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     ) : (
       <h1 className={styles.title}>
       {selectedMedia.title}
-      {traktWatched.has(selectedMedia.id) && !showUnwatchedCount.has(selectedMedia.id) && <span className={styles.watchedBadge}>Watched</span>}
+      {traktWatched.has(selectedMedia.id) && <span className={styles.watchedBadge}>Watched</span>}
       </h1>
     )}
 
