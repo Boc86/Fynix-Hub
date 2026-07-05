@@ -66,7 +66,7 @@ export default function App() {
   const keyboardInputRef = useRef<HTMLElement | null>(null)
   const savedFocusRef = useRef<HTMLElement | null>(null)
   const prevModalCountRef = useRef(0)
-  const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile } = useSettingsStore()
+  const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile, traktConnected } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
 
   // Listen for Escape key from YouTube BrowserView to return focus
@@ -173,44 +173,62 @@ export default function App() {
   const storeEpisode = useMediaStore((s) => s.selectedEpisode)
   const storeResume = useMediaStore((s) => s.resumeProgress)
 
-  useEffect(() => {
-    async function initTrakt() {
-      const authStatus = await window.api.trakt.getAuthStatus()
-      if (authStatus.authenticated) {
-        const [watchedMovies, watchedShows] = await Promise.all([
-          window.api.trakt.getWatchedMovies().catch(() => null),
-          window.api.trakt.getWatchedShows().catch(() => null),
-        ])
+  const fetchWatchedData = useCallback(async () => {
+    const authStatus = await window.api.trakt.getAuthStatus()
+    if (authStatus.authenticated) {
+      const [watchedMovies, watchedShows] = await Promise.all([
+        window.api.trakt.getWatchedMovies().catch(() => null),
+        window.api.trakt.getWatchedShows().catch(() => null),
+      ])
 
-        if (watchedMovies || watchedShows) {
-          const ids = new Set<number>()
-          if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
-          if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
-          useMediaStore.getState().setTraktWatched(ids)
+      if (watchedMovies || watchedShows) {
+        const ids = new Set<number>()
+        if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
+        if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
+        useMediaStore.getState().setTraktWatched(ids)
 
-          const epMap = new Map<number, Map<number, Set<number>>>()
-          if (watchedShows) {
-            for (const s of watchedShows) {
-              const tmdbId = s.show?.ids?.tmdb
-              if (!tmdbId) continue
-              const seasonsMap = new Map<number, Set<number>>()
-              for (const season of (s.seasons || [])) {
-                if (!season.number || season.number === 0) continue
-                const epSet = new Set<number>()
-                for (const ep of (season.episodes || [])) {
-                  if (ep.number && ep.number > 0) epSet.add(ep.number)
-                }
-                if (epSet.size > 0) seasonsMap.set(season.number, epSet)
+        const epMap = new Map<number, Map<number, Set<number>>>()
+        if (watchedShows) {
+          for (const s of watchedShows) {
+            const tmdbId = s.show?.ids?.tmdb
+            if (!tmdbId) continue
+            const seasonsMap = new Map<number, Set<number>>()
+            for (const season of (s.seasons || [])) {
+              if (!season.number || season.number === 0) continue
+              const epSet = new Set<number>()
+              for (const ep of (season.episodes || [])) {
+                if (ep.number && ep.number > 0) epSet.add(ep.number)
               }
-              if (seasonsMap.size > 0) epMap.set(tmdbId, seasonsMap)
+              if (epSet.size > 0) seasonsMap.set(season.number, epSet)
             }
+            if (seasonsMap.size > 0) epMap.set(tmdbId, seasonsMap)
           }
-          useMediaStore.getState().setEpisodeWatched(epMap)
         }
+        useMediaStore.getState().setEpisodeWatched(epMap)
       }
     }
-    initTrakt()
   }, [])
+
+  // Fetch watched data on initial mount (after settings are loaded)
+  useEffect(() => {
+    let cancelled = false
+    async function init() {
+      await loadFromDisk()
+      if (cancelled) return
+      await fetchWatchedData()
+    }
+    init()
+    return () => { cancelled = true }
+  }, [loadFromDisk, fetchWatchedData])
+
+  // Re-fetch watched data when Trakt is newly connected after initial load
+  const prevTraktRef = useRef(false)
+  useEffect(() => {
+    if (traktConnected && !prevTraktRef.current) {
+      fetchWatchedData()
+    }
+    prevTraktRef.current = traktConnected
+  }, [traktConnected, fetchWatchedData])
 
   // Keep resumePositionRef and resumeDurationRef in sync with playerInfo
   useEffect(() => {

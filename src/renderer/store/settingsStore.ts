@@ -182,7 +182,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           avatarPath,
           avatarColor: pickAvatarColor(id),
           sportsSelected: state.sportsSelected || []
-        }]
+        }],
+        activeProfileId: id,
       };
     });
     get().saveToDisk()

@@ -7,10 +7,9 @@ interface MediaCardProps {
   onSelect: (item: MediaItem) => void
   isFocused?: boolean
   isWatched?: boolean
-  unwatchedCount?: number
 }
 
-export default function MediaCard({ item, onSelect, isFocused, isWatched, unwatchedCount }: MediaCardProps) {
+export default function MediaCard({ item, onSelect, isFocused, isWatched }: MediaCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const posterUrl = item.posterPath
@@ -73,16 +72,11 @@ export default function MediaCard({ item, onSelect, isFocused, isWatched, unwatc
               {item.voteAverage.toFixed(1)}
             </span>
           )}
-          {isWatched && !unwatchedCount && (
+          {isWatched && (
             <span className={styles.watchedBadge}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
               </svg>
-            </span>
-          )}
-          {unwatchedCount !== undefined && unwatchedCount > 0 && (
-            <span className={styles.unwatchedBadge}>
-              {unwatchedCount}
             </span>
           )}
         </div>
