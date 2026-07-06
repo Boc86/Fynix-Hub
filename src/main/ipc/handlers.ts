@@ -670,6 +670,36 @@ export async function registerIpcHandlers(): Promise<void> {
     return MpvService.getLastExitCode()
   })
 
+  handle('mpv:verify-playback-quality', async () => {
+    try {
+      const sr = await MpvService.getProperty('audio-params/samplerate')
+      const cc = await MpvService.getProperty('audio-params/channel-count')
+      const w = await MpvService.getProperty('video-params/w')
+      const h = await MpvService.getProperty('video-params/h')
+      const reasons: string[] = []
+      if (typeof sr === 'number' && sr < 32000) reasons.push(`low audio samplerate (${sr}Hz)`)
+      if (typeof cc === 'number' && cc < 2) reasons.push(`mono audio (${cc}ch)`)
+      if (typeof w === 'number' && typeof h === 'number' && w < 640) reasons.push(`low video width (${w}px)`)
+      return { isRealContent: reasons.length === 0, reasons }
+    } catch (err: any) {
+      console.error('[Handler] mpv:verify-playback-quality failed:', err?.message)
+      return { isRealContent: false, reasons: [err?.message || 'unknown error'] }
+    }
+  })
+
+  handle('mpv:verify-url', async (_event, url: string) => {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      const resp = await fetch(url, { method: 'HEAD', signal: controller.signal })
+      clearTimeout(timeout)
+      return { ok: resp.ok, status: resp.status }
+    } catch (err: any) {
+      console.error('[Handler] mpv:verify-url failed for', url.slice(0, 80), err?.message)
+      return { ok: false, status: 0, error: err?.message }
+    }
+  })
+
   handle('local-cache:get-url', async (_event, infoHash) => {
     const url = LocalCacheService.getCacheUrl(infoHash)
     return { url }

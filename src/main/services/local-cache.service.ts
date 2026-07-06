@@ -3,10 +3,24 @@ import * as http from 'http'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as fsp from 'fs/promises'
+import { Readable } from 'stream'
+
+export interface TorrentStreamInfo {
+  stream: Readable
+  size: number
+  name: string
+}
+
+type StreamFactory = (infoHash: string, fileIndex: number, range?: { start: number; end?: number }) => TorrentStreamInfo | null
 
 let server: http.Server | null = null
 let serverPort = 0
 const CACHE_DIR = path.join(app.getPath('userData'), 'torrent-cache')
+let torrentStreamFactory: StreamFactory | null = null
+
+export function setTorrentStreamFactory(fn: StreamFactory) {
+  torrentStreamFactory = fn
+}
 
 function debug(...args: any[]) {
   console.log('[LocalCache]', ...args)
@@ -28,7 +42,6 @@ export function getCachedFilePath(infoHash: string, fileName?: string): string |
   }
   const entries = fs.readdirSync(dir)
   if (entries.length === 0) return null
-  // Return the largest file (likely the video)
   let largest = ''
   let largestSize = 0
   for (const e of entries) {
@@ -153,10 +166,69 @@ function serveFile(filePath: string, req: http.IncomingMessage, res: http.Server
   }
 }
 
+function serveTorrentStream(
+  infoHash: string,
+  fileIndex: number,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) {
+  const range = req.headers.range
+
+  let start: number | undefined
+  let end: number | undefined
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-')
+    start = parseInt(parts[0], 10)
+    if (parts[1]) end = parseInt(parts[1], 10)
+  }
+
+  const rangeOpts = start !== undefined ? { start, ...(end !== undefined ? { end } : {}) } : undefined
+  const info = torrentStreamFactory!(infoHash, fileIndex, rangeOpts)
+  if (!info) {
+    res.writeHead(404)
+    res.end('Torrent stream not available')
+    return
+  }
+
+  const totalSize = info.size
+
+  if (range && start !== undefined) {
+    const actualEnd = end ?? totalSize - 1
+    const chunkSize = actualEnd - start + 1
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${actualEnd}/${totalSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type': 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+    })
+  } else {
+    res.writeHead(200, {
+      'Content-Length': totalSize,
+      'Content-Type': 'application/octet-stream',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-cache',
+    })
+  }
+
+  info.stream.pipe(res)
+  info.stream.on('error', () => { if (!res.writableEnded) res.end() })
+}
+
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = req.url || '/'
 
-  // Handle /stream/<infoHash>/<index>
+  // Handle /webtorrent/<infoHash>/<fileIndex> — stream via WebTorrent in-memory
+  const wtMatch = url.match(/^\/webtorrent\/([a-fA-F0-9]+)\/(\d+)/)
+  if (wtMatch && torrentStreamFactory) {
+    const infoHash = wtMatch[1].toLowerCase()
+    const fileIndex = parseInt(wtMatch[2], 10)
+    serveTorrentStream(infoHash, fileIndex, req, res)
+    return
+  }
+
+  // Handle /stream/<infoHash>/<index> (legacy, fallback)
   const streamMatch = url.match(/^\/stream\/([a-fA-F0-9]+)\/(\d+)/)
   if (streamMatch) {
     const infoHash = streamMatch[1].toLowerCase()
@@ -191,7 +263,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const relativePath = decodeURIComponent(match[1])
   const filePath = path.join(CACHE_DIR, relativePath)
 
-  // Prevent path traversal
   if (!filePath.startsWith(CACHE_DIR)) {
     res.writeHead(403)
     res.end('Forbidden')

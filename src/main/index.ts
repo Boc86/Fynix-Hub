@@ -179,7 +179,7 @@ function createYouTubeView() {
       const url = youtubeView?.webContents.getURL() || ''
       console.log('[YouTubeView] Back pressed, current URL:', url)
       // Exit to app when on the root YouTube TV page (no fragment, empty #, or just #/)
-      if (url === 'https://www.youtube.com/tv' || url === 'https://www.youtube.com/tv#' || url === 'https://www.youtube.com/tv#/') {
+      if (/^https:\/\/www\.youtube\.com\/tv(#|\/|$)/.test(url)) {
         console.log('[YouTubeView] On root page, exiting to app')
         mainWindow?.webContents.send('youtube:focus-back')
       } else {

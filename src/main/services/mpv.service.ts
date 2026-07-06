@@ -74,7 +74,7 @@ function waitForSocket(socketPath: string, timeoutMs: number): Promise<void> {
   })
 }
 
-function sendCommand(command: object): Promise<any> {
+function sendCommand(command: object, timeoutMs = 5000): Promise<any> {
   return new Promise((resolve, reject) => {
     const doConnect = (retriesLeft: number) => {
       const client = new net.Socket()
@@ -110,7 +110,7 @@ function sendCommand(command: object): Promise<any> {
       setTimeout(() => {
         client.destroy()
         reject(new Error('IPC command timed out'))
-      }, 5000)
+      }, timeoutMs)
     }
 
     doConnect(10)  // up to ~5s retries
@@ -173,6 +173,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--cache-pause-initial=yes',
     '--cache=yes',
     '--demuxer-readahead-secs=60',
+    '--ytdl=no',
   ]
 
   if (audioLanguage) {
@@ -180,15 +181,19 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   }
 
   if (/^https?:\/\//.test(playUrl)) {
+    const isLocalCache = /^http:\/\/127\.0\.0\.1/.test(playUrl)
     const isOkCdn = /okcdn\.ru/i.test(playUrl)
     const isVk = /vk\.com|vkvideo/i.test(playUrl)
+
+    if (!isLocalCache) {
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+    }
+
     if (isOkCdn) {
       mpvArgs.push('--referrer=https://ok.ru/')
-      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
       mpvArgs.push('--http-header-fields=Origin: https://ok.ru')
     } else if (isVk) {
       mpvArgs.push('--referrer=https://vk.com/')
-      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
       mpvArgs.push('--http-header-fields=Origin: https://vk.com')
     }
   }
@@ -387,9 +392,18 @@ export async function seek(seconds: number): Promise<void> {
   } catch {}
 }
 
+export async function getProperty(name: string): Promise<any> {
+  try {
+    const res = await sendCommand({ command: ['get_property', name] })
+    return res?.data
+  } catch {
+    return null
+  }
+}
+
 export async function getTimePos(): Promise<number> {
   try {
-    const res = await sendCommand({ command: ['get_property', 'time-pos'] })
+    const res = await sendCommand({ command: ['get_property', 'time-pos'] }, 2000)
     return res?.data ?? 0
   } catch {
     return 0

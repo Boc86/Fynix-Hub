@@ -135,6 +135,8 @@ export default function App() {
           setSidebarOpen(false)
         } else if (contextTarget) {
           setContextTarget(null)
+        } else if (view === 'youtube') {
+          return
         } else if (view === 'browser') {
           setSidebarOpen((prev) => !prev)
         } else {
@@ -653,15 +655,17 @@ export default function App() {
 
     try {
       const isEpisode = selected.mediaType === 'tv' && episode !== null
-      const results: TorrentResult[] = (await window.api.torrent.search({
+      const res = await window.api.torrent.search({
         title: isEpisode ? `${selected.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : selected.title,
         year: selected.releaseDate ? parseInt(selected.releaseDate.slice(0, 4)) : undefined,
         type: isEpisode ? 'episode' : 'movie',
         season: isEpisode ? season : undefined,
         episode: isEpisode ? (episode ?? undefined) : undefined,
-      })) || []
+        tmdbId: selected.id,
+      })
+      const results: TorrentResult[] = res.torrents || []
 
-      if (!results || results.length === 0) {
+      if (results.length === 0) {
         setStreamError('No torrents found for auto-play')
         setPlayerLoading(false)
         return
@@ -681,7 +685,84 @@ export default function App() {
       searchInfoHashesRef.current = new Set(filtered.map((r: TorrentResult) => r.infoHash.toLowerCase()))
       autoPlayResultsRef.current = filtered
       window.api.log(`[App] Auto-play session=${session} got ${filtered.length} results, hashes:`, filtered.map((r: TorrentResult) => `${r.title}=${r.infoHash.slice(0, 16)}`))
-      tryAutoPlayResult(0, session)
+
+      // Try ALL Vyla sources sequentially before falling back to torrents.
+      // Sources arrive as SSE events resolve (0–15s). Queue them and process
+      // one at a time so a broken NoTorrent doesn't skip working StreamGuide.
+      const pi = playerInfo
+      const ac = accentColor
+      const vylaQueue: RivestreamResult[] = []
+      let vylaProcessing = false
+      let vylaDone = false
+
+      async function tryPlayVyla(result: RivestreamResult): Promise<void> {
+        const audioLang = getAudioLang()
+        const check = await window.api.mpv.verifyUrl(result.embedUrl)
+        if (!check.ok) {
+          throw new Error(`Vyla URL returned ${check.status} (${check.error || 'unreachable'})`)
+        }
+        await window.api.mpv.start(result.embedUrl, undefined, ac, pi?.mediaType === 'tv', audioLang, pi)
+        // Poll for time-pos > 0 to confirm real playback
+        for (let i = 0; i < 8; i++) {
+          await new Promise(r => setTimeout(r, 500))
+          const pos = await window.api.mpv.getTimePos().catch(() => 0)
+          if (pos > 0) {
+            const quality = await window.api.mpv.verifyPlaybackQuality()
+            if (!quality.isRealContent) {
+              await window.api.mpv.stop().catch(() => {})
+              throw new Error(`Bot video detected: ${quality.reasons.join(', ')}`)
+            }
+            window.api.log(`[App] Vyla playback confirmed (pos=${pos}s)`)
+            vylaDone = true
+            setPlayerLoading(false)
+            autoPlayResultsRef.current = []
+            return
+          }
+        }
+        await window.api.mpv.stop().catch(() => {})
+        throw new Error('Vyla stream stuck (no progress)')
+      }
+
+      async function processVylaQueue(): Promise<void> {
+        if (vylaProcessing || vylaQueue.length === 0 || vylaDone) return
+        vylaProcessing = true
+        while (vylaQueue.length > 0) {
+          const r = vylaQueue.shift()!
+          window.api.log(`[App] Trying Vyla source: ${r.title} (${vylaQueue.length} remaining)`)
+          try {
+            await tryPlayVyla(r)
+            return
+          } catch (err: any) {
+            window.api.log(`[App] Vyla source failed: ${err.message}`)
+            if (vylaDone) return
+          }
+        }
+        vylaProcessing = false
+        // Don't fall back yet — late sources may still arrive via SSE
+        // The 15s timeout below handles the final fallback
+      }
+
+      const unsubRive = window.api.torrent.onRiveResult((result) => {
+        if (searchSessionRef.current !== session) { unsubRive(); return }
+        vylaQueue.push(result)
+        processVylaQueue()
+      })
+
+      const vylaTimeout = setTimeout(() => {
+        unsubRive()
+        window.api.log(`[App] Vyla timeout (15s)`)
+        if (!vylaProcessing && !vylaDone) {
+          if (vylaQueue.length > 0) {
+            processVylaQueue()
+          } else {
+            vylaDone = true
+            tryAutoPlayResult(0, session)
+          }
+        } else if (vylaProcessing) {
+          // A source is being polled — let it finish naturally
+          // processVylaQueue will handle fallback when queue empties
+        }
+      }, 15000)
     } catch (err: any) {
       setStreamError(err?.message || 'Auto-play search failed')
       setPlayerLoading(false)
@@ -971,6 +1052,7 @@ export default function App() {
       {view === 'detail' && (
         <div className="animate-slide-right">
           <DetailView
+            key={selectedMedia?.id}
             onBack={() => goBack()}
             onPlay={handlePlay}
             onPlayTrailer={() => {}}

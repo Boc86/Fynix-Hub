@@ -204,6 +204,8 @@ const api = {
       getLastExitCode: () => ipcRenderer.invoke('mpv:get-last-exit-code'),
       getSubAction: () => ipcRenderer.invoke('mpv:get-sub-action'),
       clearSubAction: () => ipcRenderer.invoke('mpv:clear-sub-action'),
+      verifyUrl: (url: string) => ipcRenderer.invoke('mpv:verify-url', url),
+      verifyPlaybackQuality: () => ipcRenderer.invoke('mpv:verify-playback-quality'),
       onExited: (callback: () => void) => {
         ipcRenderer.on('mpv-exited', callback)
         return () => { ipcRenderer.removeListener('mpv-exited', callback) }

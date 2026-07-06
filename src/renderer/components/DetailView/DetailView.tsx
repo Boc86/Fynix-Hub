@@ -193,6 +193,11 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     setFocusedItem(0);
   }, []);
 
+  // Scroll to top when media changes
+  useEffect(() => {
+    if (detailRef.current) detailRef.current.scrollTop = 0;
+  }, [selectedMedia?.id]);
+
   const backdropUrl = selectedMedia?.backdropPath
   ? `${TMDB_IMAGE}/original${selectedMedia.backdropPath}`
   : null;
@@ -253,7 +258,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     setSelectedEpisode(null);
     setResumeProgress(null);
     setSimilar([]);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    detailRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Keyboard navigation
