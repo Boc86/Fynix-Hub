@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import type { TorrentResult } from '../../types.d'
+import type { TorrentResult, RivestreamResult } from '../../types.d'
 import { useSettingsStore } from '../../store/settingsStore'
 import styles from './TorrentSearch.module.css'
 
@@ -9,7 +9,9 @@ interface TorrentSearchProps {
   results: TorrentResult[]
   cachedMap: Record<string, string[]>
   loading: boolean
+  rivestreamResults?: RivestreamResult[]
   onSelect: (result: TorrentResult) => void
+  onSelectRivestream?: (result: RivestreamResult) => void
   onClose: () => void
 }
 
@@ -75,18 +77,33 @@ function matchesLanguage(title: string, languages: string[]): boolean {
   })
 }
 
-export default function TorrentSearch({ title, year, results, cachedMap, loading, onSelect, onClose }: TorrentSearchProps) {
+export default function TorrentSearch({ title, year, results, cachedMap, loading, rivestreamResults, onSelect, onSelectRivestream, onClose }: TorrentSearchProps) {
   const [selectedIdx, setSelectedIdx] = useState(0)
+  const [localRiveResults, setLocalRiveResults] = useState<RivestreamResult[]>([])
   const prefLangs = useSettingsStore(s => s.preferredLanguages)
   const prefRes = useSettingsStore(s => s.preferredResolutions)
   const maxTorrentSize = useSettingsStore(s => s.maxTorrentSize)
+
+  useEffect(() => {
+    const unsubscribe = window.api.torrent.onRiveResult((result) => {
+      setLocalRiveResults(prev => [...prev, result])
+    })
+    return unsubscribe
+  }, [])
+
+  const combinedRiveResults = [...(rivestreamResults || []), ...localRiveResults]
+  const rivestreamCount = combinedRiveResults.length
 
   const filteredResults = useMemo(() => {
     let r = results
     if (prefRes && prefRes.length > 0) r = r.filter(x => matchesQuality(x.title, prefRes))
     if (prefLangs && prefLangs.length > 0) r = r.filter(x => matchesLanguage(x.title, prefLangs))
     if (maxTorrentSize > 0) r = r.filter(x => x.size <= maxTorrentSize * 1073741824)
-    return [...r].sort((a, b) => {
+    
+    // Fallback: if filters removed everything, show all results
+    const finalResults = r.length === 0 && results.length > 0 ? results : r
+
+    return [...finalResults].sort((a, b) => {
       const aCached = (cachedMap[a.infoHash.toLowerCase()]?.length ?? 0) > 0 ? 0 : 1
       const bCached = (cachedMap[b.infoHash.toLowerCase()]?.length ?? 0) > 0 ? 0 : 1
       if (aCached !== bCached) return aCached - bCached
@@ -97,6 +114,8 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
       return b.seeders - a.seeders
     })
   }, [results, prefLangs, prefRes, maxTorrentSize, cachedMap])
+
+  const totalItems = rivestreamCount + filteredResults.length
 
   const cachedCountInList = filteredResults.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).length
 
@@ -109,6 +128,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
     propsCachedMapKeys: Object.keys(cachedMap),
     propsLoading: loading,
     filteredResultsCount: filteredResults.length,
+    rivestreamCount,
     cachedCountInList,
     firstFilteredInfoHashes: filteredResults.slice(0, 5).map(r => r.infoHash.toLowerCase()),
     whyCachedWereFiltered: results.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).map(r => ({
@@ -123,18 +143,26 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, filteredResults.length - 1)); return }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
       if (e.key === 'Home') { e.preventDefault(); setSelectedIdx(0); return }
-      if (e.key === 'End') { e.preventDefault(); setSelectedIdx(filteredResults.length - 1); return }
-      if (e.key === 'Enter' && filteredResults[selectedIdx]) {
-        e.preventDefault()
-        onSelect(filteredResults[selectedIdx])
+      if (e.key === 'End') { e.preventDefault(); setSelectedIdx(totalItems - 1); return }
+      if (e.key === 'Enter') {
+        if (selectedIdx < rivestreamCount && onSelectRivestream && combinedRiveResults) {
+          e.preventDefault()
+          onSelectRivestream(combinedRiveResults[selectedIdx])
+        } else {
+          const torrentIdx = selectedIdx - rivestreamCount
+          if (filteredResults[torrentIdx]) {
+            e.preventDefault()
+            onSelect(filteredResults[torrentIdx])
+          }
+        }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [filteredResults, selectedIdx, onSelect, onClose])
+  }, [filteredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream])
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -159,38 +187,66 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
               <span>Searching torrents...</span>
             </div>
           )}
-          {!loading && filteredResults.length === 0 && (
+           {!loading && rivestreamCount > 0 && (
+             <>
+               <div className={styles.sectionLabel}>Direct Stream</div>
+               {combinedRiveResults.map((r, idx) => (
+                 <div
+                   key={`rivestream-${idx}`}
+                   className={`${styles.result} ${idx === selectedIdx ? styles.selected : ''}`}
+                   onClick={() => onSelectRivestream?.(r)}
+                   onMouseEnter={() => setSelectedIdx(idx)}
+                 >
+                   <div className={styles.resultTitle}>{r.title}</div>
+                   <div className={styles.resultMeta}>
+                     <span className={`${styles.badge} ${styles.quality}`}>{r.quality}</span>
+                     <span className={`${styles.badge} ${styles.direct}`}>{r.indexer}</span>
+                   </div>
+                 </div>
+               ))}
+             </>
+           )}
+
+          {!loading && filteredResults.length === 0 && rivestreamCount === 0 && (
             <div className={styles.empty}>
               {results.length > 0 ? 'No results match your language/resolution filters' : 'No torrents found'}
             </div>
           )}
-          {!loading && filteredResults.map((r, idx) => (
-            <div
-              key={`${r.infoHash}-${idx}`}
-              className={`${styles.result} ${idx === selectedIdx ? styles.selected : ''}`}
-              onClick={() => onSelect(r)}
-              onMouseEnter={() => setSelectedIdx(idx)}
-            >
-              <div className={styles.resultTitle}>{r.title}</div>
-              <div className={styles.resultMeta}>
-                <span className={`${styles.badge} ${styles.quality}`}>{qualityLabel(r.quality)}</span>
-                <span className={`${styles.badge} ${styles.indexer}`}>{r.indexer}</span>
-                <span className={styles.size}>{formatSize(r.size)}</span>
-                <span className={styles.seeders}>S: {r.seeders}</span>
-                <span className={styles.leechers}>L: {r.leechers}</span>
-                {cachedMap[r.infoHash.toLowerCase()]?.map(svc => (
-                  <span key={svc} className={`${styles.badge} ${styles.cached}`}>
-                    {svc === 'real-debrid' ? 'RD' : svc === 'torbox' ? 'TB' : svc === 'premiumize' ? 'PM' : svc === 'alldebrid' ? 'AD' : svc}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
+          {!loading && filteredResults.length > 0 && (
+            <>
+              <div className={styles.sectionLabel}>Torrents</div>
+              {filteredResults.map((r, idx) => {
+                const displayIdx = rivestreamCount + idx
+                return (
+                  <div
+                    key={`${r.infoHash}-${idx}`}
+                    className={`${styles.result} ${displayIdx === selectedIdx ? styles.selected : ''}`}
+                    onClick={() => onSelect(r)}
+                    onMouseEnter={() => setSelectedIdx(displayIdx)}
+                  >
+                    <div className={styles.resultTitle}>{r.title}</div>
+                    <div className={styles.resultMeta}>
+                      <span className={`${styles.badge} ${styles.quality}`}>{qualityLabel(r.quality)}</span>
+                      <span className={`${styles.badge} ${styles.indexer}`}>{r.indexer}</span>
+                      <span className={styles.size}>{formatSize(r.size)}</span>
+                      <span className={styles.seeders}>S: {r.seeders}</span>
+                      <span className={styles.leechers}>L: {r.leechers}</span>
+                      {cachedMap[r.infoHash.toLowerCase()]?.map(svc => (
+                        <span key={svc} className={`${styles.badge} ${styles.cached}`}>
+                          {svc === 'real-debrid' ? 'RD' : svc === 'torbox' ? 'TB' : svc === 'premiumize' ? 'PM' : svc === 'alldebrid' ? 'AD' : svc}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
         </div>
 
-        {filteredResults.length > 0 && (
+        {totalItems > 0 && (
           <div className={styles.footer}>
-            <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{Object.keys(cachedMap).length > 0 ? ' · Cached = instant stream' : ''}</span>
+            <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{rivestreamCount > 0 ? ' · Direct Stream = instant play' : Object.keys(cachedMap).length > 0 ? ' · Cached = instant stream' : ''}</span>
             {(prefLangs.length > 0 || prefRes.length > 0) && (
               <span className={styles.filterInfo}> · filtered by preferences</span>
             )}

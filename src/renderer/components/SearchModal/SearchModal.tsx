@@ -95,7 +95,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
   const isTorrentView = filter === 'free'
 
   useEffect(() => {
-    if (filter === 'free' && query.trim()) {
+    if (query.trim()) {
       doSearch(query)
     }
   }, [filter])
@@ -160,21 +160,20 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
             setFocusedIdx(prev => (prev - 1 + count) % count)
           }
           break
-        case 'Enter':
-          if (focusedSection === 'filter') {
-            e.preventDefault()
-            const sel = FILTERS[focusedIdx].id
-            setFilter(sel)
-            if (sel !== 'free') onFreeSearch?.(query.trim())
-          } else if (focusedSection === 'result') {
-            e.preventDefault()
-            if (isTorrentView) {
-              onTorrentSelect?.(torrentResults[focusedIdx])
-            } else {
-              onSelect(results[focusedIdx])
-            }
-          }
-          break
+         case 'Enter':
+           if (focusedSection === 'filter') {
+             e.preventDefault()
+             const sel = FILTERS[focusedIdx].id
+             setFilter(sel)
+           } else if (focusedSection === 'result') {
+             e.preventDefault()
+             if (isTorrentView) {
+               onTorrentSelect?.(torrentResults[focusedIdx])
+             } else {
+               onSelect(results[focusedIdx])
+             }
+           }
+           break
       }
     }
 

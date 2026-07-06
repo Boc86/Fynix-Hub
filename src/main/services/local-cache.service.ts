@@ -107,25 +107,7 @@ export async function clearCache(): Promise<void> {
   }
 }
 
-function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-  const url = req.url || '/'
-  const match = url.match(/^\/cache\/(.+)/)
-  if (!match) {
-    res.writeHead(404)
-    res.end('Not found')
-    return
-  }
-
-  const relativePath = decodeURIComponent(match[1])
-  const filePath = path.join(CACHE_DIR, relativePath)
-
-  // Prevent path traversal
-  if (!filePath.startsWith(CACHE_DIR)) {
-    res.writeHead(403)
-    res.end('Forbidden')
-    return
-  }
-
+function serveFile(filePath: string, req: http.IncomingMessage, res: http.ServerResponse) {
   try {
     if (!fs.existsSync(filePath)) {
       res.writeHead(404)
@@ -138,7 +120,6 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     const range = req.headers.range
 
     if (range) {
-      // Parse range header
       const parts = range.replace(/bytes=/, '').split('-')
       const start = parseInt(parts[0], 10)
       const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1
@@ -170,6 +151,58 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     debug('Error serving file:', err.message)
     if (!res.writableEnded) res.end()
   }
+}
+
+function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+  const url = req.url || '/'
+
+  // Handle /stream/<infoHash>/<index>
+  const streamMatch = url.match(/^\/stream\/([a-fA-F0-9]+)\/(\d+)/)
+  if (streamMatch) {
+    const infoHash = streamMatch[1].toLowerCase()
+    const fileIndex = parseInt(streamMatch[2], 10)
+    const infoDir = path.join(CACHE_DIR, infoHash)
+    if (!fs.existsSync(infoDir)) {
+      res.writeHead(404)
+      res.end('Torrent not cached')
+      return
+    }
+    const entries = fs.readdirSync(infoDir).filter(e => {
+      const fp = path.join(infoDir, e)
+      return fs.statSync(fp).isFile()
+    })
+    const filePath = entries[fileIndex] ? path.join(infoDir, entries[fileIndex]) : null
+    if (!filePath) {
+      res.writeHead(404)
+      res.end('File not found')
+      return
+    }
+    serveFile(filePath, req, res)
+    return
+  }
+
+  const match = url.match(/^\/cache\/(.+)/)
+  if (!match) {
+    res.writeHead(404)
+    res.end('Not found')
+    return
+  }
+
+  const relativePath = decodeURIComponent(match[1])
+  const filePath = path.join(CACHE_DIR, relativePath)
+
+  // Prevent path traversal
+  if (!filePath.startsWith(CACHE_DIR)) {
+    res.writeHead(403)
+    res.end('Forbidden')
+    return
+  }
+
+  serveFile(filePath, req, res)
+}
+
+export function getPort(): number {
+  return serverPort
 }
 
 export function init(): void {
