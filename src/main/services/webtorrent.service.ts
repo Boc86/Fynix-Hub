@@ -25,8 +25,26 @@ function debugError(...args: any[]) {
   console.error('[WebTorrent]', ...args)
 }
 
+function createReadStream(
+  infoHash: string,
+  fileIndex: number,
+  range?: { start: number; end?: number },
+): LocalCacheService.TorrentStreamInfo | null {
+  const torrent = torrentMap.get(infoHash)
+  if (!torrent || !torrent.files[fileIndex]) return null
+  const file = torrent.files[fileIndex]
+  const opts: any = {}
+  if (range) {
+    opts.start = range.start
+    if (range.end !== undefined) opts.end = range.end
+  }
+  const stream = file.createReadStream(opts)
+  return { stream, size: file.length, name: file.name }
+}
+
 export async function init(): Promise<void> {
   debug('Initialized (WebTorrent v3)')
+  LocalCacheService.setTorrentStreamFactory(createReadStream)
 }
 
 export async function prefetchMetadata(infoHash: string, magnetUri: string): Promise<void> {
@@ -40,6 +58,7 @@ export async function prefetchBatch(results: { infoHash: string; magnetUri: stri
 export async function addTorrent(magnetUri: string, options?: any): Promise<any> {
   debug(`Adding torrent: ${magnetUri.slice(0, 80)}...`)
   const c = await getClient()
+  const infoHash = (magnetUri.match(/xt=urn:btih:([a-fA-F0-9]+)/) || [])[1]?.toLowerCase()
 
   return new Promise((resolve, reject) => {
     const torrent = c.add(magnetUri, {
@@ -53,12 +72,7 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
     })
 
     torrent.on('metadata', () => {
-      debug(`Got metadata for ${torrent.infoHash}`)
-    })
-
-    torrent.on('ready', () => {
-      debug(`Torrent ready: ${torrent.infoHash} (${torrent.files.length} files)`)
-      // Store reference for getStreamUrl
+      debug(`Got metadata for ${torrent.infoHash} (${torrent.files.length} files)`)
       torrentMap.set(torrent.infoHash, torrent)
       resolve({
         infoHash: torrent.infoHash,
@@ -71,9 +85,13 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
       })
     })
 
+    torrent.on('ready', () => {
+      debug(`Torrent ready: ${torrent.infoHash}`)
+    })
+
     // Timeout after 60 seconds
     setTimeout(() => {
-      if (!torrent.ready) {
+      if (infoHash && !torrentMap.has(infoHash)) {
         reject(new Error('Torrent add timeout after 60s'))
       }
     }, 60000)
@@ -138,10 +156,7 @@ export async function getStreamUrl(infoHash: string, fileIndex?: number) {
     throw new Error(`File index ${index} not found in torrent ${infoHash}`)
   }
 
-  // file.path is relative to CACHE_DIR (WebTorrent download path)
-  const filePath = path.join(CACHE_DIR, file.path)
-  const relativePath = path.relative(CACHE_DIR, filePath)
-  const streamUrl = `http://127.0.0.1:${LocalCacheService.getPort()}/cache/${encodeURIComponent(relativePath)}`
+  const streamUrl = `http://127.0.0.1:${LocalCacheService.getPort()}/webtorrent/${infoHash}/${index}`
   return { url: streamUrl }
 }
 

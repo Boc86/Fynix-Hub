@@ -2,54 +2,107 @@ import { RivestreamResult } from '../../renderer/types.d'
 import { getSetting } from './cache.service'
 
 const BASE = 'https://missourimonster-x.hf.space'
+const SSE_TIMEOUT = 60000
 
-export async function searchRivestream(
+interface SourceMeta {
+  key: string
+  label: string
+}
+
+interface TestResult {
+  source: string
+  ok: boolean
+  error?: string
+  elapsed_ms?: number
+}
+
+async function getSourceMeta(apiKey: string): Promise<SourceMeta[]> {
+  try {
+    const res = await fetch(`${BASE}/api?sources_meta=1`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    })
+    const body = await res.json()
+    // Try common response shapes
+    return body.sources || body.data?.sources || body.results || []
+  } catch (err: any) {
+    console.warn('[Vyla] sources_meta failed:', err.message)
+    return []
+  }
+}
+
+async function testSources(
   tmdbId: number,
-  type: 'movie' | 'tv',
+  sources: SourceMeta[],
   season?: number,
   episode?: number,
-  onSourceFound?: (source: RivestreamResult) => void
-): Promise<RivestreamResult[]> {
-  const apiKey = getSetting<string>('vylaApiKey') || 'public_api_key'
-  
-  if (apiKey === 'public_api_key') {
-    console.warn('[Vyla] Using public API key. Streaming endpoints (/movie, /tv) require a standard or partner key.')
+): Promise<{ working: TestResult[]; labelMap: Map<string, string> }> {
+  const params = new URLSearchParams()
+  if (season != null && episode != null) {
+    params.set('season', String(season))
+    params.set('episode', String(episode))
   }
 
-  const url = type === 'movie' 
-    ? `${BASE}/movie?id=${tmdbId}`
-    : `${BASE}/tv?id=${tmdbId}&season=${season}&episode=${episode}`
+  let token = ''
+  try {
+    const authRes = await fetch(`${BASE}/api/auth`, { method: 'POST' })
+    const auth = await authRes.json()
+    token = auth.token || ''
+  } catch (err: any) {
+    console.warn('[Vyla] Auth failed:', err.message)
+  }
 
-  console.log(`[Vyla] Requesting: ${url}`)
-  console.log(`[Vyla] API key tier: ${apiKey === 'public_api_key' ? 'public' : 'standard/partner'}`)
+  if (!token) return { working: [], labelMap: new Map() }
 
+  const results: TestResult[] = await Promise.all(
+    sources.map(s =>
+      fetch(`${BASE}/api/test/${tmdbId}?${params}&source=${s.key}`, {
+        headers: { 'X-Session-Token': token },
+      })
+        .then(r => r.json())
+        .catch(() => ({ source: s.key, ok: false } as TestResult))
+    )
+  )
+
+  return {
+    working: results.filter(r => r.ok),
+    labelMap: new Map(sources.map(s => [s.key, s.label])),
+  }
+}
+
+async function parseSSE(
+  sseUrl: string,
+  apiKey: string,
+  workingKeys: Set<string> | null,
+  labelMap: Map<string, string>,
+  type: 'movie' | 'tv',
+  onSourceFound?: (source: RivestreamResult) => void,
+): Promise<RivestreamResult[]> {
+  const results: RivestreamResult[] = []
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30000)
+  const timeout = setTimeout(() => controller.abort(), SSE_TIMEOUT)
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(sseUrl, {
       headers: { 'Authorization': `Bearer ${apiKey}` },
       signal: controller.signal,
     })
 
     if (!response.ok) {
       const bodyText = await response.text().catch(() => '(unreadable)')
-      console.error(`[Vyla] API error: ${response.status} ${response.statusText} — ${bodyText.slice(0, 500)}`)
+      console.error(`[Vyla] SSE error: ${response.status} — ${bodyText.slice(0, 300)}`)
       clearTimeout(timeout)
       return []
     }
 
     const reader = response.body?.getReader()
-    if (!reader) {
-      clearTimeout(timeout)
-      return []
-    }
+    if (!reader) { clearTimeout(timeout); return [] }
 
-    const results: RivestreamResult[] = []
     const decoder = new TextDecoder()
     let buffer = ''
 
     while (true) {
+      if (workingKeys && results.length >= workingKeys.size) break
+
       const { value, done } = await reader.read()
       if (done) break
 
@@ -58,34 +111,28 @@ export async function searchRivestream(
       buffer = lines.pop() || ''
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.type === 'meta') {
-              console.log(`[Vyla] Meta: ${data.meta?.title} (${data.subtitles?.length || 0} subtitles)`)
-            } else if (data.type === 'source') {
-              console.log(`[Vyla] Source found: ${data.source.label} (${data.source.source})`)
-              const source = {
-                title: data.source.label,
-                embedUrl: data.source.url,
+        if (!line.startsWith('data: ')) continue
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (data.type === 'source') {
+            const key: string = data.source?.source
+            if (!workingKeys || workingKeys.has(key)) {
+              const entry: RivestreamResult = {
+                title: labelMap.get(key) || data.source.label || key,
+                embedUrl: data.source.url || '',
                 type,
                 quality: 'HD',
-                indexer: data.source.source,
+                indexer: key,
               }
-              results.push(source)
-              if (onSourceFound) onSourceFound(source)
-            } else if (data.type === 'debug') {
-              console.log(`[Vyla] Debug:`, JSON.stringify(data).slice(0, 500))
-            } else if (data.type === 'done') {
-              console.log(`[Vyla] Stream finished. Total sources: ${data.total}`)
-              clearTimeout(timeout)
-              return results
-            } else {
-              console.log(`[Vyla] Event ${data.type}:`, JSON.stringify(data).slice(0, 300))
+              results.push(entry)
+              if (onSourceFound) onSourceFound(entry)
             }
-          } catch (e) {
-            console.error('[Vyla] Error parsing SSE event:', e)
+          } else if (data.type === 'done') {
+            clearTimeout(timeout)
+            return results
           }
+        } catch {
+          // skip malformed lines
         }
       }
     }
@@ -94,11 +141,33 @@ export async function searchRivestream(
     return results
   } catch (err: any) {
     clearTimeout(timeout)
-    if (err.name === 'AbortError') {
-      console.error('[Vyla] Request timed out after 30s')
-    } else {
-      console.error('[Vyla] Search failed:', err.message)
+    if (err.name !== 'AbortError') {
+      console.error('[Vyla] SSE failed:', err.message)
     }
-    return []
+    return results
   }
+}
+
+export async function searchRivestream(
+  tmdbId: number,
+  type: 'movie' | 'tv',
+  season?: number,
+  episode?: number,
+  onSourceFound?: (source: RivestreamResult) => void,
+): Promise<RivestreamResult[]> {
+  const apiKey = getSetting<string>('vylaApiKey') || 'public_api_key'
+
+  if (apiKey === 'public_api_key') {
+    console.warn('[Vyla] Using public API key. Streaming endpoints require a standard or partner key.')
+  }
+
+  const sseUrl = type === 'movie'
+    ? `${BASE}/movie?id=${tmdbId}`
+    : `${BASE}/tv?id=${tmdbId}&season=${season}&episode=${episode}`
+
+  // SSE directly — the pre-test phase (sources_meta + testSources) adds latency
+  // and often fails due to auth issues with the test endpoint, causing false 0/29.
+  // SSE delivers all results; broken sources are filtered by the time-pos check.
+  console.log('[Vyla] Streaming SSE sources...')
+  return parseSSE(sseUrl, apiKey, null, new Map(), type, onSourceFound)
 }
