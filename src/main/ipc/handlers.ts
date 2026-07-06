@@ -19,6 +19,10 @@ import * as OpenSubtitlesService from '../services/opensubtitles.service'
 import * as SportsService from '../services/sports.service'
 import * as ReplayZoneService from '../services/replayzone.service'
 import * as StreamedPkService from '../services/streamedpk.service'
+import * as ExtractorService from '../services/extractor.service'
+import * as SportsDBService from '../services/sportsdb.service'
+import * as DamiTVService from '../services/dami-tv.service'
+import * as EpgService from '../services/epg.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -27,6 +31,7 @@ export async function registerIpcHandlers(): Promise<void> {
   FanartService.loadApiKey()
   OpenSubtitlesService.loadApiKey()
   // SportsService uses public Sportarr API, no key needed
+  EpgService.ensureEpgLoaded().catch(err => console.error('[Handler] EPG init error:', err?.message))
   await WebTorrentService.init()
   LocalCacheService.init()
   if (IndexerCatalogService.shouldRefreshCatalog()) {
@@ -200,10 +205,6 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
-  handle('trakt:get-device-code', async () => {
-    return TraktService.getDeviceCode()
-  })
-
   handle('trakt:poll-for-token', async (_event, deviceCode) => {
     return TraktService.pollForToken(deviceCode)
   })
@@ -257,27 +258,60 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
+  handle('trakt:get-tokens', async () => {
+    return TraktService.getTokens()
+  })
+
+  handle('trakt:get-device-code', async () => {
+    return TraktService.getDeviceCode()
+  })
+
   handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
     TraktService.setTokens(accessToken, refreshToken)
   })
 
-  handle('trakt:get-tokens', () => {
-    return TraktService.getTokens()
-  })
 
-  handle('torrent:search', async (_event, query) => {
+
+
+
+  handle('torrent:search', async (event, query) => {
     console.log('[Handler] torrent:search', JSON.stringify(query).slice(0, 200))
     const enabledIndexers = CacheService.getSetting<string[]>('enabledIndexers') || TorrentSearchService.getDefaultEnabledIndexers()
     const customIndexers = CacheService.getSetting<TorrentSearchService.CustomIndexer[]>('customIndexers') || []
+    
+    // Kick off Vyla search immediately (in parallel with torrent indexers)
+    const vylaPromise = query.tmdbId
+      ? ExtractorService.searchStreams(
+          { tmdbId: query.tmdbId, type: query.type, season: query.season, episode: query.episode },
+          (source) => event.sender.send('torrent:rive-result', source)
+        ).catch(err => console.error('[Handler] Vyla streaming search failed:', err))
+      : Promise.resolve()
+
     try {
-      const results = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers)
-      console.log('[Handler] torrent:search returned', results.length, 'results')
-      // Asynchronously pre-cache metadata for top 5 results
-      WebTorrentService.prefetchBatch(results.slice(0, 15)).catch(() => {})
-      return results
+      const torrentResults = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers)
+      
+      console.log('[Handler] torrent:search returned', torrentResults.length, 'torrents')
+      
+      // Asynchronously pre-cache metadata for top 15 results
+      WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(() => {})
+      
+      return {
+        torrents: torrentResults,
+        rive: []
+      }
     } catch (err: any) {
       console.error('[Handler] torrent:search failed:', err.message)
       throw err
+    }
+  })
+
+  handle('rivestream:search', async (_event, { tmdbId, type, season, episode }: { tmdbId: number; type: 'movie' | 'tv'; season?: number; episode?: number }) => {
+    try {
+      const results = await ExtractorService.searchStreams({ tmdbId, type, season, episode })
+      return results
+    } catch (err: any) {
+      console.error('[Handler] rivestream:search failed:', err.message)
+      return []
     }
   })
 
@@ -530,10 +564,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return CacheService.getFullWatchHistory()
   })
 
-  handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string) => {
+  handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }) => {
     console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default', 'audioLang:', audioLanguage ?? 'none')
     try {
-      await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage)
+      await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage, playbackInfo)
       if (hasNext !== undefined) {
         await MpvService.setHasNext(hasNext)
       }
@@ -723,6 +757,38 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('streamedpk:get-streams', async (_event, source: string, id: string) => {
     return StreamedPkService.getStream(source, id)
+  })
+
+  handle('sportsdb:get-all-sports', async () => {
+    return SportsDBService.getAllSports()
+  })
+
+  handle('sportsdb:get-league', async (_event, leagueId: string) => {
+    return SportsDBService.getLeagueById(leagueId)
+  })
+
+  handle('sportsdb:get-team', async (_event, teamId: string) => {
+    return SportsDBService.getTeamById(teamId)
+  })
+
+  handle('dami-tv:get-streams', async () => {
+    return DamiTVService.getStreams()
+  })
+
+  handle('epg:get-channels', async () => {
+    return EpgService.getChannels()
+  })
+
+  handle('epg:get-now-next', async (_event, channelId: string) => {
+    return EpgService.getNowNext(channelId)
+  })
+
+  handle('epg:get-schedule', async (_event, channelId: string, date: string) => {
+    return EpgService.getSchedule(channelId, date)
+  })
+
+  handle('epg:refresh', async () => {
+    await EpgService.refreshEpg()
   })
 
   handle('mpv:get-sub-action', async () => {

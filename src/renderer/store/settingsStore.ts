@@ -50,6 +50,7 @@ interface SettingsState {
   introDbApiKey: string
   opensubtitlesApiKey: string
   opensubtitlesForcedOnly: boolean
+  vylaApiKey: string
   preferredAudioLanguage: string
   accentColor: string
   remoteMapping: Record<string, string>
@@ -85,6 +86,7 @@ interface SettingsState {
   setIntroDbApiKey: (key: string) => void
   setOpensubtitlesApiKey: (key: string) => void
   setOpensubtitlesForcedOnly: (forced: boolean) => void
+  setVylaApiKey: (key: string) => void
   setPreferredAudioLanguage: (lang: string) => void
   setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
@@ -129,6 +131,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   introDbApiKey: '',
   opensubtitlesApiKey: '',
   opensubtitlesForcedOnly: true,
+  vylaApiKey: '',
   preferredAudioLanguage: '',
   accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
@@ -164,6 +167,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
   setOpensubtitlesApiKey: (key) => { set({ opensubtitlesApiKey: key }); get().saveToDisk() },
   setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
+  setVylaApiKey: (key) => { set({ vylaApiKey: key }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
@@ -348,6 +352,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('introDbApiKey', state.introDbApiKey),
         window.api.settings.set('opensubtitlesApiKey', state.opensubtitlesApiKey),
         window.api.settings.set('opensubtitlesForcedOnly', state.opensubtitlesForcedOnly),
+        window.api.settings.set('vylaApiKey', state.vylaApiKey),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),

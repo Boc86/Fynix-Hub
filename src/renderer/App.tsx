@@ -10,13 +10,15 @@ import Sidebar from './components/Sidebar/Sidebar'
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import Sports from './components/Sports/Sports'
+import LiveTV from './components/LiveTV/LiveTV'
+import EPG from './components/EPG/EPG'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt from './components/Prompt/Prompt'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
-import type { TorrentResult } from './types.d'
+import type { TorrentResult, RivestreamResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
@@ -46,6 +48,7 @@ export default function App() {
   const [addProfilePromptOpen, setAddProfilePromptOpen] = useState(false)
   const [torrentResults, setTorrentResults] = useState<TorrentResult[]>([])
   const [torrentCachedMap, setTorrentCachedMap] = useState<Record<string, string[]>>({})
+  const [rivestreamResults, setRivestreamResults] = useState<RivestreamResult[]>([])
   const [torrentSearching, setTorrentSearching] = useState(false)
   const [streamUrl, setStreamUrl] = useState<string | undefined>()
   const [streamError, setStreamError] = useState<string | null>(null)
@@ -81,6 +84,12 @@ export default function App() {
       }
     })
   }, [view])
+
+  useEffect(() => {
+    return window.api.embed.onHide(() => {
+      window.api.embed.hide()
+    })
+  }, [])
 
   const accentColor = useSettingsStore((s) => s.accentColor)
   const preferredAudioLang = useSettingsStore((s) => s.preferredAudioLanguage)
@@ -335,6 +344,7 @@ export default function App() {
     season?: number
     episode?: number
     query?: string
+    tmdbId?: number
   }) => {
     // Re-entry guard: prevent concurrent searches
     if (searchRunningRef.current) {
@@ -345,23 +355,29 @@ export default function App() {
     setTorrentSearching(true)
     setTorrentResults([])
     setTorrentCachedMap({})
+    setRivestreamResults([])
 
-    // Provider 1: public indexers
-    const indexerPromise = window.api.torrent.search(query)
+    // Provider 1: public indexers + Vyla streams
+    const searchPromise = window.api.torrent.search(query)
       .then(res => {
-        const results = res || []
-        setTorrentResults(results)
+        const torrents = res.torrents || []
+        const rive = res.rive || []
+        setTorrentResults(torrents)
+        setRivestreamResults(rive)
         window.api.writeDebugFile({
-          phase: 'indexer-results',
+          phase: 'search-results',
           query,
-          resultCount: results.length,
-          results: results.map((r: TorrentResult) => ({ title: r.title, infoHash: r.infoHash, indexer: r.indexer, magnetUri: r.magnetUri?.slice(0, 80) })),
+          torrentCount: torrents.length,
+          riveCount: rive.length,
+          results: torrents.map((r: TorrentResult) => ({ title: r.title, infoHash: r.infoHash, indexer: r.indexer, magnetUri: r.magnetUri?.slice(0, 80) })),
         }).catch(() => {})
-        return results
+        return torrents
       })
       .catch(err => {
         console.error('[App] Public indexer search failed:', err)
         window.api.writeDebugFile({ phase: 'indexer-error', query, error: err?.message }).catch(() => {})
+        setTorrentResults([])
+        setRivestreamResults([])
         return []
       })
 
@@ -369,7 +385,7 @@ export default function App() {
     let perService: Record<string, number> = {}
 
     // Providers 2-N: debrid cache checks (run once indexers return hashes)
-    const debridPromise = indexerPromise.then(async (results) => {
+    const debridPromise = searchPromise.then(async (results) => {
       if (results.length === 0) return
       const hashes: string[] = []
       const magnets: string[] = []
@@ -412,7 +428,10 @@ export default function App() {
       }).catch(() => {})
     })
 
-    const [indexerResult] = await Promise.allSettled([indexerPromise, debridPromise])
+    // Rivestream search is now integrated into torrent:search handler
+    const rivestreamPromise = Promise.resolve([])
+
+    const [indexerResult] = await Promise.allSettled([searchPromise, debridPromise, rivestreamPromise])
     const finalResults = indexerResult.status === 'fulfilled' ? indexerResult.value : []
     searchRunningRef.current = false
     setTorrentSearching(false)
@@ -449,6 +468,7 @@ export default function App() {
       type: isEpisode ? 'episode' : 'movie',
       season: isEpisode ? season : undefined,
       episode: isEpisode ? episode ?? undefined : undefined,
+      tmdbId: media.id,
     })
   }, [torrentSearchOpen, runTorrentSearch])
 
@@ -511,7 +531,7 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
-      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang)
+      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang, playerInfo)
       setPlayerLoading(false)
     } catch (err: any) {
       window.api.log('[App] Playback failed:', err.message)
@@ -553,7 +573,7 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
-      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang)
+      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang, playerInfo)
       setPlayerLoading(false)
     } catch (err: any) {
       window.api.log(`[App] Auto-play attempt ${index + 1} failed: ${err.message}`)
@@ -569,6 +589,13 @@ export default function App() {
       setStreamError(err?.message || 'Failed to start playback')
     }
   }, [accentColor])
+
+  const handlePlayEmbed = useCallback((result: RivestreamResult) => {
+    setTorrentSearchOpen(false)
+    setFreeSearchOpen(false)
+    setFreeSearchQuery('')
+    window.api.embed.show(result.embedUrl)
+  }, [])
 
   const handlePlay = useCallback(async (resumePosition?: number) => {
     // Guard: reject if a torrent search modal is already open or player is active
@@ -811,13 +838,13 @@ export default function App() {
         if (torrentSearchOpen) { setTorrentSearchOpen(false); return }
         if (searchOpen) { setSearchOpen(false); return }
         if (sidebarOpen) { setSidebarOpen(false); return }
-        if (view === 'sports') return
+        if (view === 'sports' || view === 'live-tv' || view === 'epg') return
         if (view !== 'browser') { goBack(); return }
       }
       
       if (e.key === 'Backspace') {
         if (isTyping) return
-        if (view === 'sports') return
+        if (view === 'sports' || view === 'live-tv' || view === 'epg') return
         if (virtualKeyboardOpen) {
           e.preventDefault()
           setVirtualKeyboardOpen(false)
@@ -927,7 +954,7 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'sports' ? 'sports' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
+        currentView={view === 'sports' ? 'sports' : view === 'live-tv' ? 'live-tv' : view === 'epg' ? 'epg' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -1051,8 +1078,10 @@ export default function App() {
             results={torrentResults}
             cachedMap={torrentCachedMap}
             loading={torrentSearching}
+            rivestreamResults={rivestreamResults}
             onSelect={startPlayback}
-            onClose={() => { window.api.log('[App] TorrentSearch onClose triggered'); setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}) }}
+            onSelectRivestream={handlePlayEmbed}
+            onClose={() => { window.api.log('[App] TorrentSearch onClose triggered'); setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}); setRivestreamResults([]) }}
           />
         )}
         {freeSearchOpen && (

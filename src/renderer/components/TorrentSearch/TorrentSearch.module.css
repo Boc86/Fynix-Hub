@@ -187,6 +187,20 @@
   color: var(--text-secondary);
 }
 
+.direct {
+  background: rgba(70, 130, 255, 0.2);
+  color: #4682ff;
+}
+
+.sectionLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 8px 16px 4px;
+}
+
 .size {
   color: var(--text-secondary);
 }

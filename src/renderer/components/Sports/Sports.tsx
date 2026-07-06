@@ -2,6 +2,23 @@ import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react'
 import { useSportsStore } from '../../store/sportsStore'
 import { useSettingsStore } from '../../store/settingsStore'
 
+const OUR_TO_DB_SPORT: Record<string, string> = {
+  'football': 'Soccer',
+  'american-football': 'American Football',
+  'basketball': 'Basketball',
+  'hockey': 'Ice Hockey',
+  'baseball': 'Baseball',
+  'motor-sports': 'Motor Sport',
+  'fight': 'Fight',
+  'tennis': 'Tennis',
+  'rugby': 'Rugby',
+  'golf': 'Golf',
+  'billiards': 'Billiards',
+  'afl': 'Australian Rules Football',
+  'darts': 'Darts',
+  'cricket': 'Cricket',
+}
+
 interface ScheduleMatch {
   id: string; title: string; category: string; date: number; poster?: string
   teams?: { home?: { name: string; badge: string }; away?: { name: string; badge: string } }
@@ -84,6 +101,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [scheduleStreamLoading, setScheduleStreamLoading] = useState(false)
   const [viewKey, setViewKey] = useState(0)
   const [selectedCountry, setSelectedCountry] = useState<string>('')
+  const [sportsdbImages, setSportsdbImages] = useState<Record<string, string>>({})
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
@@ -132,6 +150,23 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       containerRef.current.focus()
     }
   }, [store.loading, store.view])
+
+  useEffect(() => {
+    if (store.sportsList.length === 0) return
+    window.api.sportsdb.getAllSports().then((all: any[]) => {
+      const dbByName: Record<string, any> = {}
+      for (const s of all) dbByName[s.name?.toLowerCase()] = s
+      const map: Record<string, string> = {}
+      for (const sport of store.sportsList) {
+        const dbName = OUR_TO_DB_SPORT[sport.id]
+        if (dbName) {
+          const dbSport = dbByName[dbName.toLowerCase()]
+          if (dbSport?.thumb) map[sport.id] = dbSport.thumb
+        }
+      }
+      setSportsdbImages(map)
+    }).catch(() => {})
+  }, [store.sportsList.length])
 
   const loadLeagues = useCallback(async (sport: any) => {
     store.setLoading(true)
@@ -197,7 +232,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       if (selectedSports.length === 0) {
         setScheduleMatches(matches.filter(m => m.date >= todayMsStart && m.date <= todayMsEnd))
       } else {
-        // Enhanced category mapping with common aliases
+        // Enhanced category mapping with common aliases matching Streamed.pk categories
         const sportMap = new Map<string, Set<string>>()
         store.sportsList.filter((s: any) => selectedSports.includes(s.id)).forEach((sport: any) => {
           const key = sport.id
@@ -206,14 +241,48 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           add(sport.slug); add(sport.name)
           const lower = (sport.slug || sport.name || '').toLowerCase()
           switch (lower) {
-            case 'football': case 'soccer': add('football'); add('soccer'); add('futbol'); break
-            case 'american football': add('nfl'); add('gridiron'); break
-            case 'basketball': add('nba'); add('fib'); break
-            case 'ice hockey': add('nhl'); break
-            case 'tennis': add('atp'); add('wta'); break
-            case 'boxing': case 'mma': add('ufc'); add('bellator'); break
-            case 'motor sport': case 'motorsport': add('f1'); add('motogp'); add('nascar'); break
-            default: if (lower.includes('rugby')) add('rugby')
+            case 'football': case 'soccer':
+              add('football'); add('soccer'); add('futbol')
+              break
+            case 'american football':
+              add('american-football'); add('nfl'); add('gridiron')
+              break
+            case 'basketball':
+              add('basketball'); add('nba'); add('fib')
+              break
+            case 'ice hockey':
+              add('hockey'); add('nhl')
+              break
+            case 'baseball':
+              add('baseball'); add('mlb')
+              break
+            case 'tennis':
+              add('tennis'); add('atp'); add('wta')
+              break
+            case 'boxing': case 'mma':
+              add('fight'); add('ufc'); add('bellator')
+              break
+            case 'motor sport': case 'motorsport':
+              add('motor-sports'); add('f1'); add('motogp'); add('nascar')
+              break
+            case 'rugby':
+              add('rugby')
+              break
+            case 'golf':
+              add('golf')
+              break
+            case 'cricket':
+              add('cricket')
+              break
+            case 'darts':
+              add('darts')
+              break
+            case 'snooker': case 'billiards':
+              add('billiards'); add('snooker')
+              break
+            default:
+              if (lower.includes('rugby')) add('rugby')
+              else add('other')
           }
           sportMap.set(key, names)
         })
@@ -545,18 +614,24 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginTop: 8 }}>Schedule</div>
                 </div>
               </div>
-              {visibleSports.map((sport: any, i: number) => (
-                <div key={sport.id} data-focus-index={i + 1} tabIndex={0}
-                  style={cardStyle(isFocused(i + 1, focusedIndex))}
-                  onClick={() => loadLeagues(sport)}
-                  onMouseEnter={() => setFocusedIndex(i + 1)}
-                >
-                  <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-                    <div style={{ fontSize: 28, width: 40, textAlign: 'center' }}>{SPORT_ICONS_RAW[sport.name] || '🏅'}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginTop: 8 }}>{sport.name}</div>
+              {visibleSports.map((sport: any, i: number) => {
+                const imgUrl = sportsdbImages[sport.id]
+                return (
+                  <div key={sport.id} data-focus-index={i + 1} tabIndex={0}
+                    style={cardStyle(isFocused(i + 1, focusedIndex))}
+                    onClick={() => loadLeagues(sport)}
+                    onMouseEnter={() => setFocusedIndex(i + 1)}
+                  >
+                    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                      {imgUrl ? (
+                        <img src={imgUrl} alt={sport.name} style={{ width: 48, height: 48, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.querySelector('.sport-fallback')?.classList.remove('sport-fallback') }} />
+                      ) : null}
+                      <div className={imgUrl ? 'sport-fallback' : ''} style={{ fontSize: 28, width: 40, textAlign: 'center', display: imgUrl ? 'none' : '' }}>{SPORT_ICONS_RAW[sport.name] || '🏅'}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginTop: 8 }}>{sport.name}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             {visibleSports.length === 0 && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No sports available.</div>}
           </div>

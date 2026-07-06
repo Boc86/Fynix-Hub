@@ -14,3 +14,5 @@ start.log
 flatpak-tmp/
 build_debug.log
 build_icon_obj.log
+.tmp/
+build_log.txt

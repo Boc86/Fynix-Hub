@@ -47,6 +47,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
   const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
+  const [localVylaApiKey, setLocalVylaApiKey] = useState(store.vylaApiKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -279,14 +280,15 @@ export default function Settings({ onClose }: SettingsProps) {
   }, [store])
 
   const handleSave = async () => {
-    await Promise.all([
-      window.api.settings.set('tmdbApiKey', localTmdb),
-      window.api.settings.set('fanartApiKey', localFanart),
-      window.api.settings.set('preferredResolutions', localRes),
-      window.api.settings.set('enabledIndexers', localEnabledIndexers),
-      window.api.settings.set('customIndexers', localCustomIndexers),
+      await Promise.all([
+        window.api.settings.set('tmdbApiKey', localTmdb),
+        window.api.settings.set('fanartApiKey', localFanart),
+        window.api.settings.set('preferredResolutions', localRes),
+        window.api.settings.set('enabledIndexers', localEnabledIndexers),
+        window.api.settings.set('customIndexers', localCustomIndexers),
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
+        window.api.settings.set('vylaApiKey', localVylaApiKey),
       ])
       store.setTmdbApiKey(localTmdb)
       store.setFanartApiKey(localFanart)
@@ -294,9 +296,10 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setEnabledIndexers(localEnabledIndexers)
       store.setCustomIndexers(localCustomIndexers)
       store.setIntroDbApiKey(localIntroDb)
-       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
-     await store.saveToDisk()
-     store.setRemoteMapping(localRemoteMapping)
+      store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
+      store.setVylaApiKey(localVylaApiKey)
+      await store.saveToDisk()
+      store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -425,27 +428,40 @@ export default function Settings({ onClose }: SettingsProps) {
                />
               </div>
 
-              <div className={styles.settingGroup}>
-                <h3 className={styles.settingTitle}>OpenSubtitles API</h3>
-                <p className={styles.settingDesc}>API key for downloading subtitles from OpenSubtitles</p>
-                <input
-                  type="password"
-                  className={styles.input}
-                  placeholder="Enter OpenSubtitles API Key"
-                  value={localOpensubtitlesApiKey}
-                  onChange={(e) => setLocalOpensubtitlesApiKey(e.target.value)}
-                />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                  <label className={styles.settingDesc} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={store.opensubtitlesForcedOnly}
-                      onChange={(e) => store.setOpensubtitlesForcedOnly(e.target.checked)}
-                    />
-                    Forced-only subtitles (only foreign dialogue)
-                  </label>
-                </div>
-              </div>
+               <div className={styles.settingGroup}>
+                 <h3 className={styles.settingTitle}>OpenSubtitles API</h3>
+                 <p className={styles.settingDesc}>API key for downloading subtitles from OpenSubtitles</p>
+                 <input
+                   type="password"
+                   className={styles.input}
+                   placeholder="Enter OpenSubtitles API Key"
+                   value={localOpensubtitlesApiKey}
+                   onChange={(e) => setLocalOpensubtitlesApiKey(e.target.value)}
+                 />
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                   <label className={styles.settingDesc} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                     <input
+                       type="checkbox"
+                       checked={store.opensubtitlesForcedOnly}
+                       onChange={(e) => store.setOpensubtitlesForcedOnly(e.target.checked)}
+                     />
+                     Forced-only subtitles (only foreign dialogue)
+                   </label>
+                 </div>
+               </div>
+
+               <div className={styles.settingGroup}>
+                 <h3 className={styles.settingTitle}>Vyla API</h3>
+                 <p className={styles.settingDesc}>API key for high-quality direct streaming sources</p>
+                 <input
+                   type="password"
+                   className={styles.input}
+                   placeholder="Enter Vyla API Key"
+                   value={localVylaApiKey}
+                   onChange={(e) => setLocalVylaApiKey(e.target.value)}
+                 />
+               </div>
+
 
               <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>Preferred Resolutions</h3>

@@ -16,6 +16,24 @@
     <category>AudioVideo</category>
     <category>Video</category>
   </categories>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://Boc86.github.io/Fynix-Hub/screenshots/browser.png</image>
+      <caption>Home browser with movie and TV show recommendations</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://Boc86.github.io/Fynix-Hub/screenshots/detail.png</image>
+      <caption>Movie and TV show detail view</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://Boc86.github.io/Fynix-Hub/screenshots/sports.png</image>
+      <caption>Sports hub with live schedules and replays</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://Boc86.github.io/Fynix-Hub/screenshots/settings.png</image>
+      <caption>Settings and profile management</caption>
+    </screenshot>
+  </screenshots>
   <releases>
     <release version="1.1.0" date="2026-06-25"/>
   </releases>

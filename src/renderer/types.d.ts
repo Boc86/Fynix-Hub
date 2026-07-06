@@ -137,6 +137,14 @@ export interface TorrentResult {
   quality: string
 }
 
+export interface RivestreamResult {
+  title: string
+  embedUrl: string
+  type: 'movie' | 'tv'
+  quality: string
+  indexer: string
+}
+
 export interface IntroSegment {
   type: 'intro' | 'recap' | 'credits'
   startMs: number | null

@@ -8,6 +8,56 @@ import { TizenTubeService } from './services/tizentube.service'
 import { setupCursorHide } from "./utils/cursorUtils"
 import { setupRemoteControl } from "./utils/remoteControl"
 
+const AD_DOMAINS = [
+  '*://*.doubleclick.net/*',
+  '*://*.googlesyndication.com/*',
+  '*://*.googleadservices.com/*',
+  '*://*.google-analytics.com/*',
+  '*://*.googletagmanager.com/*',
+  '*://*.googletagservices.com/*',
+  '*://*.anchor.fm/*',
+  '*://*.adservice.google.com/*',
+  '*://*.pagead2.googlesyndication.com/*',
+  '*://*.adsafeprotected.com/*',
+  '*://*.serving-sys.com/*',
+  '*://*.adnxs.com/*',
+  '*://*.rubiconproject.com/*',
+  '*://*.pubmatic.com/*',
+  '*://*.openx.net/*',
+  '*://*.casalmedia.com/*',
+  '*://*.moatads.com/*',
+  '*://*.scorecardresearch.com/*',
+  '*://*.popads.net/*',
+  '*://*.popcash.net/*',
+  '*://*.propellerads.com/*',
+  '*://*.adsterra.com/*',
+]
+
+function setupAdBlock(webContents: any) {
+  webContents.session.webRequest.onBeforeRequest(
+    { urls: AD_DOMAINS },
+    (_details: any, callback: any) => {
+      callback({ cancel: true })
+    }
+  )
+  
+  webContents.on('did-finish-load', () => {
+    const blockCss = `
+      div[class*="popup"], div[id*="popup"], 
+      div[class*="overlay"], div[id*="overlay"], 
+      div[class*="modal"], div[id*="modal"],
+      .ad-container, .ad-banner, .popup-ad { 
+        display: none !important; 
+        visibility: hidden !important; 
+        pointer-events: none !important; 
+      }
+      body { overflow: auto !important; }
+    `
+    webContents.insertCSS(blockCss)
+  })
+}
+
+
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
 app.commandLine.appendSwitch('disable-software-rasterizer')
@@ -17,6 +67,7 @@ declare const MAIN_WINDOW_VITE_NAME: string
 
 let mainWindow: BrowserWindow | null = null
 let youtubeView: BrowserView | null = null
+let embedView: BrowserView | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -54,10 +105,10 @@ function createWindow(): void {
   })
 
   mainWindow.on('resize', () => {
-    if (youtubeView && mainWindow) {
-      const { width, height } = mainWindow.getContentBounds()
-      youtubeView.setBounds({ x: 0, y: 0, width, height })
-    }
+    if (!mainWindow) return
+    const { width, height } = mainWindow.getContentBounds()
+    if (youtubeView) youtubeView.setBounds({ x: 0, y: 0, width, height })
+    if (embedView) embedView.setBounds({ x: 0, y: 0, width, height })
   })
 }
 
@@ -85,34 +136,8 @@ function createYouTubeView() {
     }
   )
 
-  // Block ads — catch known ad domains
-  youtubeView.webContents.session.webRequest.onBeforeRequest(
-    {
-      urls: [
-        '*://*.doubleclick.net/*',
-        '*://*.googlesyndication.com/*',
-        '*://*.googleadservices.com/*',
-        '*://*.google-analytics.com/*',
-        '*://*.googletagmanager.com/*',
-        '*://*.googletagservices.com/*',
-        '*://*.anchor.fm/*',
-        '*://*.adservice.google.com/*',
-        '*://*.pagead2.googlesyndication.com/*',
-        '*://*.adsafeprotected.com/*',
-        '*://*.serving-sys.com/*',
-        '*://*.adnxs.com/*',
-        '*://*.rubiconproject.com/*',
-        '*://*.pubmatic.com/*',
-        '*://*.openx.net/*',
-        '*://*.casalmedia.com/*',
-        '*://*.moatads.com/*',
-        '*://*.scorecardresearch.com/*',
-      ]
-    },
-    (details, callback) => {
-      callback({ cancel: true })
-    }
-  )
+  // Block ads
+  setupAdBlock(youtubeView.webContents)
 
   mainWindow.addBrowserView(youtubeView)
  
@@ -220,13 +245,27 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', async () => {
-  console.log('[App] before-quit — cleaning up services')
-  try { await MpvService.stopPlayback() } catch (e: any) { console.error('[App] mpv stop error:', e?.message) }
-  try { WebTorrentService.removeAllTorrents() } catch (e: any) { console.error('[App] torrent cleanup error:', e?.message) }
-  destroyYouTubeView()
-  console.log('[App] before-quit cleanup complete')
-})
+  app.on('before-quit', async () => {
+    console.log('[App] before-quit — cleaning up services')
+    try { await MpvService.stopPlayback() } catch (e: any) { console.error('[App] mpv stop error:', e?.message) }
+    try { await WebTorrentService.removeAllTorrents() } catch (e: any) { console.error('[App] torrent cleanup error:', e?.message) }
+    destroyYouTubeView()
+    console.log('[App] before-quit cleanup complete')
+  })
+
+
+async function createEmbedView(url: string) {
+  if (!mainWindow) return
+  try {
+    await MpvService.startPlayback(url)
+  } catch (err: any) {
+    console.error("[EmbedView] MPV playback failed:", err?.message || String(err))
+  }
+}
+
+function destroyEmbedView() {
+  MpvService.stopPlayback().catch(err => console.error("[EmbedView] stopPlayback failed:", err))
+}
 
 ipcMain.on('youtube:show', () => {
   try {
@@ -243,6 +282,14 @@ ipcMain.on('youtube:hide', () => {
   } catch (err: any) {
     console.error('[IPC Error] youtube:hide:', err?.message || String(err))
   }
+})
+
+ipcMain.on('embed:show', (_event, url: string) => {
+  try { createEmbedView(url) } catch (err: any) { console.error('[IPC Error] embed:show:', err?.message || String(err)) }
+})
+
+ipcMain.on('embed:hide', () => {
+  try { destroyEmbedView() } catch (err: any) { console.error('[IPC Error] embed:hide:', err?.message || String(err)) }
 })
 
 ipcMain.handle('tizentube:check-updates', async () => {

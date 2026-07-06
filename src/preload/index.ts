@@ -21,6 +21,14 @@ const api = {
       return () => { ipcRenderer.removeListener('youtube:focus-back', callback) }
     },
   },
+  embed: {
+    show: (url: string) => ipcRenderer.send('embed:show', url),
+    hide: () => ipcRenderer.send('embed:hide'),
+    onHide: (callback: () => void) => {
+      ipcRenderer.on('embed:hide', callback)
+      return () => { ipcRenderer.removeListener('embed:hide', callback) }
+    },
+  },
   tizentube: {
     checkUpdates: () => ipcRenderer.invoke('tizentube:check-updates'),
     update: () => ipcRenderer.invoke('tizentube:update'),
@@ -89,6 +97,10 @@ const api = {
     getWatchedProgress: () => ipcRenderer.invoke('trakt:get-watched-progress'),
   },
   torrent: {
+    onRiveResult: (callback: (result: any) => void) => {
+      ipcRenderer.on('torrent:rive-result', (_event, result) => callback(result))
+      return () => { ipcRenderer.removeListener('torrent:rive-result', callback) }
+    },
     search: (query: object) => ipcRenderer.invoke('torrent:search', query),
     refreshTrackers: () => ipcRenderer.invoke('torrent:refresh-trackers'),
     addTorrent: (magnetUri: string) =>
@@ -222,6 +234,24 @@ const api = {
   streamedpk: {
     getToday: () => ipcRenderer.invoke('streamedpk:get-today'),
     getStreams: (source: string, id: string) => ipcRenderer.invoke('streamedpk:get-streams', source, id),
+  },
+  rivestream: {
+    search: (opts: { tmdbId: number; type: 'movie' | 'tv'; season?: number; episode?: number }) =>
+      ipcRenderer.invoke('rivestream:search', opts),
+  },
+  sportsdb: {
+    getAllSports: () => ipcRenderer.invoke('sportsdb:get-all-sports'),
+    getLeague: (leagueId: string) => ipcRenderer.invoke('sportsdb:get-league', leagueId),
+    getTeam: (teamId: string) => ipcRenderer.invoke('sportsdb:get-team', teamId),
+  },
+  damiTv: {
+    getStreams: () => ipcRenderer.invoke('dami-tv:get-streams'),
+  },
+  epg: {
+    getChannels: () => ipcRenderer.invoke('epg:get-channels'),
+    getNowNext: (channelId: string) => ipcRenderer.invoke('epg:get-now-next', channelId),
+    getSchedule: (channelId: string, date: string) => ipcRenderer.invoke('epg:get-schedule', channelId, date),
+    refresh: () => ipcRenderer.invoke('epg:refresh'),
   },
 }
 

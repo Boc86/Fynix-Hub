@@ -4,8 +4,11 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as YoutubeService from './youtube.service'
 import * as OkruResolver from './okru-resolver'
+import * as TraktService from './trakt.service'
 
 let mpvProcess: ChildProcess | null = null
+let currentPlayback: { tmdbId: number; mediaType: string; season?: number; episode?: number } | null = null
+let scrobbleInterval: NodeJS.Timeout | null = null
 let ipcSocketPath = '/tmp/mpv-fynix.sock'
 let onExitCb: ((code: number | null, signal: string | null) => void) | null = null
 let lastExitCode: number | null = null
@@ -114,8 +117,22 @@ function sendCommand(command: object): Promise<any> {
   })
 }
 
-export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string): Promise<void> {
+export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }): Promise<void> {
   await stopPlayback()
+
+  let traktResumePercent: number | null = null
+  if (playbackInfo && TraktService.isAuthenticated()) {
+    try {
+      const playback = await TraktService.getPlayback()
+      const current = playback?.data?.current
+      if (current && current.ids.tmdb === playbackInfo.tmdbId) {
+        traktResumePercent = current.progress
+        console.log(`[MPV] Found Trakt resume point: ${traktResumePercent}%`)
+      }
+    } catch (e) {
+      console.warn('[MPV] Failed to fetch Trakt playback:', e)
+    }
+  }
 
   if (fs.existsSync(ipcSocketPath)) {
     try { fs.unlinkSync(ipcSocketPath) } catch {}
@@ -284,16 +301,31 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     // Resolve immediately after spawn — don't block on IPC socket.
     // The renderer's poll loop handles IPC errors via try/catch.
     settled = true
+    
+    if (playbackInfo) {
+      currentPlayback = playbackInfo
+      startScrobbling()
+    }
+    
     resolve()
 
     // Do resume-seek asynchronously in the background once socket is ready
-    if (resumePos) {
+    if (resumePos || traktResumePercent) {
       waitForSocket(ipcSocketPath, 10000)
         .then(async () => {
-          console.log('[MPV] Socket ready, seeking to resume position:', resumePos)
           try {
-            await sendCommand({ command: ['set', 'time-pos', resumePos] })
-            console.log('[MPV] Resume seek completed')
+            let finalPos = resumePos
+            if (finalPos === undefined && traktResumePercent !== null) {
+              const duration = await getDuration()
+              finalPos = (traktResumePercent / 100) * duration
+              console.log(`[MPV] Calculated Trakt resume position: ${finalPos}s from ${traktResumePercent}% of ${duration}s`)
+            }
+
+            if (finalPos && finalPos > 0) {
+              console.log('[MPV] Socket ready, seeking to resume position:', finalPos)
+              await sendCommand({ command: ['set', 'time-pos', finalPos] })
+              console.log('[MPV] Resume seek completed')
+            }
           } catch (e) {
             console.warn('[MPV] Resume seek failed:', e)
           }
@@ -308,6 +340,12 @@ export async function startPlayback(url: string, resumePosition?: number, accent
 }
 
 export async function stopPlayback(): Promise<void> {
+  if (scrobbleInterval) {
+    clearInterval(scrobbleInterval)
+    scrobbleInterval = null
+  }
+  currentPlayback = null
+
   if (mpvProcess) {
     try {
       await sendCommand({ command: ['quit'] })
@@ -442,8 +480,34 @@ export async function setUpNext(opts: { imagePath: string; title: string; subtit
 
 export async function clearUpNext(): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-up-next'] })
+    await MpvService.clearUpNext()
   } catch {}
+}
+
+async function updateScrobble() {
+  if (!currentPlayback || !mpvProcess) return
+  try {
+    const pos = await getTimePos()
+    const dur = await getDuration()
+    if (dur <= 0) return
+    
+    const progress = pos / dur
+    const payload = TraktService.buildScrobblePayload(
+      currentPlayback.tmdbId,
+      currentPlayback.mediaType,
+      progress,
+      currentPlayback.season,
+      currentPlayback.episode
+    )
+    await TraktService.scrobble('start', payload)
+  } catch (e) {
+    console.warn('[MPV] Scrobble heartbeat failed:', e)
+  }
+}
+
+function startScrobbling() {
+  if (scrobbleInterval) clearInterval(scrobbleInterval)
+  scrobbleInterval = setInterval(updateScrobble, 60000) // Update every 60s
 }
 
 export function getLastExitCode(): number | null {
