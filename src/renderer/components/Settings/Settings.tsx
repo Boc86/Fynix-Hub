@@ -48,6 +48,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
   const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
+  const [localVylaApiKey, setLocalVylaApiKey] = useState(store.vylaApiKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
@@ -294,6 +295,7 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('customIndexers', localCustomIndexers),
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
+        window.api.settings.set('vylaApiKey', localVylaApiKey),
       ])
       store.setTmdbApiKey(localTmdb)
       store.setFanartApiKey(localFanart)
@@ -302,6 +304,7 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setCustomIndexers(localCustomIndexers)
       store.setIntroDbApiKey(localIntroDb)
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
+      store.setVylaApiKey(localVylaApiKey)
       await store.saveToDisk()
       store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
@@ -454,9 +457,21 @@ export default function Settings({ onClose }: SettingsProps) {
                  </div>
                </div>
 
-              <div className={styles.settingGroup}>
-                <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
-              <p className={styles.settingDesc}>Filter torrent results by resolution</p>
+               <div className={styles.settingGroup}>
+                 <h3 className={styles.settingTitle}>Vyla API Key</h3>
+                 <p className={styles.settingDesc}>API key for Rivestream torrent sources. Falls back to built-in key if empty.</p>
+                 <input
+                   type="password"
+                   className={styles.input}
+                   placeholder="Enter Vyla API Key (optional)"
+                   value={localVylaApiKey}
+                   onChange={(e) => setLocalVylaApiKey(e.target.value)}
+                 />
+               </div>
+
+               <div className={styles.settingGroup}>
+                 <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
+               <p className={styles.settingDesc}>Filter torrent results by resolution</p>
               <div className={styles.toggleGrid}>
                 {resolutions.map(res => (
                   <button
@@ -1333,18 +1348,24 @@ export default function Settings({ onClose }: SettingsProps) {
                 </div>
                 <div className={styles.toggleGrid}>
                   {ALL_COUNTRIES.map((country) => {
-                    const selected = (localLiveTvCountries.length === 0) || localLiveTvCountries.includes(country.code)
+                    const selected = localLiveTvCountries.includes(country.code)
                     return (
                       <button
                         key={country.code}
                         tabIndex={0}
-                        className={`${styles.toggle} ${selected ? styles.toggleActive : ''}`}
+                        className={`${styles.toggle} ${selected || (localLiveTvCountries.length === 0) ? styles.toggleActive : ''}`}
                         onClick={() => {
-                          const next = selected
-                            ? localLiveTvCountries.filter(c => c !== country.code)
-                            : [...localLiveTvCountries, country.code]
-                          setLocalLiveTvCountries(next)
-                          store.setSelectedLiveTvCountries(next)
+                          if (localLiveTvCountries.length === 0) {
+                            const next = [country.code]
+                            setLocalLiveTvCountries(next)
+                            store.setSelectedLiveTvCountries(next)
+                          } else {
+                            const next = selected
+                              ? localLiveTvCountries.filter(c => c !== country.code)
+                              : [...localLiveTvCountries, country.code]
+                            setLocalLiveTvCountries(next)
+                            store.setSelectedLiveTvCountries(next)
+                          }
                         }}
                       >
                         {country.flag} {country.name}
