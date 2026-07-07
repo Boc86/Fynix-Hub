@@ -168,10 +168,23 @@ function createYouTubeView() {
 
   // Intercept keyboard events
   youtubeView.webContents.on('before-input-event', (event, input) => {
-    // Escape → exit YouTube entirely
+    // Escape → go back within YouTube, or exit to app if on main screen
     if (input.key === 'Escape' && input.type === 'keyDown') {
       event.preventDefault()
-      mainWindow?.webContents.send('youtube:focus-back')
+      const url = youtubeView?.webContents.getURL() || ''
+      console.log('[YouTubeView] Escape pressed, current URL:', url)
+      // Exit to app when on the root YouTube TV page (no fragment, empty #, or just #/)
+      if (/^https:\/\/www\.youtube\.com\/tv(#|\/|$)/.test(url)) {
+        console.log('[YouTubeView] On root page, exiting to app')
+        mainWindow?.webContents.send('youtube:focus-back')
+      } else {
+        // YouTube TV SPA: dispatch Escape key directly via JS to exit video player
+        console.log('[YouTubeView] Dispatching Escape via JS to exit video player')
+        youtubeView?.webContents.executeJavaScript(
+          'document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true}));' +
+          'document.dispatchEvent(new KeyboardEvent("keyup", {key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true}));'
+        ).catch(() => {})
+      }
     }
     // Backspace/BrowserBack → go back within YouTube, or exit to app if on main screen
     if ((input.key === 'Backspace' || input.key === 'BrowserBack') && input.type === 'keyDown') {
@@ -184,7 +197,6 @@ function createYouTubeView() {
         mainWindow?.webContents.send('youtube:focus-back')
       } else {
         // YouTube TV SPA: dispatch Escape key directly via JS to exit video player
-        // Using executeJavaScript bypasses our before-input-event handler
         console.log('[YouTubeView] Dispatching Escape via JS to exit video player')
         youtubeView?.webContents.executeJavaScript(
           'document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true}));' +

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import type { TorrentResult, RivestreamResult } from '../../types.d'
 import { useSettingsStore } from '../../store/settingsStore'
 import styles from './TorrentSearch.module.css'
@@ -61,15 +61,15 @@ function matchesLanguage(title: string, languages: string[]): boolean {
     arabic: ['arabic', 'ar', 'ara'],
   }
 
-  // If English is selected, also accept titles with no explicit language tag
-  // (untagged torrents are typically English)
-  if (languages.some(l => l.toLowerCase() === 'english')) {
-    const hasExplicitTag = Object.values(tags).some(patterns =>
-      patterns.some(p => lower.includes(p))
-    )
-    if (!hasExplicitTag) return true
-  }
+  // Check if the title has any explicit language tag
+  const hasExplicitTag = Object.values(tags).some(patterns =>
+    patterns.some(p => lower.includes(p))
+  )
 
+  // Untagged torrents aren't penalized — they could be any language
+  if (!hasExplicitTag) return true
+
+  // If there is a tag, it must match one of the user's preferred languages
   return languages.some(lang => {
     const key = lang.toLowerCase()
     const patterns = tags[key] || [key]
@@ -92,80 +92,76 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   }, [])
 
   const combinedRiveResults = [...(rivestreamResults || []), ...localRiveResults]
+  const overlayRef = useRef<HTMLDivElement>(null)
   const rivestreamCount = combinedRiveResults.length
 
-  const filteredResults = useMemo(() => {
-    let r = results
-    if (prefRes && prefRes.length > 0) r = r.filter(x => matchesQuality(x.title, prefRes))
-    if (prefLangs && prefLangs.length > 0) r = r.filter(x => matchesLanguage(x.title, prefLangs))
-    if (maxTorrentSize > 0) r = r.filter(x => x.size <= maxTorrentSize * 1073741824)
-    
-    // Fallback: if filters removed everything, show all results
-    const finalResults = r.length === 0 && results.length > 0 ? results : r
-
-    return [...finalResults].sort((a, b) => {
-      const aCached = (cachedMap[a.infoHash.toLowerCase()]?.length ?? 0) > 0 ? 0 : 1
-      const bCached = (cachedMap[b.infoHash.toLowerCase()]?.length ?? 0) > 0 ? 0 : 1
-      if (aCached !== bCached) return aCached - bCached
-      const qualityOrder: Record<string, number> = { '4K': 0, '1080p': 1, '720p': 2, '480p': 3 }
-      const aQ = qualityOrder[a.quality] ?? 99
-      const bQ = qualityOrder[b.quality] ?? 99
-      if (aQ !== bQ) return aQ - bQ
-      return b.seeders - a.seeders
-    })
-  }, [results, prefLangs, prefRes, maxTorrentSize, cachedMap])
-
-  const totalItems = rivestreamCount + filteredResults.length
-
-  const cachedCountInList = filteredResults.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).length
-
-  window.api.writeDebugFile({
-    phase: 'torrent-search-render',
-    prefLangs,
-    prefRes,
-    maxTorrentSize,
-    propsResultsCount: results.length,
-    propsCachedMapKeys: Object.keys(cachedMap),
-    propsLoading: loading,
-    filteredResultsCount: filteredResults.length,
-    rivestreamCount,
-    cachedCountInList,
-    firstFilteredInfoHashes: filteredResults.slice(0, 5).map(r => r.infoHash.toLowerCase()),
-    whyCachedWereFiltered: results.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).map(r => ({
-      title: r.title,
-      infoHash: r.infoHash,
-      matchesQuality: matchesQuality(r.title, prefRes),
-      matchesLanguage: matchesLanguage(r.title, prefLangs),
-      withinSize: maxTorrentSize > 0 ? r.size <= maxTorrentSize * 1073741824 : true,
-    })),
-  }).catch(() => {})
+  const listRef = useRef<HTMLDivElement>(null)
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([])
 
   useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
-      if (e.key === 'Home') { e.preventDefault(); setSelectedIdx(0); return }
-      if (e.key === 'End') { e.preventDefault(); setSelectedIdx(totalItems - 1); return }
-      if (e.key === 'Enter') {
-        if (selectedIdx < rivestreamCount && onSelectRivestream && combinedRiveResults) {
-          e.preventDefault()
-          onSelectRivestream(combinedRiveResults[selectedIdx])
-        } else {
-          const torrentIdx = selectedIdx - rivestreamCount
-          if (filteredResults[torrentIdx]) {
-            e.preventDefault()
-            onSelect(filteredResults[torrentIdx])
-          }
+    overlayRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const el = itemRefs.current[selectedIdx]
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedIdx])
+
+  const scoredResults = useMemo(() => {
+    // Only hard-filter by max size (user's explicit limit)
+    let r = results
+    if (maxTorrentSize > 0) r = r.filter(x => x.size <= maxTorrentSize * 1073741824)
+
+    return [...r].sort((a, b) => score(b) - score(a))
+
+    function score(t: TorrentResult): number {
+      let s = 0
+      // Tier 1: Cached — largest weight, instant streaming
+      if ((cachedMap[t.infoHash.toLowerCase()]?.length ?? 0) > 0) s += 1000000
+      // Tier 2: Preferred resolution
+      if (matchesQuality(t.title, prefRes)) s += 100000
+      // Tier 3: Preferred language
+      if (matchesLanguage(t.title, prefLangs)) s += 10000
+      // Tier 4: Size — prefer smaller within limit (0-1000 points)
+      if (maxTorrentSize > 0 && t.size > 0) {
+        const ratio = t.size / (maxTorrentSize * 1073741824)
+        s += Math.round((1 - ratio) * 1000)
+      } else if (t.size > 0) {
+        // No max set: prefer 500MB–50GB range
+        if (t.size >= 524288000 && t.size <= 53687091200) s += 500
+      }
+      // Tier 5: Seeders (tiebreaker, capped)
+      s += Math.min(t.seeders, 999)
+      return s
+    }
+  }, [results, prefLangs, prefRes, maxTorrentSize, cachedMap])
+
+  const totalItems = rivestreamCount + scoredResults.length
+
+  const cachedCountInList = scoredResults.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).length
+
+  const handleOverlayKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
+    if (e.key === 'Home') { e.preventDefault(); setSelectedIdx(0); return }
+    if (e.key === 'End') { e.preventDefault(); setSelectedIdx(totalItems - 1); return }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (selectedIdx < rivestreamCount && onSelectRivestream && combinedRiveResults) {
+        onSelectRivestream(combinedRiveResults[selectedIdx])
+      } else {
+        const torrentIdx = selectedIdx - rivestreamCount
+        if (scoredResults[torrentIdx]) {
+          onSelect(scoredResults[torrentIdx])
         }
       }
     }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [filteredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream])
+    e.stopPropagation()
+  }, [scoredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream])
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div className={styles.overlay} tabIndex={-1} ref={overlayRef} onKeyDown={handleOverlayKeyDown} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2 className={styles.title}>Select Torrent</h2>
@@ -190,12 +186,13 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
            {!loading && rivestreamCount > 0 && (
              <>
                <div className={styles.sectionLabel}>Direct Stream</div>
-               {combinedRiveResults.map((r, idx) => (
-                 <div
-                   key={`rivestream-${idx}`}
-                   className={`${styles.result} ${idx === selectedIdx ? styles.selected : ''}`}
-                   onClick={() => onSelectRivestream?.(r)}
-                   onMouseEnter={() => setSelectedIdx(idx)}
+                {combinedRiveResults.map((r, idx) => (
+                  <div
+                    key={`rivestream-${idx}`}
+                    ref={el => { itemRefs.current[idx] = el }}
+                    className={`${styles.result} ${idx === selectedIdx ? styles.selected : ''}`}
+                    onClick={() => onSelectRivestream?.(r)}
+                    onMouseEnter={() => setSelectedIdx(idx)}
                  >
                    <div className={styles.resultTitle}>{r.title}</div>
                    <div className={styles.resultMeta}>
@@ -207,19 +204,20 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
              </>
            )}
 
-          {!loading && filteredResults.length === 0 && rivestreamCount === 0 && (
+          {!loading && scoredResults.length === 0 && rivestreamCount === 0 && (
             <div className={styles.empty}>
-              {results.length > 0 ? 'No results match your language/resolution filters' : 'No torrents found'}
+              No torrents found
             </div>
           )}
-          {!loading && filteredResults.length > 0 && (
+          {!loading && scoredResults.length > 0 && (
             <>
               <div className={styles.sectionLabel}>Torrents</div>
-              {filteredResults.map((r, idx) => {
+              {scoredResults.map((r, idx) => {
                 const displayIdx = rivestreamCount + idx
                 return (
                   <div
                     key={`${r.infoHash}-${idx}`}
+                    ref={el => { itemRefs.current[displayIdx] = el }}
                     className={`${styles.result} ${displayIdx === selectedIdx ? styles.selected : ''}`}
                     onClick={() => onSelect(r)}
                     onMouseEnter={() => setSelectedIdx(displayIdx)}
@@ -248,7 +246,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
           <div className={styles.footer}>
             <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{rivestreamCount > 0 ? ' · Direct Stream = instant play' : Object.keys(cachedMap).length > 0 ? ' · Cached = instant stream' : ''}</span>
             {(prefLangs.length > 0 || prefRes.length > 0) && (
-              <span className={styles.filterInfo}> · filtered by preferences</span>
+              <span className={styles.filterInfo}> · preferences boost results</span>
             )}
           </div>
         )}

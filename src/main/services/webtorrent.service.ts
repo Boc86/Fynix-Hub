@@ -1,20 +1,21 @@
-import WebTorrentType from 'webtorrent'
-import * as path from 'path'
+import * as fs from 'fs'
+import * as os from 'os'
 import { app } from 'electron'
 import * as LocalCacheService from './local-cache.service'
+import path from 'path'
+import { initWebTorrent } from './webtorrent-loader'
 
 const CACHE_DIR = path.join(app.getPath('userData'), 'torrent-cache')
 
 const torrentMap = new Map<string, any>()
 
-let WebTorrent: typeof WebTorrentType
-let client: InstanceType<typeof WebTorrentType> | null = null
+let clientPromise: Promise<any> | null = null
 
-async function getClient(): Promise<InstanceType<typeof WebTorrentType>> {
-  if (client) return client
-  WebTorrent = (await import('webtorrent')).default
-  client = new WebTorrent({ utp: false })
-  return client
+async function getClient(): Promise<any> {
+  if (clientPromise) return clientPromise
+  
+  clientPromise = initWebTorrent()
+  return clientPromise
 }
 
 function debug(...args: any[]) {
@@ -66,8 +67,8 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
       ...options,
     })
 
-    torrent.on('error', (err) => {
-      debugError(`Torrent error: ${err.message}`)
+    torrent.on('error', (err: any) => {
+      debugError(`Torrent error: ${err?.message || err}`)
       reject(err)
     })
 
@@ -110,7 +111,7 @@ export async function removeTorrent(infoHash: string) {
 
 export async function removeAllTorrents() {
   const c = await getClient()
-  c.torrents.forEach(t => c.remove(t.infoHash))
+  c.torrents.forEach((t: any) => c.remove(t.infoHash))
   torrentMap.clear()
   debug('All torrents removed')
 }

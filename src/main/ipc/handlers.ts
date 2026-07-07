@@ -277,6 +277,7 @@ export async function registerIpcHandlers(): Promise<void> {
   handle('torrent:search', async (event, query) => {
     console.log('[Handler] torrent:search', JSON.stringify(query).slice(0, 200))
     const enabledIndexers = CacheService.getSetting<string[]>('enabledIndexers') || TorrentSearchService.getDefaultEnabledIndexers()
+    console.log('[Handler] enabledIndexers count:', enabledIndexers.length)
     const customIndexers = CacheService.getSetting<TorrentSearchService.CustomIndexer[]>('customIndexers') || []
     
     // Kick off Vyla search immediately (in parallel with torrent indexers)
@@ -289,11 +290,20 @@ export async function registerIpcHandlers(): Promise<void> {
 
     try {
       const torrentResults = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers)
-      
+
       console.log('[Handler] torrent:search returned', torrentResults.length, 'torrents')
+      // Log raw results for debugging (first 30)
+      console.log('[Handler] RAW RESULTS:')
+      for (const r of torrentResults.slice(0, 30)) {
+        console.log(`  [${r.indexer}] seeds=${r.seeders} leechers=${r.leechers} size=${r.size} title="${r.title.slice(0, 80)}" infoHash=${r.infoHash.slice(0, 16)}`)
+      }
       
-      // Asynchronously pre-cache metadata for top 15 results
-      WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(() => {})
+      // Asynchronously pre-cache metadata for top 15 results (fire-and-forget, don't block response)
+      setImmediate(() => {
+        WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(err => {
+          console.error('[Handler] prefetchBatch failed (non-critical):', err?.message || err)
+        })
+      })
       
       return {
         torrents: torrentResults,
@@ -801,8 +811,36 @@ export async function registerIpcHandlers(): Promise<void> {
     return SportsDBService.getTeamById(teamId)
   })
 
+  handle('sportsdb:search-teams', async (_event, teamName: string) => {
+    return SportsDBService.searchTeams(teamName)
+  })
+
+  handle('sportsdb:get-teams-by-sport', async (_event, sportName: string) => {
+    return SportsDBService.getTeamsBySport(sportName)
+  })
+
+  handle('sportsdb:search-leagues', async (_event, query: string) => {
+    return SportsDBService.searchLeagues(query)
+  })
+
   handle('dami-tv:get-streams', async () => {
     return DamiTVService.getStreams()
+  })
+
+  handle('dami-tv:get-channels', async () => {
+    return DamiTVService.getChannels()
+  })
+
+  handle('dami-tv:get-channels-by-country', async (_event, countryCode: string) => {
+    return DamiTVService.getChannelsByCountry(countryCode)
+  })
+
+  handle('dami-tv:get-available-countries', async () => {
+    return DamiTVService.getAvailableCountries()
+  })
+
+  handle('dami-tv:extract-url', async (_event, channelId: string) => {
+    return DamiTVService.extractChannelUrl(channelId)
   })
 
   handle('epg:get-channels', async () => {
