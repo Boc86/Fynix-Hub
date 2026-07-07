@@ -102,6 +102,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [viewKey, setViewKey] = useState(0)
   const [selectedCountry, setSelectedCountry] = useState<string>('')
   const [sportsdbImages, setSportsdbImages] = useState<Record<string, string>>({})
+  const [failedSportImages, setFailedSportImages] = useState<Set<string>>(new Set())
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
@@ -628,6 +629,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </div>
               {visibleSports.map((sport: any, i: number) => {
                 const imgUrl = sportsdbImages[sport.id]
+                const imgFailed = failedSportImages.has(sport.id)
                 return (
                   <div key={sport.id} data-focus-index={i + 1} tabIndex={0}
                     style={cardStyle(isFocused(i + 1, focusedIndex))}
@@ -635,10 +637,11 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                     onMouseEnter={() => setFocusedIndex(i + 1)}
                   >
                     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-                      {imgUrl ? (
-                        <img src={imgUrl} alt={sport.name} style={{ width: 48, height: 48, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.querySelector('.sport-fallback')?.classList.remove('sport-fallback') }} />
-                      ) : null}
-                      <div className={imgUrl ? 'sport-fallback' : ''} style={{ fontSize: 28, width: 40, textAlign: 'center', display: imgUrl ? 'none' : '' }}>{SPORT_ICONS_RAW[sport.name] || '🏅'}</div>
+                      {imgUrl && !imgFailed ? (
+                        <img src={imgUrl} alt={sport.name} style={{ width: 48, height: 48, objectFit: 'contain' }} onError={() => setFailedSportImages(prev => new Set(prev).add(sport.id))} />
+                      ) : (
+                        <div style={{ fontSize: 28, width: 40, textAlign: 'center' }}>{SPORT_ICONS_RAW[sport.name] || '🏅'}</div>
+                      )}
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginTop: 8 }}>{sport.name}</div>
                     </div>
                   </div>

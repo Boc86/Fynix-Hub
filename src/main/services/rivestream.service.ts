@@ -1,8 +1,13 @@
 import { RivestreamResult } from '../../renderer/types.d'
+import { getSetting } from './cache.service'
 
 const BASE = 'https://missourimonster-x.hf.space'
 const SSE_TIMEOUT = 60000
-const VYLA_API_KEY = 'sk_fynix-hub_b5080b918c61d30effe01e76bf1fe827'
+const VYLA_API_KEY_DEFAULT = 'sk_fynix-hub_b5080b918c61d30effe01e76bf1fe827'
+
+function getVylaApiKey(): string {
+  return process.env.VYLA_API_KEY || getSetting<string>('vylaApiKey') || VYLA_API_KEY_DEFAULT
+}
 
 interface SourceMeta {
   key: string
@@ -155,7 +160,7 @@ export async function searchRivestream(
   episode?: number,
   onSourceFound?: (source: RivestreamResult) => void,
 ): Promise<RivestreamResult[]> {
-  const apiKey = VYLA_API_KEY
+  const apiKey = getVylaApiKey()
 
   const sseUrl = type === 'movie'
     ? `${BASE}/movie?id=${tmdbId}`

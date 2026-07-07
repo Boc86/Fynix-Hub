@@ -14,13 +14,6 @@ interface Channel {
   defaultQuality: string
 }
 
-interface CountryInfo {
-  code: string
-  name: string
-  flag: string
-  count: number
-}
-
 const QUALITY_COLORS: Record<string, string> = {
   '4K': '#e8471b',
   'FHD': '#22c55e',
@@ -41,23 +34,15 @@ function qualityBadge(q: string) {
 export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string) => Promise<void>; onBack: () => void }) {
   const settingsStore = useSettingsStore()
   const [channels, setChannels] = useState<Channel[]>([])
-  const [countries, setCountries] = useState<CountryInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedCountry, setSelectedCountry] = useState('all')
-  const [focusedSection, setFocusedSection] = useState<'countries' | 'channels'>('countries')
-  const [focusedCountryIdx, setFocusedCountryIdx] = useState(0)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [playing, setPlaying] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([
-      window.api.damiTv.getChannels(),
-      window.api.damiTv.getAvailableCountries(),
-    ]).then(([ch, co]) => {
+    window.api.damiTv.getChannels().then(ch => {
       setChannels(ch)
-      setCountries(co)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -69,14 +54,11 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
     if (settingsStore.selectedLiveTvCountries.length > 0) {
       result = result.filter(c => settingsStore.selectedLiveTvCountries.includes(c.countryCode))
     }
-    if (selectedCountry !== 'all') {
-      result = result.filter(c => c.countryCode === selectedCountry)
-    }
     return result.sort((a, b) => {
       if (a.countryCode !== b.countryCode) return a.countryCode.localeCompare(b.countryCode)
       return a.name.localeCompare(b.name)
     })
-  }, [channels, selectedCountry, settingsStore.selectedLiveTvCountries])
+  }, [channels, settingsStore.selectedLiveTvCountries])
 
   const groupedChannels = useMemo(() => {
     const map = new Map<string, Channel[]>()
@@ -88,20 +70,11 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
     return Array.from(map.entries())
   }, [filteredChannels])
 
-  const visibleCountries = useMemo(() => {
-    let filtered = countries
-    if (settingsStore.selectedLiveTvCountries.length > 0) {
-      filtered = filtered.filter(c => settingsStore.selectedLiveTvCountries.includes(c.code))
-    }
-    return filtered.sort((a, b) => b.count - a.count)
-  }, [countries, settingsStore.selectedLiveTvCountries])
-
   const channelGridCols = useMemo(() => {
     return Math.max(2, Math.min(6, Math.floor((containerRef.current?.offsetWidth || 1200) / 220)))
   }, [containerRef.current?.offsetWidth])
 
-  const isCountryFocused = (idx: number) => focusedSection === 'countries' && idx === focusedCountryIdx
-  const isChannelFocused = (idx: number) => focusedSection === 'channels' && idx === focusedChannelIdx
+  const isChannelFocused = (idx: number) => idx === focusedChannelIdx
 
   const playChannel = useCallback(async (ch: Channel) => {
     setPlaying(ch.id)
@@ -122,68 +95,39 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
 
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === 'Escape' || e.key === 'Backspace') { onBack(); return }
+    if (filteredChannels.length === 0) return
 
-    if (focusedSection === 'countries') {
-      if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        setFocusedCountryIdx(i => Math.min(i + 1, visibleCountries.length))
-        return
-      }
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        setFocusedCountryIdx(i => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === 'ArrowDown' || e.key === 'Enter') {
-        e.preventDefault()
-        if (filteredChannels.length > 0) {
-          setFocusedSection('channels')
-          setFocusedChannelIdx(0)
-        }
-        return
-      }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      setFocusedChannelIdx(i => Math.min(i + 1, filteredChannels.length - 1))
+      return
     }
-
-    if (focusedSection === 'channels') {
-      if (filteredChannels.length === 0) return
-      if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        setFocusedChannelIdx(i => Math.min(i + 1, filteredChannels.length - 1))
-        return
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      setFocusedChannelIdx(i => Math.max(i - 1, 0))
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const next = focusedChannelIdx + channelGridCols
+      if (next < filteredChannels.length) {
+        setFocusedChannelIdx(next)
       }
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        if (focusedChannelIdx === 0) {
-          setFocusedSection('countries')
-        } else {
-          setFocusedChannelIdx(i => Math.max(i - 1, 0))
-        }
-        return
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const prev = focusedChannelIdx - channelGridCols
+      if (prev >= 0) {
+        setFocusedChannelIdx(prev)
       }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        const next = focusedChannelIdx + channelGridCols
-        if (next < filteredChannels.length) {
-          setFocusedChannelIdx(next)
-        }
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        const prev = focusedChannelIdx - channelGridCols
-        if (prev < 0) {
-          setFocusedSection('countries')
-        } else {
-          setFocusedChannelIdx(prev)
-        }
-        return
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        const ch = filteredChannels[focusedChannelIdx]
-        if (ch) playChannel(ch)
-        return
-      }
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const ch = filteredChannels[focusedChannelIdx]
+      if (ch) playChannel(ch)
+      return
     }
   }
 
@@ -209,35 +153,6 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
 
       {settingsStore.liveTvEnabled && (
         <>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-            <button
-              data-country-idx={-1}
-              onClick={() => { setSelectedCountry('all'); setFocusedCountryIdx(0); setFocusedSection('channels') }}
-              onMouseEnter={() => { setFocusedCountryIdx(0); setFocusedSection('countries') }}
-              style={{
-                padding: '5px 12px', borderRadius: 20, border: isCountryFocused(0) ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.1)',
-                cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                background: selectedCountry === 'all' ? 'var(--accent)' : 'rgba(255,255,255,0.06)',
-                color: selectedCountry === 'all' ? '#fff' : 'rgba(255,255,255,0.7)',
-              }}
-            >All ({filteredChannels.length})</button>
-            {visibleCountries.map((c, ci) => {
-              const idx = ci + 1
-              return (
-                <button key={c.code}
-                  onClick={() => { setSelectedCountry(c.code); setFocusedCountryIdx(idx); setFocusedSection('channels') }}
-                  onMouseEnter={() => { setFocusedCountryIdx(idx); setFocusedSection('countries') }}
-                  style={{
-                    padding: '5px 12px', borderRadius: 20, border: isCountryFocused(idx) ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.1)',
-                    cursor: 'pointer', fontSize: 12, fontWeight: 500,
-                    background: selectedCountry === c.code ? 'var(--accent)' : 'rgba(255,255,255,0.06)',
-                    color: selectedCountry === c.code ? '#fff' : 'rgba(255,255,255,0.7)',
-                  }}
-                >{c.flag} {c.name} ({c.count})</button>
-              )
-            })}
-          </div>
-
           {filteredChannels.length === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>
               No channels found for selected countries
@@ -258,7 +173,7 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
                       <div key={ch.id}
                         data-channel-idx={globalIdx}
                         onClick={() => playChannel(ch)}
-                        onMouseEnter={() => { setFocusedChannelIdx(globalIdx); setFocusedSection('channels') }}
+                        onMouseEnter={() => setFocusedChannelIdx(globalIdx)}
                         style={{
                           background: focused ? 'rgba(var(--accent-rgb, 255, 107, 0), 0.18)' : 'rgba(255,255,255,0.04)',
                           borderRadius: 10, border: '2px solid transparent',

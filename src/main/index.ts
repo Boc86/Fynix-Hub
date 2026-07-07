@@ -173,8 +173,8 @@ function createYouTubeView() {
       event.preventDefault()
       const url = youtubeView?.webContents.getURL() || ''
       console.log('[YouTubeView] Escape pressed, current URL:', url)
-      // Exit to app when on the root YouTube TV page (no fragment, empty #, or just #/)
-      if (/^https:\/\/www\.youtube\.com\/tv(#|\/|$)/.test(url)) {
+      // Exit to app only when on the root YouTube TV page (no hash fragment beyond #/)
+      if (/^https:\/\/www\.youtube\.com\/tv(\/#?)?$/.test(url)) {
         console.log('[YouTubeView] On root page, exiting to app')
         mainWindow?.webContents.send('youtube:focus-back')
       } else {
@@ -191,8 +191,8 @@ function createYouTubeView() {
       event.preventDefault()
       const url = youtubeView?.webContents.getURL() || ''
       console.log('[YouTubeView] Back pressed, current URL:', url)
-      // Exit to app when on the root YouTube TV page (no fragment, empty #, or just #/)
-      if (/^https:\/\/www\.youtube\.com\/tv(#|\/|$)/.test(url)) {
+      // Exit to app only when on the root YouTube TV page (no hash fragment beyond #/)
+      if (/^https:\/\/www\.youtube\.com\/tv(\/#?)?$/.test(url)) {
         console.log('[YouTubeView] On root page, exiting to app')
         mainWindow?.webContents.send('youtube:focus-back')
       } else {

@@ -53,6 +53,7 @@ interface SettingsState {
   preferredAudioLanguage: string
   accentColor: string
   remoteMapping: Record<string, string>
+  vylaApiKey: string
   sportsEnabled: boolean
   sportsSelected: string[]
   liveTvEnabled: boolean
@@ -90,6 +91,7 @@ interface SettingsState {
   setPreferredAudioLanguage: (lang: string) => void
   setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
+  setVylaApiKey: (key: string) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsSelected: (ids: string[]) => void
   setLiveTvEnabled: (enabled: boolean) => void
@@ -136,6 +138,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   preferredAudioLanguage: '',
   accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
+  vylaApiKey: '',
   sportsEnabled: false,
   sportsSelected: [],
   liveTvEnabled: false,
@@ -173,6 +176,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
+  setVylaApiKey: (key) => { set({ vylaApiKey: key }); get().saveToDisk() },
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
@@ -359,6 +363,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),
+        window.api.settings.set('vylaApiKey', state.vylaApiKey),
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsSelected', state.sportsSelected),
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
