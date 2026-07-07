@@ -59,6 +59,7 @@ function Particles() {
 
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const accentRgb = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '255, 107, 0'
 
       for (const p of particles) {
         p.x += p.vx
@@ -71,7 +72,6 @@ function Particles() {
 
         ctx.beginPath()
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
-        const accentRgb = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '255, 107, 0'
         ctx.fillStyle = `rgba(${accentRgb}, ${p.alpha})`
         ctx.fill()
       }

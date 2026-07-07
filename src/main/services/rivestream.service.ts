@@ -1,8 +1,8 @@
 import { RivestreamResult } from '../../renderer/types.d'
-import { getSetting } from './cache.service'
 
 const BASE = 'https://missourimonster-x.hf.space'
 const SSE_TIMEOUT = 60000
+const VYLA_API_KEY = 'sk_fynix-hub_b5080b918c61d30effe01e76bf1fe827'
 
 interface SourceMeta {
   key: string
@@ -155,11 +155,7 @@ export async function searchRivestream(
   episode?: number,
   onSourceFound?: (source: RivestreamResult) => void,
 ): Promise<RivestreamResult[]> {
-  const apiKey = getSetting<string>('vylaApiKey') || 'public_api_key'
-
-  if (apiKey === 'public_api_key') {
-    console.warn('[Vyla] Using public API key. Streaming endpoints require a standard or partner key.')
-  }
+  const apiKey = VYLA_API_KEY
 
   const sseUrl = type === 'movie'
     ? `${BASE}/movie?id=${tmdbId}`

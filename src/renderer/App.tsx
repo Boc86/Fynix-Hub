@@ -22,7 +22,7 @@ import type { TorrentResult, RivestreamResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
-  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv'
 
 interface PlayerInfo {
   tmdbId: number
@@ -371,7 +371,7 @@ export default function App() {
           query,
           torrentCount: torrents.length,
           riveCount: rive.length,
-          results: torrents.map((r: TorrentResult) => ({ title: r.title, infoHash: r.infoHash, indexer: r.indexer, magnetUri: r.magnetUri?.slice(0, 80) })),
+          results: torrents.map((r: TorrentResult) => ({ title: r.title, infoHash: r.infoHash, indexer: r.indexer, seeders: r.seeders, magnetUri: r.magnetUri?.slice(0, 80) })),
         }).catch(() => {})
         return torrents
       })
@@ -1108,6 +1108,32 @@ export default function App() {
             onBack={() => goBack()}
           />
           </ErrorBoundary>
+        </div>
+      )}
+      {view === 'live-tv' && (
+        <div className="animate-fade">
+          <LiveTV
+            onPlayUrl={async (url) => {
+              setTorrentSearchOpen(false)
+              setFreeSearchOpen(false)
+              setFreeSearchQuery('')
+              setPlayerLoading(true)
+              setStreamError(null)
+              navigate('player')
+              try {
+                currentInfoHashRef.current = null
+                resumePositionRef.current = undefined
+                const audioLang = getAudioLang()
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang)
+                setPlayerLoading(false)
+              } catch (err: any) {
+                window.api.log('[App] LiveTV playback failed:', err.message)
+                setStreamError(err?.message || 'Failed to start live TV')
+                setPlayerLoading(false)
+              }
+            }}
+            onBack={() => goBack()}
+          />
         </div>
       )}
       {view === 'youtube' && (

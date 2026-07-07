@@ -245,9 +245,16 @@ const api = {
     getAllSports: () => ipcRenderer.invoke('sportsdb:get-all-sports'),
     getLeague: (leagueId: string) => ipcRenderer.invoke('sportsdb:get-league', leagueId),
     getTeam: (teamId: string) => ipcRenderer.invoke('sportsdb:get-team', teamId),
+    searchTeams: (teamName: string) => ipcRenderer.invoke('sportsdb:search-teams', teamName),
+    getTeamsBySport: (sportName: string) => ipcRenderer.invoke('sportsdb:get-teams-by-sport', sportName),
+    searchLeagues: (query: string) => ipcRenderer.invoke('sportsdb:search-leagues', query),
   },
   damiTv: {
     getStreams: () => ipcRenderer.invoke('dami-tv:get-streams'),
+    getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),
+    getChannelsByCountry: (countryCode: string) => ipcRenderer.invoke('dami-tv:get-channels-by-country', countryCode),
+    getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
+    extractUrl: (channelId: string) => ipcRenderer.invoke('dami-tv:extract-url', channelId),
   },
   epg: {
     getChannels: () => ipcRenderer.invoke('epg:get-channels'),

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import path from 'path'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 
 let db: Database.Database | null = null
 
@@ -66,12 +66,48 @@ export function setSetting(key: string, value: unknown) {
   getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, JSON.stringify(value))
 }
 
+const ENCRYPTED_PREFIX = '__enc__:'
+
+export function setEncryptedSetting(key: string, value: string) {
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(value)
+    const stored = ENCRYPTED_PREFIX + encrypted.toString('base64')
+    getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, stored)
+  } else {
+    setSetting(key, value)
+  }
+}
+
+export function getEncryptedSetting(key: string): string | null {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+  if (!row) return null
+  if (typeof row.value === 'string' && row.value.startsWith(ENCRYPTED_PREFIX)) {
+    if (safeStorage.isEncryptionAvailable()) {
+      const buf = Buffer.from(row.value.slice(ENCRYPTED_PREFIX.length), 'base64')
+      return safeStorage.decryptString(buf)
+    }
+    return null
+  }
+  // Fallback: stored via setSetting (JSON-encoded), e.g. when safeStorage is unavailable in Flatpak
+  try { return JSON.parse(row.value) as string }
+  catch { return row.value }
+}
+
 export function getAllSettings(): Record<string, unknown> {
   const rows = getDb().prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
   const result: Record<string, unknown> = {}
   for (const row of rows) {
-    try { result[row.key] = JSON.parse(row.value) }
-    catch { result[row.key] = row.value }
+    let val: unknown = row.value
+    if (typeof val === 'string' && val.startsWith(ENCRYPTED_PREFIX)) {
+      if (safeStorage.isEncryptionAvailable()) {
+        const buf = Buffer.from(val.slice(ENCRYPTED_PREFIX.length), 'base64')
+        val = safeStorage.decryptString(buf)
+      } else {
+        val = null
+      }
+    }
+    try { result[row.key] = JSON.parse(val as string) }
+    catch { result[row.key] = val }
   }
   return result
 }
