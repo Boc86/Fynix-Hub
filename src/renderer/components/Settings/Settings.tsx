@@ -26,7 +26,7 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'profiles' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
@@ -34,9 +34,10 @@ const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'indexers', label: 'Indexers', shortcut: '3' },
   { id: 'youtube', label: 'YouTube', shortcut: '4' },
   { id: 'sports', label: 'Sports', shortcut: '5' },
-  { id: 'profiles', label: 'Profiles', shortcut: '6' },
-  { id: 'advanced', label: 'Advanced', shortcut: '7' },
-  { id: 'remote', label: 'Remote', shortcut: '8' },
+  { id: 'live-tv', label: 'Live TV', shortcut: '6' },
+  { id: 'profiles', label: 'Profiles', shortcut: '7' },
+  { id: 'advanced', label: 'Advanced', shortcut: '8' },
+  { id: 'remote', label: 'Remote', shortcut: '9' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -47,8 +48,8 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
   const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
-  const [localVylaApiKey, setLocalVylaApiKey] = useState(store.vylaApiKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
+  const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [trackerRefreshState, setTrackerRefreshState] = useState<'idle' | 'refreshing' | 'done' | 'error'>('idle')
@@ -114,6 +115,11 @@ export default function Settings({ onClose }: SettingsProps) {
       }).catch(() => {})
     }
   }, [activeTab])
+
+  // Sync localLiveTvCountries with store changes
+  useEffect(() => {
+    setLocalLiveTvCountries(store.selectedLiveTvCountries)
+  }, [store.selectedLiveTvCountries])
 
   const captureKey = (action: string) => {
     setCapturingKey(action)
@@ -288,7 +294,6 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('customIndexers', localCustomIndexers),
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
-        window.api.settings.set('vylaApiKey', localVylaApiKey),
       ])
       store.setTmdbApiKey(localTmdb)
       store.setFanartApiKey(localFanart)
@@ -297,7 +302,6 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setCustomIndexers(localCustomIndexers)
       store.setIntroDbApiKey(localIntroDb)
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
-      store.setVylaApiKey(localVylaApiKey)
       await store.saveToDisk()
       store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
@@ -324,7 +328,7 @@ export default function Settings({ onClose }: SettingsProps) {
 
       let newTab: SettingsTab | null = null
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key >= '1' && e.key <= '7')) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key >= '1' && e.key <= '9')) {
         if (isTyping) return
         e.preventDefault()
         if (e.key === 'ArrowRight') {
@@ -449,19 +453,6 @@ export default function Settings({ onClose }: SettingsProps) {
                    </label>
                  </div>
                </div>
-
-               <div className={styles.settingGroup}>
-                 <h3 className={styles.settingTitle}>Vyla API</h3>
-                 <p className={styles.settingDesc}>API key for high-quality direct streaming sources</p>
-                 <input
-                   type="password"
-                   className={styles.input}
-                   placeholder="Enter Vyla API Key"
-                   value={localVylaApiKey}
-                   onChange={(e) => setLocalVylaApiKey(e.target.value)}
-                 />
-               </div>
-
 
               <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
@@ -1233,6 +1224,140 @@ export default function Settings({ onClose }: SettingsProps) {
           </div>
         )
 
+      case 'live-tv': {
+        const ALL_COUNTRIES = [
+          { code: 'us', name: 'United States', flag: '\uD83C\uDDFA\uD83C\uDDF8' },
+          { code: 'gb', name: 'United Kingdom', flag: '\uD83C\uDDEC\uD83C\uDDE7' },
+          { code: 'es', name: 'Spain', flag: '\uD83C\uDDEA\uD83C\uDDF8' },
+          { code: 'fr', name: 'France', flag: '\uD83C\uDDEB\uD83C\uDDF7' },
+          { code: 'de', name: 'Germany', flag: '\uD83C\uDDE9\uD83C\uDDEA' },
+          { code: 'it', name: 'Italy', flag: '\uD83C\uDDEE\uD83C\uDDF9' },
+          { code: 'pt', name: 'Portugal', flag: '\uD83C\uDDF5\uD83C\uDDF9' },
+          { code: 'nl', name: 'Netherlands', flag: '\uD83C\uDDF3\uD83C\uDDF1' },
+          { code: 'be', name: 'Belgium', flag: '\uD83C\uDDE7\uD83C\uDDEA' },
+          { code: 'pl', name: 'Poland', flag: '\uD83C\uDDF5\uD83C\uDDF1' },
+          { code: 'se', name: 'Sweden', flag: '\uD83C\uDDF8\uD83C\uDDEA' },
+          { code: 'no', name: 'Norway', flag: '\uD83C\uDDF3\uD83C\uDDF4' },
+          { code: 'dk', name: 'Denmark', flag: '\uD83C\uDDE9\uD83C\uDDF0' },
+          { code: 'ie', name: 'Ireland', flag: '\uD83C\uDDEE\uD83C\uDDEA' },
+          { code: 'at', name: 'Austria', flag: '\uD83C\uDDE6\uD83C\uDDF9' },
+          { code: 'ch', name: 'Switzerland', flag: '\uD83C\uDDE8\uD83C\uDDED' },
+          { code: 'au', name: 'Australia', flag: '\uD83C\uDDE6\uD83C\uDDFA' },
+          { code: 'nz', name: 'New Zealand', flag: '\uD83C\uDDF3\uD83C\uDDFF' },
+          { code: 'ca', name: 'Canada', flag: '\uD83C\uDDE8\uD83C\uDDE6' },
+          { code: 'mx', name: 'Mexico', flag: '\uD83C\uDDF2\uD83C\uDDFD' },
+          { code: 'br', name: 'Brazil', flag: '\uD83C\uDDE7\uD83C\uDDF7' },
+          { code: 'ar', name: 'Argentina', flag: '\uD83C\uDDE6\uD83C\uDDF7' },
+          { code: 'cl', name: 'Chile', flag: '\uD83C\uDDE8\uD83C\uDDF1' },
+          { code: 'co', name: 'Colombia', flag: '\uD83C\uDDE8\uD83C\uDDF4' },
+          { code: 'pe', name: 'Peru', flag: '\uD83C\uDDF5\uD83C\uDDEA' },
+          { code: 'uy', name: 'Uruguay', flag: '\uD83C\uDDFA\uD83C\uDDFE' },
+          { code: 'jp', name: 'Japan', flag: '\uD83C\uDDEF\uD83C\uDDF5' },
+          { code: 'kr', name: 'South Korea', flag: '\uD83C\uDDF0\uD83C\uDDF7' },
+          { code: 'in', name: 'India', flag: '\uD83C\uDDEE\uD83C\uDDF3' },
+          { code: 'pk', name: 'Pakistan', flag: '\uD83C\uDDF5\uD83C\uDDF0' },
+          { code: 'bd', name: 'Bangladesh', flag: '\uD83C\uDDE7\uD83C\uDDE9' },
+          { code: 'th', name: 'Thailand', flag: '\uD83C\uDDF9\uD83C\uDDED' },
+          { code: 'ph', name: 'Philippines', flag: '\uD83C\uDDF5\uD83C\uDDED' },
+          { code: 'sg', name: 'Singapore', flag: '\uD83C\uDDF8\uD83C\uDDEC' },
+          { code: 'my', name: 'Malaysia', flag: '\uD83C\uDDF2\uD83C\uDDFE' },
+          { code: 'id', name: 'Indonesia', flag: '\uD83C\uDDEE\uD83C\uDDE9' },
+          { code: 'hk', name: 'Hong Kong', flag: '\uD83C\uDDED\uD83C\uDDF0' },
+          { code: 'ae', name: 'UAE', flag: '\uD83C\uDDE6\uD83C\uDDEA' },
+          { code: 'sa', name: 'Saudi Arabia', flag: '\uD83C\uDDF8\uD83C\uDDE6' },
+          { code: 'qa', name: 'Qatar', flag: '\uD83C\uDDF6\uD83C\uDDE6' },
+          { code: 'kw', name: 'Kuwait', flag: '\uD83C\uDDF0\uD83C\uDDFC' },
+          { code: 'bh', name: 'Bahrain', flag: '\uD83C\uDDE7\uD83C\uDDED' },
+          { code: 'om', name: 'Oman', flag: '\uD83C\uDDF4\uD83C\uDDF2' },
+          { code: 'jo', name: 'Jordan', flag: '\uD83C\uDDEF\uD83C\uDDF4' },
+          { code: 'il', name: 'Israel', flag: '\uD83C\uDDEE\uD83C\uDDF1' },
+          { code: 'tr', name: 'Turkey', flag: '\uD83C\uDDF9\uD83C\uDDF7' },
+          { code: 'eg', name: 'Egypt', flag: '\uD83C\uDDEA\uD83C\uDDEC' },
+          { code: 'za', name: 'South Africa', flag: '\uD83C\uDDFF\uD83C\uDDE6' },
+          { code: 'dz', name: 'Algeria', flag: '\uD83C\uDDE9\uD83C\uDDFF' },
+          { code: 'ru', name: 'Russia', flag: '\uD83C\uDDF7\uD83C\uDDFA' },
+          { code: 'ua', name: 'Ukraine', flag: '\uD83C\uDDFA\uD83C\uDDE6' },
+          { code: 'ro', name: 'Romania', flag: '\uD83C\uDDF7\uD83C\uDDF4' },
+          { code: 'bg', name: 'Bulgaria', flag: '\uD83C\uDDE7\uD83C\uDDEC' },
+          { code: 'gr', name: 'Greece', flag: '\uD83C\uDDEC\uD83C\uDDF7' },
+          { code: 'hr', name: 'Croatia', flag: '\uD83C\uDDED\uD83C\uDDF7' },
+          { code: 'rs', name: 'Serbia', flag: '\uD83C\uDDF7\uD83C\uDDF8' },
+          { code: 'si', name: 'Slovenia', flag: '\uD83C\uDDF8\uD83C\uDDEE' },
+          { code: 'cz', name: 'Czech Republic', flag: '\uD83C\uDDE8\uD83C\uDDFF' },
+          { code: 'hu', name: 'Hungary', flag: '\uD83C\uDDED\uD83C\uDDFA' },
+          { code: 'cy', name: 'Cyprus', flag: '\uD83C\uDDE8\uD83C\uDDFE' },
+          { code: 'az', name: 'Azerbaijan', flag: '\uD83C\uDDE6\uD83C\uDDFF' },
+          { code: 'intl', name: 'International', flag: '\uD83C\uDF0D' },
+        ]
+        return (
+          <div className={styles.tabContent}>
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Live TV</h3>
+              <p className={styles.settingDesc}>Watch live 24/7 TV channels from around the world. Powered by DLHD.</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.liveTvEnabled ? styles.toggleActive : ''}`}
+                  onClick={() => store.setLiveTvEnabled(!store.liveTvEnabled)}
+                >
+                  Live TV {store.liveTvEnabled ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </div>
+            </div>
+
+            {store.liveTvEnabled && (
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Visible Countries</h3>
+                <p className={styles.settingDesc}>Select which countries' channels appear in Live TV. Leave empty to show all.</p>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <button
+                    tabIndex={0}
+                    className={styles.connectBtn}
+                    onClick={() => {
+                      setLocalLiveTvCountries(ALL_COUNTRIES.map(c => c.code))
+                      store.setSelectedLiveTvCountries(ALL_COUNTRIES.map(c => c.code))
+                    }}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    tabIndex={0}
+                    className={styles.connectBtn}
+                    onClick={() => {
+                      setLocalLiveTvCountries([])
+                      store.setSelectedLiveTvCountries([])
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className={styles.toggleGrid}>
+                  {ALL_COUNTRIES.map((country) => {
+                    const selected = (localLiveTvCountries.length === 0) || localLiveTvCountries.includes(country.code)
+                    return (
+                      <button
+                        key={country.code}
+                        tabIndex={0}
+                        className={`${styles.toggle} ${selected ? styles.toggleActive : ''}`}
+                        onClick={() => {
+                          const next = selected
+                            ? localLiveTvCountries.filter(c => c !== country.code)
+                            : [...localLiveTvCountries, country.code]
+                          setLocalLiveTvCountries(next)
+                          store.setSelectedLiveTvCountries(next)
+                        }}
+                      >
+                        {country.flag} {country.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      }
+
       case 'remote':
          return (
            <div className={styles.tabContent}>
@@ -1275,7 +1400,7 @@ export default function Settings({ onClose }: SettingsProps) {
            </div>
          )
 
-case 'advanced':
+// Removed invalid extra brace that broke switch statementcase 'advanced':
          return (
            <div className={styles.tabContent}>
              <div className={styles.settingGroup}>
@@ -1318,23 +1443,23 @@ case 'advanced':
                 <p className={styles.errorText}>Failed to clear cache</p>
               )}
               <button
-                tabIndex={0}
-                className={styles.connectBtn}
-                disabled={clearCacheState === 'clearing'}
-                onClick={async () => {
-                  setClearCacheState('clearing')
-                  try {
-                    const result = await window.api.clearImageCache()
-                    setClearCacheState(result.success ? 'done' : 'error')
-                  } catch {
-                    setClearCacheState('error')
-                  }
-                }}
-              >
-                {clearCacheState === 'clearing' ? 'Clearing...' : 'Clear Image Cache'}
-              </button>
+                  tabIndex={0}
+                  className={styles.connectBtn}
+                  disabled={clearCacheState === 'clearing'}
+                  onClick={async () => {
+                    setClearCacheState('clearing')
+                    try {
+                      const result = await window.api.clearImageCache()
+                      setClearCacheState(result.success ? 'done' : 'error')
+                    } catch {
+                      setClearCacheState('error')
+                    }
+                  }}
+                >
+                  {clearCacheState === 'clearing' ? 'Clearing...' : 'Clear Image Cache'}
+                </button>
+              </div>
             </div>
-          </div>
         )
       case 'profiles': {
         const profilesArr = store.profiles

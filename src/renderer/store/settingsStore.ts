@@ -50,12 +50,13 @@ interface SettingsState {
   introDbApiKey: string
   opensubtitlesApiKey: string
   opensubtitlesForcedOnly: boolean
-  vylaApiKey: string
   preferredAudioLanguage: string
   accentColor: string
   remoteMapping: Record<string, string>
   sportsEnabled: boolean
   sportsSelected: string[]
+  liveTvEnabled: boolean
+  selectedLiveTvCountries: string[]
   profiles: UserProfile[]
   activeProfileId: string | null
   autoLoginProfileId: string | null
@@ -86,12 +87,13 @@ interface SettingsState {
   setIntroDbApiKey: (key: string) => void
   setOpensubtitlesApiKey: (key: string) => void
   setOpensubtitlesForcedOnly: (forced: boolean) => void
-  setVylaApiKey: (key: string) => void
   setPreferredAudioLanguage: (lang: string) => void
   setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsSelected: (ids: string[]) => void
+  setLiveTvEnabled: (enabled: boolean) => void
+  setSelectedLiveTvCountries: (codes: string[]) => void
 
   // Profile management
   addProfile: (name: string, avatarPath?: string) => void
@@ -131,12 +133,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   introDbApiKey: '',
   opensubtitlesApiKey: '',
   opensubtitlesForcedOnly: true,
-  vylaApiKey: '',
   preferredAudioLanguage: '',
   accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
   sportsEnabled: false,
   sportsSelected: [],
+  liveTvEnabled: false,
+  selectedLiveTvCountries: [],
   profiles: [],
   activeProfileId: null,
   autoLoginProfileId: null,
@@ -167,12 +170,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
   setOpensubtitlesApiKey: (key) => { set({ opensubtitlesApiKey: key }); get().saveToDisk() },
   setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
-  setVylaApiKey: (key) => { set({ vylaApiKey: key }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
+  setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
+  setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
 
   // --- Profile Management Actions ---
   addProfile: (name, avatarPath) => {
@@ -352,12 +356,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('introDbApiKey', state.introDbApiKey),
         window.api.settings.set('opensubtitlesApiKey', state.opensubtitlesApiKey),
         window.api.settings.set('opensubtitlesForcedOnly', state.opensubtitlesForcedOnly),
-        window.api.settings.set('vylaApiKey', state.vylaApiKey),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsSelected', state.sportsSelected),
+        window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
+        window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
         window.api.settings.set('profiles', state.profiles),
         window.api.settings.set('activeProfileId', state.activeProfileId),
         window.api.settings.set('autoLoginProfileId', state.autoLoginProfileId),

@@ -212,6 +212,18 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         event.homeTeamId ? window.api.sports.getTeamDetails(event.homeTeamId) : Promise.resolve(null),
         event.awayTeamId ? window.api.sports.getTeamDetails(event.awayTeamId) : Promise.resolve(null),
       ])
+      if (!homeTeam?.logoUrl && event.homeTeamName) {
+        try {
+          const teams = await window.api.sportsdb.searchTeams(event.homeTeamName)
+          if (teams?.[0]?.badge) { homeTeam.logoUrl = teams[0].badge }
+        } catch { /* ignore */ }
+      }
+      if (!awayTeam?.logoUrl && event.awayTeamName) {
+        try {
+          const teams = await window.api.sportsdb.searchTeams(event.awayTeamName)
+          if (teams?.[0]?.badge) { awayTeam.logoUrl = teams[0].badge }
+        } catch { /* ignore */ }
+      }
       store.setHomeTeam(homeTeam)
       store.setAwayTeam(awayTeam)
     } catch { /* teams optional */ }

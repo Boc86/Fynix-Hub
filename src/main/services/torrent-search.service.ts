@@ -91,14 +91,94 @@ function buildMagnetUri(infoHash: string, name: string): string {
   return `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(name)}&${trackers}`
 }
 
+const SIZE_UNITS: Record<string, number> = {
+  B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4,
+  KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4,
+}
+
+function normalizeUnit(u: string): string {
+  return u.toUpperCase().replace('ГБ', 'GB').replace('МБ', 'MB').replace('ТБ', 'TB')
+}
+
 function parseSize(sizeStr: string): number {
-  const units: Record<string, number> = {
-    B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4,
-    KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4,
-  }
-  const match = sizeStr.trim().match(/^(\d[\d.]*)\s*(B|KB|MB|GB|TB|KIB|MIB|GIB|TIB)$/i)
+  const cleaned = sizeStr.trim().replace(/&nbsp;/g, ' ')
+  const match = cleaned.match(/^(\d[\d.,]*)\s*(B|KB|MB|GB|TB|KIB|MIB|GIB|TIB|ГБ|МБ|ТБ)$/i)
   if (!match) return 0
-  return parseFloat(match[1]) * (units[match[2].toUpperCase()] || 1)
+  return parseFloat(match[1].replace(',', '.')) * (SIZE_UNITS[normalizeUnit(match[2])] || 1)
+}
+
+function extractNum(html: string, patterns: RegExp[]): number {
+  for (const p of patterns) {
+    const m = p.exec(html)
+    if (m) {
+      const cleaned = m[1].replace(/<[^>]+>/g, '').trim()
+      const n = parseInt(cleaned.replace(/,/g, ''))
+      if (!isNaN(n)) return n
+    }
+  }
+  return 0
+}
+
+function extractSeeders(html: string): number {
+  return extractNum(html, [
+    /<t[dh][^>]*class="[^"]*(?:seed|peers|up)[^"]*"[^>]*>([\s\S]*?)<\//i,
+    /class="[^"]*seed[^"]*"[^>]*>\s*(\d[\d,]*)/i,
+    /<span[^>]*class="[^"]*green[^"]*"[^>]*>(?:<b>)?\s*(\d[\d,]*)/i,
+    /<span[^>]*class="[^"]*green[^"]*"[^>]*>[\s\S]*?(\d+)[\s\S]*?<\/span>/i,
+    /[Ss]\s*(\d{1,6})\s*[Ll]/,
+    /👤\s*(\d+)/,
+    /💾\s*(\d+)/,
+    /<span[^>]*>(\d+)<\/span>/i,
+    /<t[dh][^>]*>(\d+)<\//i,
+  ])
+}
+
+function extractLeechers(html: string): number {
+  return extractNum(html, [
+    /<t[dh][^>]*class="[^"]*(?:leech|down)[^"]*"[^>]*>([\s\S]*?)<\//i,
+    /class="[^"]*leech[^"]*"[^>]*>\s*(\d[\d,]*)/i,
+    /<span[^>]*class="[^"]*red[^"]*"[^>]*>(?:<b>)?\s*(\d[\d,]*)/i,
+    /<span[^>]*class="[^"]*red[^"]*"[^>]*>[\s\S]*?(\d+)[\s\S]*?<\/span>/i,
+    /✗\s*(\d+)/,
+    /<span[^>]*>(\d+)<\/span>/i,
+    /<t[dh][^>]*>(\d+)<\//i,
+  ])
+}
+
+function extractSize(html: string): number {
+  const patterns = [
+    /([\d.,]+)(?:\s|&nbsp;)*(?:GB|MB|TB|ГБ|МБ|ТБ|gib|mib|tib)/i,
+    /<t[dh][^>]*class="[^"]*size[^"]*"[^>]*>([\s\S]*?)<\//i,
+    /<t[dh][^>]*>([\s\S]*?[\d.,]+(?:\s|&nbsp;)*(?:GB|MB|TB|ГБ|МБ|ТБ)[\s\S]*?)<\//i,
+  ]
+  for (const p of patterns) {
+    const m = p.exec(html)
+    if (m) {
+      const raw = m[0].replace(/<[^>]+>/g, '').trim()
+      const sizeMatch = raw.match(/([\d.,]+)(?:\s|&nbsp;)*(GB|MB|TB|ГБ|МБ|ТБ)/i)
+      if (sizeMatch) return parseSize(sizeMatch[0])
+    }
+  }
+  return 0
+}
+
+function extractTitle(html: string): string {
+  const patterns = [
+    /<a[^>]*class="[^"]*cellMainLink[^"]*"[^>]*>([\s\S]*?)<\/a>/i,
+    /<a[^>]*href="\/torrent\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i,
+    /<a[^>]*href="\/view\/[^"]*"[^>]*title="([^"]*)"[^>]*>/i,
+    /<a[^>]*title="([^"]*)"[^>]*>/i,
+    /<a[^>]*href="magnet:\?[^"]*"[^>]*>([\s\S]*?)<\/a>/i,
+    /<b>([\s\S]*?)<\/b>/,
+  ]
+  for (const p of patterns) {
+    const m = p.exec(html)
+    if (m) {
+      const t = m[1].replace(/<[^>]+>/g, '').trim()
+      if (t && t.length > 3) return t
+    }
+  }
+  return ''
 }
 
 export function qualityFromTitle(title: string): string {
@@ -141,21 +221,21 @@ function matchesLanguage(title: string, languages: string[]): boolean {
 }
 
 export function filterResults(results: TorrentResult[], resolutions?: string[], languages?: string[]): TorrentResult[] {
-  let filtered = results
+  let filtered = results;
   if (resolutions && resolutions.length > 0) {
-    filtered = filtered.filter(r => matchesQuality(r.title, resolutions))
+    filtered = filtered.filter(r => matchesQuality(r.title, resolutions));
   }
   if (languages && languages.length > 0) {
-    filtered = filtered.filter(r => matchesLanguage(r.title, languages))
+    filtered = filtered.filter(r => matchesLanguage(r.title, languages));
   }
-  return filtered
+  return filtered;
 }
 
 async function searchYts(query: TorrentQuery): Promise<TorrentResult[]> {
   try {
     const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
     if (!searchTerm) return []
-    const res = await fetch(`https://yts.gg/api/v2/list_movies.json?query_term=${encodeURIComponent(searchTerm)}&limit=20&sort=seeds&order=desc`)
+    const res = await fetch(`https://yts.gg/api/v2/list_movies.json?query_term=${encodeURIComponent(searchTerm)}&limit=50&sort=seeds&order=desc`)
     if (!res.ok) return []
     const data = await res.json()
     if (!data?.data?.movies) return []
@@ -212,26 +292,38 @@ async function searchEztv(query: TorrentQuery): Promise<TorrentResult[]> {
 }
 
 async function searchThePirateBay(query: TorrentQuery): Promise<TorrentResult[]> {
+  console.log(`[TorrentSearch] TPB search called for query:`, JSON.stringify(query))
   try {
-    let searchTerm = query.query
+    let searchTerm = query.query;
     if (!searchTerm) {
       if (query.type === 'episode') {
-        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim()
+        searchTerm = `${query.title || ''} S${String(query.season || '').padStart(2, '0')}E${String(query.episode || '').padStart(2, '0')}`.trim();
       } else {
-        searchTerm = `${query.title || ''} ${query.year || ''}`.trim()
+        searchTerm = `${query.title || ''} ${query.year || ''}`.trim();
       }
     }
-    if (!searchTerm) return []
+    if (!searchTerm) {
+      console.log('[TorrentSearch] TPB no searchTerm, returning empty');
+      return [];
+    }
 
-    const res = await fetch(`https://apibay.org/q.php?q=${encodeURIComponent(searchTerm)}`)
-    if (!res.ok) return []
-    const data = await res.json()
-    if (!Array.isArray(data)) return []
+    const res = await fetch(`https://apibay.org/q.php?q=${encodeURIComponent(searchTerm)}`);
+    if (!res.ok) {
+      console.log('[TorrentSearch] TPB fetch failed:', res.status);
+      return [];
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      console.log('[TorrentSearch] TPB data not array:', typeof data);
+      return [];
+    }
 
-    const results: TorrentResult[] = []
+    console.log('[TorrentSearch] TPB raw data length:', data.length);
+
+    const results: TorrentResult[] = [];
     for (const t of data) {
-      if (t.id === '0' || t.id === 0) continue
-      if (t.name === 'No results returned') continue
+      if (t.id === '0' || t.id === 0) continue;
+      if (t.name === 'No results returned') continue;
 
       results.push({
         title: t.name,
@@ -242,11 +334,13 @@ async function searchThePirateBay(query: TorrentQuery): Promise<TorrentResult[]>
         infoHash: t.info_hash,
         indexer: 'TPB',
         quality: qualityFromTitle(t.name),
-      })
+      });
     }
-    return results
-  } catch {
-    return []
+    console.log('[TorrentSearch] TPB final results:', results.length);
+    return results;
+  } catch (err) {
+    console.error('[TorrentSearch] TPB error:', err);
+    return [];
   }
 }
 
@@ -280,15 +374,15 @@ async function searchNyaa(query: TorrentQuery): Promise<TorrentResult[]> {
 
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
       const sizeText = cells[3] ? cells[3][1].replace(/<[^>]+>/g, '').trim() : ''
-      const seedersText = cells[5] ? cells[5][1].replace(/<[^>]+>/g, '').trim() : '0'
-      const leechersText = cells[6] ? cells[6][1].replace(/<[^>]+>/g, '').trim() : '0'
+      const seeders = extractSeeders(row) || parseInt(cells[5]?.[1]?.replace(/<[^>]+>/g, '').trim() || '0') || 0
+      const leechers = extractLeechers(row) || parseInt(cells[6]?.[1]?.replace(/<[^>]+>/g, '').trim() || '0') || 0
 
       if (!title || !infoHash) continue
 
       results.push({
         title,
-        seeders: parseInt(seedersText) || 0,
-        leechers: parseInt(leechersText) || 0,
+        seeders,
+        leechers,
         size: parseSize(sizeText),
         magnetUri,
         infoHash,
@@ -303,6 +397,7 @@ async function searchNyaa(query: TorrentQuery): Promise<TorrentResult[]> {
 }
 
 async function search1337x(query: TorrentQuery): Promise<TorrentResult[]> {
+  console.log(`[TorrentSearch] 1337x search called for query:`, JSON.stringify(query))
   try {
     let searchTerm = query.query
     if (!searchTerm) {
@@ -327,18 +422,20 @@ async function search1337x(query: TorrentQuery): Promise<TorrentResult[]> {
       const linkMatch = /<a[^>]*href="(\/torrent\/[^"]*)"[^>]*>([\s\S]*?)<\/a>/i.exec(row)
       if (!linkMatch) continue
       const detailUrl = 'https://1337x.to' + linkMatch[1]
-      const title = linkMatch[2].replace(/<[^>]+>/g, '').trim()
+      let title = linkMatch[2].replace(/<[^>]+>/g, '').trim()
+      if (!title) title = extractTitle(row)
+      if (!title) continue
 
-      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
-      if (cells.length < 5) continue
-      const seeders = parseInt(cells[1][1].replace(/<[^>]+>/g, '').trim()) || 0
-      const leechers = parseInt(cells[2][1].replace(/<[^>]+>/g, '').trim()) || 0
-      const sizeText = cells[4][1].replace(/<[^>]+>/g, '').trim()
+      const sizeText = row.match(/<td[^>]*class="[^"]*size[^"]*"[^>]*>([\s\S]*?)<\/td>/i)?.[1]?.replace(/<[^>]+>/g, '').trim()
+        || row.match(/<td[^>]*>([\d.]+\s*(?:GB|MB|TB))<\/td>/i)?.[1]?.trim()
+        || ''
+      const seeders = extractSeeders(row)
+      const leechers = extractLeechers(row)
 
       rows.push({ title, detailUrl, seeders, leechers, size: parseSize(sizeText) })
     }
 
-    const detailPromises = rows.slice(0, 10).map(async (row) => {
+    const detailPromises = rows.slice(0, 30).map(async (row) => {
       try {
         const detailRes = await fetch(row.detailUrl)
         if (!detailRes.ok) return null
@@ -449,7 +546,7 @@ async function searchTorrentio(query: TorrentQuery): Promise<TorrentResult[]> {
       const sizeMatch = titleParts[1]?.match(/([\d.]+)\s*(GB|MB|TB)/i)
       const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
       const seedersMatch = titleParts[1]?.match(/👤\s*(\d+)/)
-      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : extractNum(titleParts[1] || '', [/(\d+)\s*seed/i])
 
       results.push({
         title,
@@ -491,8 +588,7 @@ async function searchMediafusion(query: TorrentQuery): Promise<TorrentResult[]> 
       const title = (s.name || '').replace(/\[.*?\]\s*/g, '')
       const sizeMatch = desc.match(/([\d.]+)\s*(GB|MB|TB)/i)
       const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
-      const seedersMatch = desc.match(/💾\s*(\d+)/)
-      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+      const seeders = extractNum(desc, [/(\d+)\s*seed/i, /💾\s*(\d+)/])
 
       results.push({
         title,
@@ -548,8 +644,7 @@ async function searchKickass(query: TorrentQuery): Promise<TorrentResult[]> {
       if (!title || !infoHash) continue
 
       const sizeText = row.match(/<td[^>]*>([\d.]+\s*(?:GB|MB|TB))<\/td>/i)?.[1] || '0 MB'
-      const seedersMatch = row.match(/>\s*(\d+)\s*<\/td>/g)
-      const seeders = seedersMatch ? parseInt(seedersMatch[0].replace(/<[^>]+>/g, '').trim()) || 0 : 0
+      const seeders = extractSeeders(row)
 
       results.push({
         title,
@@ -603,14 +698,14 @@ async function searchMagnetdl(query: TorrentQuery): Promise<TorrentResult[]> {
       if (!infoHash) continue
 
       const titleMatch = /<a[^>]*title="([^"]*)"[^>]*>/i.exec(row)
-      const title = titleMatch ? titleMatch[1].trim() : ''
+      const title = titleMatch ? titleMatch[1].trim() : extractTitle(row)
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
       const sizeText = cells[1] ? cells[1][1].replace(/<[^>]+>/g, '').trim() : '0 MB'
-      const seedersText = cells[3] ? cells[3][1].replace(/<[^>]+>/g, '').trim() : '0'
+      const seeders = extractSeeders(row) || parseInt(cells[3]?.[1]?.replace(/<[^>]+>/g, '').trim() || '0') || 0
 
       results.push({
         title,
-        seeders: parseInt(seedersText) || 0,
+        seeders,
         leechers: 0,
         size: parseSize(sizeText),
         magnetUri,
@@ -649,17 +744,15 @@ async function searchBitsearch(query: TorrentQuery): Promise<TorrentResult[]> {
     while ((itemMatch = itemRegex.exec(html)) !== null) {
       const item = itemMatch[1]
       const titleMatch = /<a[^>]*href="\/torrent\/\d+"[^>]*>([\s\S]*?)<\/a>/i.exec(item)
-      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : extractTitle(item)
       const magnetMatch = /href="(magnet:\?[^"]*)"/i.exec(item)
       const magnetUri = magnetMatch ? magnetMatch[1] : ''
       const infoHashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{32,40})/i)
       const infoHash = infoHashMatch?.[1] || ''
       if (!title || !infoHash) continue
 
-      const sizeMatch = item.match(/([\d.]+)\s*(GB|MB|TB)/i)
-      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
-      const seedersMatch = item.match(/class="[^"]*seeds[^"]*"[^>]*>\s*(\d+)/i)
-      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+      const size = extractSize(item)
+      const seeders = extractSeeders(item)
 
       results.push({
         title,
@@ -668,7 +761,7 @@ async function searchBitsearch(query: TorrentQuery): Promise<TorrentResult[]> {
         size,
         magnetUri: magnetUri || buildMagnetUri(infoHash, title),
         infoHash,
-        indexer: 'BitSearch',
+        indexer: 'MagnetDL',
         quality: qualityFromTitle(title),
       })
     }
@@ -708,19 +801,17 @@ async function searchRutor(query: TorrentQuery): Promise<TorrentResult[]> {
       const infoHash = infoHashMatch?.[1] || ''
       if (!infoHash) continue
 
-      const titleMatch = row.match(/\/\s*(.*?)\s*\|/)
-      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      const title = extractTitle(row)
       if (!title) continue
 
-      const sizeMatch = row.match(/([\d.]+)\s*(GB|MB|TB|КБ|МБ|ГБ)/i)
-      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
-      const seedersMatch = row.match(/<span[^>]*>(\d+)<\/span>/i)
-      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
+      const size = extractSize(row)
+      const seeders = extractSeeders(row)
+      const leechers = extractLeechers(row)
 
       results.push({
         title,
         seeders,
-        leechers: 0,
+        leechers,
         size,
         magnetUri: magnetUri.includes('&dn=') ? magnetUri : `${magnetUri}&dn=${encodeURIComponent(title)}`,
         infoHash,
@@ -758,19 +849,17 @@ async function searchTorrentz2(query: TorrentQuery): Promise<TorrentResult[]> {
     while ((itemMatch = itemRegex.exec(html)) !== null) {
       const item = itemMatch[1]
       const titleMatch = /<a[^>]*>([\s\S]*?)<\/a>/i.exec(item)
-      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+      if (!title) title = extractTitle(item)
       if (!title) continue
 
       const hashMatch = item.match(/([a-fA-F0-9]{40})/)
       const infoHash = hashMatch ? hashMatch[1] : ''
       if (!infoHash) continue
 
-      const sizeMatch = item.match(/([\d.]+)\s*(GB|MB|TB)/i)
-      const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
-      const seedersMatch = item.match(/♥\s*(\d+)/)
-      const seeders = seedersMatch ? parseInt(seedersMatch[1]) : 0
-      const leechersMatch = item.match(/✗\s*(\d+)/)
-      const leechers = leechersMatch ? parseInt(leechersMatch[1]) : 0
+      const size = extractSize(item)
+      const seeders = extractSeeders(item)
+      const leechers = extractLeechers(item)
 
       results.push({
         title,
@@ -885,7 +974,7 @@ function isIndexerApplicable(indexer: BuiltInIndexer, query: TorrentQuery): bool
   return true
 }
 
-const INDEXER_TIMEOUT = 10000 // 10s timeout per indexer
+const INDEXER_TIMEOUT = 30000 // 30s timeout per indexer
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -902,7 +991,7 @@ export async function searchTorrents(
   customIndexers?: CustomIndexer[]
 ): Promise<TorrentResult[]> {
   const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
-  const cacheKey = `torrent:search:${JSON.stringify({ q: query, e: enabledIndexerIds })}`
+  const cacheKey = `torrent:search:v2:${JSON.stringify({ q: query, e: enabledIndexerIds, c: (customIndexers || []).map(x => x.id).sort() })}`
 
   return withCache(cacheKey, TTL.TORRENT_SEARCH, async () => {
     const results: TorrentResult[] = []
@@ -922,25 +1011,58 @@ export async function searchTorrents(
       promises.push(withTimeout(searchTorznab(indexer, searchTerm), INDEXER_TIMEOUT))
     }
 
+    console.log(`[TorrentSearch] Searching with ${promises.length} indexers, enabled: ${[...enabled].join(',')}`)
+
     const settled = await Promise.allSettled(promises)
+    let fulfilledCount = 0
+    let rejectedCount = 0
     for (const s of settled) {
       if (s.status === 'fulfilled') {
+        fulfilledCount++
         if (s.value.length > 0) {
           console.log(`[TorrentSearch] Got ${s.value.length} results (indexer: ${s.value[0].indexer})`)
         }
         results.push(...s.value)
+      } else {
+        rejectedCount++
       }
+    }
+    if (rejectedCount > 0) console.log(`[TorrentSearch] ${rejectedCount}/${promises.length} indexers timed out or failed`)
+
+    // Post-query filtering: remove results clearly irrelevant to the search
+    let filtered = results
+    if (query.type === 'movie') {
+      // For movie searches, drop TV episodes (SxxExx patterns)
+      const episodeRe = /\bS\d{1,3}E\d{1,4}\b/i
+      filtered = filtered.filter(r => !episodeRe.test(r.title))
+      // If we have a year, require it in the title
+      if (query.year) {
+        const yearStr = String(query.year)
+        const yearFiltered = filtered.filter(r => r.title.includes(yearStr))
+        if (yearFiltered.length > 0) filtered = yearFiltered
+        // else fall through — no year-matched results at all, keep everything
+      }
+    } else if (query.type === 'episode' && query.season !== undefined && query.episode !== undefined) {
+      // For episode searches, only keep results matching the specific episode
+      const epStr = `S${String(query.season).padStart(2, '0')}E${String(query.episode).padStart(2, '0')}`
+      const episodeRe = new RegExp(epStr, 'i')
+      const epFiltered = filtered.filter(r => episodeRe.test(r.title))
+      if (epFiltered.length > 0) filtered = epFiltered
     }
 
     // Deduplicate by infoHash
     const seen = new Set<string>()
-    const deduped = results.filter((r) => {
+    const deduped = filtered.filter((r) => {
       if (!r.infoHash || seen.has(r.infoHash)) return false
       seen.add(r.infoHash)
       return true
     })
 
-    console.log(`[TorrentSearch] ${deduped.length} unique results for "${searchTerm}" (${results.length} raw)`)
+    const filteredOut = results.length - filtered.length
+    console.log(`[TorrentSearch] ${deduped.length} unique results for "${searchTerm}" (${results.length} raw, ${filteredOut} filtered out)`)
+    if (filteredOut > 0) {
+      console.log(`[TorrentSearch] Filtered out ${filteredOut} results (type=${query.type}, year=${query.year})`)
+    }
     const qualityOrder: Record<string, number> = { '4K': 0, '1080p': 1, '720p': 2, '480p': 3 }
     deduped.sort((a, b) => {
       const aQ = qualityOrder[a.quality] ?? 99

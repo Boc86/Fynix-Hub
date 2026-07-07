@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './Sidebar.module.css'
 import { useSettingsStore } from '../../store/settingsStore'
 
-export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'settings'
+export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'live-tv' | 'settings'
 
-export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'settings']
+export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'live-tv', 'settings']
 
 interface SidebarProps {
   open: boolean
@@ -42,6 +42,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
   const setActiveProfile = useSettingsStore((s) => s.setActiveProfile)
   const activeProfile = profiles.find((p) => p.id === activeProfileId)
+  const liveTvEnabled = useSettingsStore((s) => s.liveTvEnabled)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [profileMenuFocused, setProfileMenuFocused] = useState(0)
   const profileMenuItemsRef = useRef<HTMLButtonElement[]>([])
@@ -53,6 +54,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { view: 'tv-shows' as NavView, label: 'TV Shows', icon: 'tv-shows' },
     { view: 'youtube' as NavView, label: 'YouTube', icon: 'youtube' },
     { view: 'sports' as NavView, label: 'Sports', icon: 'sports' },
+    ...(liveTvEnabled ? [{ view: 'live-tv' as NavView, label: 'Live TV', icon: 'live-tv' }] : []),
   ]
 
   const bottomItems = [
