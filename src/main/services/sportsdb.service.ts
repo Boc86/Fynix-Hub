@@ -1,7 +1,7 @@
 import * as CacheService from './cache.service'
 
 const API_BASE = 'https://thesportsdb.com/api/v1/json'
-const API_KEY = '1'
+const API_KEY = '3'
 const RATE_LIMIT_MS = 2000
 const CACHE_TTL_SPORTS = 86400000
 const CACHE_TTL_LEAGUES = 86400000

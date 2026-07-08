@@ -22,7 +22,7 @@ import type { TorrentResult, RivestreamResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
-  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg'
 
 interface PlayerInfo {
   tmdbId: number
@@ -71,6 +71,7 @@ export default function App() {
   const prevModalCountRef = useRef(0)
   const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile, traktConnected } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
+  const playerInfoRef = useRef<PlayerInfo | undefined>(undefined)
 
   // Listen for Escape key from YouTube BrowserView to return focus
   useEffect(() => {
@@ -176,8 +177,10 @@ export default function App() {
   useEffect(() => {
     window.api.debrid.checkAllAccountStatus().then((statuses: Record<string, { valid: boolean }>) => {
       const valid = DEBRID_SERVICES.filter(s => statuses[s]?.valid)
+      window.api.log(`[Debrid] Account statuses: ${JSON.stringify(statuses)}`)
+      window.api.log(`[Debrid] Valid services: ${valid.length > 0 ? valid.join(', ') : 'none, using all'}`)
       setValidDebridServices(valid.length > 0 ? valid : DEBRID_SERVICES)
-    }).catch(() => {})
+    }).catch(() => { window.api.log('[Debrid] checkAllAccountStatus failed') })
   }, [])
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const storeSeason = useMediaStore((s) => s.selectedSeason)
@@ -290,6 +293,7 @@ export default function App() {
   // Keep refs in sync with state for useCallback guards (refs are always current)
   useEffect(() => { torrentSearchOpenRef.current = torrentSearchOpen }, [torrentSearchOpen])
   useEffect(() => { viewRef.current = view }, [view])
+  useEffect(() => { playerInfoRef.current = playerInfo }, [playerInfo])
 
   const navigate = useCallback((v: View) => {
     if (v === 'youtube') {
@@ -388,7 +392,7 @@ export default function App() {
 
     // Providers 2-N: debrid cache checks (run once indexers return hashes)
     const debridPromise = searchPromise.then(async (results) => {
-      if (results.length === 0) return
+      if (results.length === 0) { window.api.log('[Debrid] No results to check cache against'); return }
       const hashes: string[] = []
       const magnets: string[] = []
       for (const r of results) {
@@ -397,13 +401,16 @@ export default function App() {
           magnets.push(r.magnetUri || '')
         }
       }
+      window.api.log(`[Debrid] Checking ${hashes.length} hashes across ${validDebridServices.length} service(s): ${validDebridServices.join(', ')}`)
       const cached: Record<string, string[]> = {}
       perService = {}
       await Promise.all(validDebridServices.map(async (svc) => {
         try {
           const status = await window.api.debrid.getStatus(svc)
+          window.api.log(`[Debrid] ${svc} configured: ${status.configured}`)
           if (status.configured) {
             const batch = await window.api.debrid.checkCachedBatch(svc, hashes, magnets)
+            const batchCount = Object.keys(batch).length
             let svcCached = 0
             for (const [hash, isCached] of Object.entries(batch)) {
               if (isCached === true || isCached === 'true') {
@@ -413,15 +420,17 @@ export default function App() {
                 svcCached++
               }
             }
+            window.api.log(`[Debrid] ${svc}: batch returned ${batchCount} entries, ${svcCached} cached`)
             perService[svc] = svcCached
           }
         } catch (e: any) {
-          console.error(`[App] Debrid cache check failed for ${svc}:`, e?.message || e)
+          window.api.log(`[Debrid] Cache check failed for ${svc}: ${e?.message || e}`)
           perService[svc] = -1
         }
       }))
       debridCachedMap = cached
       setTorrentCachedMap(cached)
+      window.api.log(`[Debrid] Final cached map: ${Object.keys(cached).length} unique hashes`)
       window.api.writeDebugFile({
         phase: 'debrid-cache-check',
         query,
@@ -433,7 +442,10 @@ export default function App() {
     // Rivestream search is now integrated into torrent:search handler
     const rivestreamPromise = Promise.resolve([])
 
-    const [indexerResult] = await Promise.allSettled([searchPromise, debridPromise, rivestreamPromise])
+    // Fire debrid independently — don't block the UI
+    debridPromise.catch(() => {})
+
+    const [indexerResult] = await Promise.allSettled([searchPromise, rivestreamPromise])
     const finalResults = indexerResult.status === 'fulfilled' ? indexerResult.value : []
     searchRunningRef.current = false
     setTorrentSearching(false)
@@ -441,9 +453,6 @@ export default function App() {
       phase: 'search-complete',
       query,
       resultCount: finalResults.length,
-      cachedMap: debridCachedMap,
-      cachedCount: Object.keys(debridCachedMap).length,
-      perService,
     }).catch(() => {})
   }, [DEBRID_SERVICES, validDebridServices])
 
@@ -463,9 +472,7 @@ export default function App() {
     const episode = useMediaStore.getState().selectedEpisode
     const isEpisode = media.mediaType === 'tv' && episode !== null
     runTorrentSearch({
-      title: isEpisode
-        ? `${media.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
-        : media.title,
+      title: media.title,
       year: media.releaseDate ? parseInt(media.releaseDate.slice(0, 4)) : undefined,
       type: isEpisode ? 'episode' : 'movie',
       season: isEpisode ? season : undefined,
@@ -656,7 +663,7 @@ export default function App() {
     try {
       const isEpisode = selected.mediaType === 'tv' && episode !== null
       const res = await window.api.torrent.search({
-        title: isEpisode ? `${selected.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : selected.title,
+        title: selected.title,
         year: selected.releaseDate ? parseInt(selected.releaseDate.slice(0, 4)) : undefined,
         type: isEpisode ? 'episode' : 'movie',
         season: isEpisode ? season : undefined,
@@ -768,6 +775,34 @@ export default function App() {
       setPlayerLoading(false)
     }
   }, [navigate, playTorrent])
+
+  const handlePlayerBack = useCallback(() => {
+    const pi = playerInfoRef.current
+    if (pi) {
+      Promise.all([
+        window.api.mpv.getTimePos().catch(() => 0),
+        window.api.mpv.getDuration().catch(() => 0),
+      ]).then(([pos, dur]) => {
+        if (pos > 0 && dur > 0) {
+          const p = pos / dur
+          if (isFinite(p) && p > 0) {
+            window.api.watch.updateProgress(pi.tmdbId, pi.mediaType, p, pi.season, pi.episode)
+          }
+        }
+      })
+      window.api.mpv.stop().catch(() => {})
+    }
+    autoPlayResultsRef.current = []
+    if (currentInfoHashRef.current) {
+      window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
+    }
+    currentInfoHashRef.current = null
+    setStreamUrl(undefined)
+    setStreamError(null)
+    setPlayerInfo(undefined)
+    setPlayerLoading(false)
+    goBack()
+  }, [])
 
   const handlePlayYouTubeVideo = useCallback(async (video: any) => {
     // Placeholder for the Webview approach
@@ -920,6 +955,7 @@ export default function App() {
         if (searchOpen) { setSearchOpen(false); return }
         if (sidebarOpen) { setSidebarOpen(false); return }
         if (view === 'sports' || view === 'live-tv' || view === 'epg') return
+        if (view === 'player') { handlePlayerBack(); return }
         if (view !== 'browser') { goBack(); return }
       }
       
@@ -945,6 +981,7 @@ export default function App() {
           setSidebarOpen((o) => !o)
           return
         }
+        if (view === 'player') { e.preventDefault(); handlePlayerBack(); return }
         e.preventDefault()
         goBack()
         return
@@ -1067,7 +1104,7 @@ export default function App() {
           mediaInfo={playerInfo}
           playerLoading={playerLoading}
           onStreamError={onStreamError}
-          onBack={() => { autoPlayResultsRef.current = []; if (currentInfoHashRef.current) window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {}); currentInfoHashRef.current = null; setStreamUrl(undefined); setStreamError(null); setPlayerInfo(undefined); setPlayerLoading(false); goBack() }}
+          onBack={handlePlayerBack}
           onNextEpisode={handleNextEpisode}
         />
       )}
@@ -1097,7 +1134,7 @@ export default function App() {
                 currentInfoHashRef.current = null
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang)
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://dami-tv.pro/')
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] Replay playback failed:', err.message)
@@ -1124,7 +1161,7 @@ export default function App() {
                 currentInfoHashRef.current = null
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang)
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://dami-tv.pro/')
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] LiveTV playback failed:', err.message)

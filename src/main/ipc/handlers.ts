@@ -574,10 +574,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return CacheService.getFullWatchHistory()
   })
 
-  handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }) => {
+  handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => {
     console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default', 'audioLang:', audioLanguage ?? 'none')
     try {
-      await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage, playbackInfo)
+      await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage, playbackInfo, referer)
       if (hasNext !== undefined) {
         await MpvService.setHasNext(hasNext)
       }

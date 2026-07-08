@@ -251,10 +251,9 @@ export async function getWatchedShowsWithProgress() {
   }
 
   results.sort((a, b) => {
-    // Sort by next episode air date first (most recently aired next episode on top)
-    const aAired = new Date(a.next_episode.first_aired || a.last_watched_at || 0).getTime()
-    const bAired = new Date(b.next_episode.first_aired || b.last_watched_at || 0).getTime()
-    return bAired - aAired
+    const aWatched = new Date(a.last_watched_at || 0).getTime()
+    const bWatched = new Date(b.last_watched_at || 0).getTime()
+    return bWatched - aWatched
   })
 
   return results

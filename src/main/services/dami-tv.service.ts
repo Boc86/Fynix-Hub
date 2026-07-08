@@ -3,7 +3,7 @@ import * as CacheService from './cache.service'
 const API_BASE = 'https://dami-tv.pro/papi/api'
 const CACHE_TTL = 60000
 const CHANNELS_CACHE_TTL = 300000
-const CHANNELS_URL = 'https://dami-tv.pro/data/dlhd-channels.json?v=7'
+const CHANNELS_URL = 'https://dami-tv.pro/data/tv-channels.json?v=516'
 
 const CC_MAP: [string, string][] = [
   ['united states', 'us'], ['usa', 'us'], ['u.s', 'us'],
@@ -94,28 +94,23 @@ export interface DamiTVChannel {
   countryCode: string
   countryName: string
   countryFlag: string
-  brand: string
-  qualities: { name: string; url: string }[]
-  defaultUrl: string
-  defaultQuality: string
+  playerUrl: string
+  source: string
+  status: string
 }
 
 function parseChannel(item: any): DamiTVChannel {
-  const countryCode = (typeof item.country === 'string' ? item.country : item.country?.code) || detectCountryCode(item.name || '')
+  const code = (typeof item.country === 'string' ? item.country : '') || detectCountryCode(item.name || '')
   return {
-    id: item.id || '',
+    id: String(item.id || ''),
     name: item.name || '',
-    image: item.image || item.logo || '',
-    countryCode,
-    countryName: (typeof item.country === 'string' ? '' : item.country?.name) || COUNTRY_NAMES[countryCode] || countryCode.toUpperCase(),
-    countryFlag: item.country?.flag || countryFlag(countryCode),
-    brand: item.brand?.name || '',
-    qualities: (item.qualities || []).map((q: any) => ({
-      name: q.name || '',
-      url: q.url || '',
-    })),
-    defaultUrl: item.defaultUrl || '',
-    defaultQuality: item.defaultQuality || 'SD',
+    image: item.image || '',
+    countryCode: code,
+    countryName: COUNTRY_NAMES[code] || code.toUpperCase(),
+    countryFlag: countryFlag(code),
+    playerUrl: item.playerUrl || '',
+    source: item.source || '',
+    status: item.status || '',
   }
 }
 
@@ -188,15 +183,86 @@ export async function getChannelsByCountry(countryCode: string): Promise<DamiTVC
   return all.filter(c => c.countryCode === countryCode)
 }
 
+function b64decode(s: string): string {
+  let padded = s
+  while (padded.length % 4) padded += '='
+  return Buffer.from(padded, 'base64').toString('utf-8')
+}
+
+function extractHlsUrlFromPlayerPage(html: string): string | null {
+  const fnRe = /function\s+(\w+)\s*\(\s*s\s*\)\s*\{[^}]*replace\s*\(\s*\/-\/g\s*,\s*['"]\+['"]\s*\)/
+  const fnMatch = html.match(fnRe)
+  if (!fnMatch) return null
+  const decodeFn = fnMatch[1]
+
+  const vars: Record<string, string> = {}
+  const varRe = new RegExp(`var\\s+(\\w+)\\s*=\\s*['"]([A-Za-z0-9+/=]+)['"]`, 'g')
+  let m
+  while ((m = varRe.exec(html)) !== null) {
+    vars[m[1]] = m[2]
+  }
+
+  const escapedFn = decodeFn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const partPat = `${escapedFn}\\((\\w+)\\)`
+  const chainPat = `(?:${partPat}\\+)+${partPat}`
+  const chainRe = new RegExp(chainPat, 'g')
+
+  while ((m = chainRe.exec(html)) !== null) {
+    const allVars: string[] = []
+    const innerRe = new RegExp(`${escapedFn}\\((\\w+)\\)`, 'g')
+    let im
+    while ((im = innerRe.exec(m[0])) !== null) {
+      allVars.push(im[1])
+    }
+
+    if (allVars.length >= 3) {
+      let url = ''
+      let valid = true
+      for (const v of allVars) {
+        const b64 = vars[v]
+        if (!b64) { valid = false; break }
+        try { url += b64decode(b64) } catch { valid = false; break }
+      }
+      if (valid && (url.includes('.m3u8') || url.includes('playlist') || url.includes('cdnlivetv'))) {
+        return url
+      }
+    }
+  }
+
+  return null
+}
+
 export async function extractChannelUrl(channelId: string): Promise<{ hlsUrl?: string; embedUrl?: string }> {
   try {
-    const res = await fetch(`https://dami-tv.pro/papi/extract-url/${encodeURIComponent(channelId)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
+    const channels = await getChannels()
+    const ch = channels.find(c => c.id === channelId)
+    if (!ch || !ch.playerUrl) {
+      console.warn(`[DamiTV] No playerUrl for channel ${channelId}`)
+      return {}
+    }
+
+    const res = await fetch(ch.playerUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://dami-tv.pro/',
+      },
     })
-    if (!res.ok) return {}
-    const data = await res.json()
-    return { hlsUrl: data.hlsUrl, embedUrl: data.embedUrl }
-  } catch {
+    if (!res.ok) {
+      console.warn(`[DamiTV] player page HTTP ${res.status} for ${channelId}`)
+      return {}
+    }
+    const html = await res.text()
+
+    const hlsUrl = extractHlsUrlFromPlayerPage(html)
+    if (hlsUrl) {
+      console.log(`[DamiTV] Resolved HLS URL for channel ${channelId}`)
+      return { hlsUrl }
+    }
+
+    console.warn(`[DamiTV] Could not extract HLS URL from player page for ${channelId}`)
+    return {}
+  } catch (err) {
+    console.warn(`[DamiTV] extractChannelUrl failed for ${channelId}:`, err)
     return {}
   }
 }

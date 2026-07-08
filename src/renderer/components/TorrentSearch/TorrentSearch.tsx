@@ -116,21 +116,24 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
 
     function score(t: TorrentResult): number {
       let s = 0
-      // Tier 1: Cached — largest weight, instant streaming
+      // Tier 1: Resolution — highest first in all cases
+      const q = qualityFromTitle(t.title)
+      const resolutionScores: Record<string, number> = { '4K': 10000000, '1080p': 5000000, '720p': 1000000, '480p': 500000 }
+      s += resolutionScores[q] ?? 0
+      // Tier 2: Cached
       if ((cachedMap[t.infoHash.toLowerCase()]?.length ?? 0) > 0) s += 1000000
-      // Tier 2: Preferred resolution
+      // Tier 3: Preferred resolution bonus
       if (matchesQuality(t.title, prefRes)) s += 100000
-      // Tier 3: Preferred language
+      // Tier 4: Preferred language
       if (matchesLanguage(t.title, prefLangs)) s += 10000
-      // Tier 4: Size — prefer smaller within limit (0-1000 points)
+      // Tier 5: Size
       if (maxTorrentSize > 0 && t.size > 0) {
         const ratio = t.size / (maxTorrentSize * 1073741824)
         s += Math.round((1 - ratio) * 1000)
       } else if (t.size > 0) {
-        // No max set: prefer 500MB–50GB range
         if (t.size >= 524288000 && t.size <= 53687091200) s += 500
       }
-      // Tier 5: Seeders (tiebreaker, capped)
+      // Tier 6: Seeders (tiebreaker)
       s += Math.min(t.seeders, 999)
       return s
     }

@@ -8,7 +8,7 @@ const config: ForgeConfig = {
     name: 'Fynix Hub',
     executableName: 'fynix-hub',
     asar: {
-      unpack: '*.node',
+      unpack: '**/*.node',
       unpackDir: 'assets/bin',
     },
     ignore: [
