@@ -143,8 +143,6 @@ export async function resolveStreamUrl(pageUrl: string): Promise<string> {
   return url
 }
 
-import type { ChildProcess } from 'child_process'
-
 export function spawnYtDlpStdout(pageUrl: string): ChildProcess {
   const binary = getYtDlpPath()
   console.log('[yt-dlp] piping via:', binary, 'for URL:', pageUrl)

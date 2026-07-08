@@ -100,37 +100,39 @@ export async function realDebridCheckCached(hashes: string[], magnets?: string[]
 
   const result: Record<string, boolean> = {}
   const toCheck = hashes.slice(0, 20)
-  const BATCH = 10
-  for (let i = 0; i < toCheck.length; i += BATCH) {
-    const batch = toCheck.slice(i, i + BATCH)
-    const out = await Promise.allSettled(batch.map(async (hash) => {
+  let saw403 = false
+
+  const out = await Promise.allSettled(toCheck.map((hash, idx) =>
+    new Promise<{ hash: string; cached: boolean }>(async (resolve) => {
+      // Stagger each request by idx seconds to stay within RD's ~1 req/s rate limit
+      await new Promise(r => setTimeout(r, idx * 1000))
+      if (saw403) { resolve({ hash, cached: false }); return }
       try {
         const infoRes = await fetch(`${REAL_DEBRID_BASE}/torrents/instantAvailability/${hash}`, {
           headers: { Authorization: `Bearer ${realDebridKey}` },
         })
+        if (infoRes.status === 403) {
+          console.log(`[Debrid] instantAvailability ${hash.slice(0, 8)}: 403 — token invalid, skipping rest`)
+          saw403 = true
+          resolve({ hash, cached: false }); return
+        }
         if (!infoRes.ok) {
           console.log(`[Debrid] instantAvailability ${hash.slice(0, 8)}: ${infoRes.status}`)
-          return { hash, cached: false }
+          resolve({ hash, cached: false }); return
         }
         const data = await infoRes.json() as any
-        // Real-Debrid instantAvailability returns { hash: { rd: [{ filename, filesize }] } } when cached
         const variants = data?.[hash.toUpperCase()]
         const cached = !!(variants?.rd?.length || variants?.[hash.toUpperCase()]?.rd?.length)
-        if (cached) {
-          console.log(`[Debrid] hash ${hash.slice(0, 8)}: CACHED`)
-        }
-        return { hash, cached }
+        if (cached) console.log(`[Debrid] hash ${hash.slice(0, 8)}: CACHED`)
+        resolve({ hash, cached })
       } catch (e: any) {
         console.log(`[Debrid] hash ${hash.slice(0, 8)}: instantAvailability error ${e.message}`)
-        return { hash, cached: false }
+        resolve({ hash, cached: false })
       }
-    }))
-    for (const s of out) {
-      if (s.status === 'fulfilled') {
-        result[s.value.hash] = s.value.cached
-      }
-    }
-    if (i + BATCH < toCheck.length) await new Promise(r => setTimeout(r, 200))
+    })
+  ))
+  for (const s of out) {
+    if (s.status === 'fulfilled') result[s.value.hash] = s.value.cached
   }
   const cachedCount = Object.values(result).filter(Boolean).length
   console.log(`[Debrid] cached: ${cachedCount}/${hashes.length}`)

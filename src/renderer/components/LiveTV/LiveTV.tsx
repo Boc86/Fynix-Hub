@@ -8,27 +8,9 @@ interface Channel {
   countryCode: string
   countryName: string
   countryFlag: string
-  brand: string
-  qualities: { name: string; url: string }[]
-  defaultUrl: string
-  defaultQuality: string
-}
-
-const QUALITY_COLORS: Record<string, string> = {
-  '4K': '#e8471b',
-  'FHD': '#22c55e',
-  'HD': '#3b82f6',
-  'SD': '#888',
-}
-
-function qualityBadge(q: string) {
-  const c = QUALITY_COLORS[q.toUpperCase()] || '#888'
-  return (
-    <span key={q} style={{
-      fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
-      background: c, color: '#fff', letterSpacing: 0.5,
-    }}>{q.toUpperCase()}</span>
-  )
+  playerUrl: string
+  source: string
+  status: string
 }
 
 export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string) => Promise<void>; onBack: () => void }) {
@@ -37,6 +19,7 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
   const [loading, setLoading] = useState(true)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [playing, setPlaying] = useState<string | null>(null)
+  const [playError, setPlayError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -60,35 +43,86 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
     })
   }, [channels, settingsStore.selectedLiveTvCountries])
 
-  const groupedChannels = useMemo(() => {
+  const flatItems = useMemo(() => {
     const map = new Map<string, Channel[]>()
     for (const ch of filteredChannels) {
       const arr = map.get(ch.countryCode) || []
       arr.push(ch)
       map.set(ch.countryCode, arr)
     }
-    return Array.from(map.entries())
+    const groups = Array.from(map.entries())
+    const items: Array<{ type: 'header'; countryCode: string; countryName: string; countryFlag: string } | { type: 'channel'; channel: Channel; flatIdx: number }> = []
+    let flatIdx = 0
+    for (const [countryCode, chs] of groups) {
+      items.push({ type: 'header', countryCode, countryName: chs[0]?.countryName || countryCode, countryFlag: chs[0]?.countryFlag })
+      for (const ch of chs) {
+        items.push({ type: 'channel', channel: ch, flatIdx })
+        flatIdx++
+      }
+    }
+    return items
   }, [filteredChannels])
 
-  const channelGridCols = useMemo(() => {
-    return Math.max(2, Math.min(6, Math.floor((containerRef.current?.offsetWidth || 1200) / 220)))
-  }, [containerRef.current?.offsetWidth])
+  const gridRef = useRef<HTMLDivElement>(null)
+  const [actualCols, setActualCols] = useState(4)
+  useEffect(() => {
+    const el = gridRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const cols = getComputedStyle(el).gridTemplateColumns.split(' ').length
+      setActualCols(cols)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [loading])
+
+  const { channelPos, rowChannels } = useMemo(() => {
+    const pos = new Map<number, { row: number; col: number }>()
+    const rows = new Map<number, number[]>()
+    let visualRow = 0
+    let col = 0
+    for (const item of flatItems) {
+      if (item.type === 'header') {
+        visualRow++
+        col = 0
+      } else {
+        pos.set(item.flatIdx, { row: visualRow, col })
+        let arr = rows.get(visualRow)
+        if (!arr) { arr = []; rows.set(visualRow, arr) }
+        arr.push(item.flatIdx)
+        col++
+        if (col >= actualCols) {
+          visualRow++
+          col = 0
+        }
+      }
+    }
+    return { channelPos: pos, rowChannels: rows }
+  }, [flatItems, actualCols])
+  const allRows = useMemo(() => [...rowChannels.keys()].sort((a, b) => a - b), [rowChannels])
 
   const isChannelFocused = (idx: number) => idx === focusedChannelIdx
 
+  const channelRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  useEffect(() => {
+    const el = channelRefs.current.get(focusedChannelIdx)
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [focusedChannelIdx])
+
   const playChannel = useCallback(async (ch: Channel) => {
     setPlaying(ch.id)
+    setPlayError(null)
     try {
       const result = await window.api.damiTv.extractUrl(ch.id)
       if (result?.hlsUrl) {
         await onPlayUrl(result.hlsUrl)
-      } else if (ch.defaultUrl) {
-        await onPlayUrl(ch.defaultUrl)
       } else {
-        console.warn('[LiveTV] No playable URL for channel:', ch.name)
+        setPlayError(`No playable source for ${ch.name}`)
+        setTimeout(() => setPlayError(null), 3000)
       }
-    } catch (err) {
-      console.error('[LiveTV] Failed to play channel:', err)
+    } catch (err: any) {
+      setPlayError(err?.message || 'Failed to play channel')
+      setTimeout(() => setPlayError(null), 3000)
     }
     setPlaying(null)
   }, [onPlayUrl])
@@ -99,28 +133,66 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
 
     if (e.key === 'ArrowRight') {
       e.preventDefault()
-      setFocusedChannelIdx(i => Math.min(i + 1, filteredChannels.length - 1))
+      setFocusedChannelIdx(i => {
+        const p = channelPos.get(i)
+        if (!p) return i
+        const rowItems = rowChannels.get(p.row) || []
+        const nextCol = p.col + 1
+        if (nextCol < rowItems.length) return rowItems[nextCol]
+        const curRowIdx = allRows.indexOf(p.row)
+        if (curRowIdx < allRows.length - 1) {
+          const nextRow = rowChannels.get(allRows[curRowIdx + 1]) || []
+          if (nextRow.length > 0) return nextRow[0]
+        }
+        return i
+      })
       return
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault()
-      setFocusedChannelIdx(i => Math.max(i - 1, 0))
+      setFocusedChannelIdx(i => {
+        const p = channelPos.get(i)
+        if (!p) return i
+        const rowItems = rowChannels.get(p.row) || []
+        const prevCol = p.col - 1
+        if (prevCol >= 0) return rowItems[prevCol]
+        const curRowIdx = allRows.indexOf(p.row)
+        if (curRowIdx > 0) {
+          const prevRow = rowChannels.get(allRows[curRowIdx - 1]) || []
+          if (prevRow.length > 0) return prevRow[prevRow.length - 1]
+        }
+        return i
+      })
       return
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      const next = focusedChannelIdx + channelGridCols
-      if (next < filteredChannels.length) {
-        setFocusedChannelIdx(next)
-      }
+      setFocusedChannelIdx(i => {
+        const p = channelPos.get(i)
+        if (!p) return i
+        const curRowIdx = allRows.indexOf(p.row)
+        for (let r = curRowIdx + 1; r < allRows.length; r++) {
+          const items = rowChannels.get(allRows[r]) || []
+          const same = items.find(idx => channelPos.get(idx)?.col === p.col)
+          if (same !== undefined) return same
+        }
+        return i
+      })
       return
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
-      const prev = focusedChannelIdx - channelGridCols
-      if (prev >= 0) {
-        setFocusedChannelIdx(prev)
-      }
+      setFocusedChannelIdx(i => {
+        const p = channelPos.get(i)
+        if (!p) return i
+        const curRowIdx = allRows.indexOf(p.row)
+        for (let r = curRowIdx - 1; r >= 0; r--) {
+          const items = rowChannels.get(allRows[r]) || []
+          const same = items.find(idx => channelPos.get(idx)?.col === p.col)
+          if (same !== undefined) return same
+        }
+        return i
+      })
       return
     }
     if (e.key === 'Enter') {
@@ -153,74 +225,75 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
 
       {settingsStore.liveTvEnabled && (
         <>
+          {playError && (
+            <div style={{ padding: '8px 14px', marginBottom: 12, background: 'rgba(255,60,60,0.15)', borderRadius: 8, fontSize: 13, color: '#ff6b6b' }}>
+              {playError}
+            </div>
+          )}
           {filteredChannels.length === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>
               No channels found for selected countries
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {groupedChannels.map(([countryCode, chs]) => (
-              <div key={countryCode}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.5)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {chs[0]?.countryFlag} {chs[0]?.countryName || countryCode}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))`, gap: 10 }}>
-                  {chs.map((ch, ci) => {
-                    const globalIdx = filteredChannels.indexOf(ch)
-                    const focused = isChannelFocused(globalIdx)
-                    return (
-                      <div key={ch.id}
-                        data-channel-idx={globalIdx}
-                        onClick={() => playChannel(ch)}
-                        onMouseEnter={() => setFocusedChannelIdx(globalIdx)}
-                        style={{
-                          background: focused ? 'rgba(var(--accent-rgb, 255, 107, 0), 0.18)' : 'rgba(255,255,255,0.04)',
-                          borderRadius: 10, border: '2px solid transparent',
-                          borderColor: focused ? 'var(--accent, #FF6B00)' : 'transparent',
-                          cursor: 'pointer', overflow: 'hidden', transition: 'background 0.15s',
-                          display: 'flex', flexDirection: 'column',
-                          opacity: playing === ch.id ? 0.5 : 1,
-                        }}
-                      >
-                        <div style={{
-                          aspectRatio: '16/9', background: '#111', display: 'flex',
-                          alignItems: 'center', justifyContent: 'center', position: 'relative',
-                        }}>
-                          {ch.image ? (
-                            <img src={ch.image} alt={ch.name}
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                            />
-                          ) : (
-                            <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
-                              {ch.name.charAt(0)}
-                            </div>
-                          )}
-                          {playing === ch.id && (
-                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
-                              <div style={{ width: 20, height: 20, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {ch.name}
-                          </div>
-                          {ch.brand && (
-                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{ch.brand}</div>
-                          )}
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {qualityBadge(ch.defaultQuality)}
-                            {ch.qualities.filter(q => q.name.toUpperCase() !== ch.defaultQuality.toUpperCase()).slice(0, 2).map(q => qualityBadge(q.name))}
-                          </div>
-                        </div>
+          <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))`, gap: 10 }}>
+            {flatItems.map((item) => {
+              if (item.type === 'header') {
+                return (
+                  <div key={`hdr-${item.countryCode}`}
+                    style={{ gridColumn: '1 / -1', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 8 }}>
+                    {item.countryFlag} {item.countryName}
+                  </div>
+                )
+              }
+              const ch = item.channel
+              const focused = isChannelFocused(item.flatIdx)
+              return (
+                <div key={ch.id}
+                  ref={el => { if (el) channelRefs.current.set(item.flatIdx, el) }}
+                  data-channel-idx={item.flatIdx}
+                  onClick={() => playChannel(ch)}
+                  onMouseEnter={() => setFocusedChannelIdx(item.flatIdx)}
+                  style={{
+                    background: focused ? 'rgba(var(--accent-rgb, 255, 107, 0), 0.18)' : 'rgba(255,255,255,0.04)',
+                    borderRadius: 10, border: '2px solid transparent',
+                    borderColor: focused ? 'var(--accent, #FF6B00)' : 'transparent',
+                    cursor: 'pointer', overflow: 'hidden', transition: 'background 0.15s',
+                    display: 'flex', flexDirection: 'column',
+                    opacity: playing === ch.id ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{
+                    aspectRatio: '16/9', background: '#111', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', position: 'relative',
+                  }}>
+                    {ch.image ? (
+                      <img src={ch.image} alt={ch.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
+                        {ch.name.charAt(0)}
                       </div>
-                    )
-                  })}
+                    )}
+                    {playing === ch.id && (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+                        <div style={{ width: 20, height: 20, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ch.name}
+                    </div>
+                    {ch.source && (
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{ch.source}</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>
       )}

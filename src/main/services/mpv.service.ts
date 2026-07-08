@@ -117,7 +117,7 @@ function sendCommand(command: object, timeoutMs = 5000): Promise<any> {
   })
 }
 
-export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }): Promise<void> {
+export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string): Promise<void> {
   await stopPlayback()
 
   let traktResumePercent: number | null = null
@@ -195,6 +195,10 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     } else if (isVk) {
       mpvArgs.push('--referrer=https://vk.com/')
       mpvArgs.push('--http-header-fields=Origin: https://vk.com')
+    }
+
+    if (referer && !isLocalCache && !isOkCdn && !isVk) {
+      mpvArgs.push(`--referrer=${referer}`)
     }
   }
 
@@ -349,7 +353,22 @@ export async function stopPlayback(): Promise<void> {
     clearInterval(scrobbleInterval)
     scrobbleInterval = null
   }
-  currentPlayback = null
+  if (currentPlayback) {
+    try {
+      const pos = await getTimePos().catch(() => 0)
+      const dur = await getDuration().catch(() => 0)
+      const progress = dur > 0 ? pos / dur : 0
+      const payload = TraktService.buildScrobblePayload(
+        currentPlayback.tmdbId,
+        currentPlayback.mediaType,
+        progress,
+        currentPlayback.season,
+        currentPlayback.episode
+      )
+      await TraktService.scrobble('stop', payload).catch(() => {})
+    } catch {}
+    currentPlayback = null
+  }
 
   if (mpvProcess) {
     try {
@@ -494,13 +513,16 @@ export async function setUpNext(opts: { imagePath: string; title: string; subtit
 
 export async function clearUpNext(): Promise<void> {
   try {
-    await MpvService.clearUpNext()
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-up-next'] })
   } catch {}
 }
 
 async function updateScrobble() {
   if (!currentPlayback || !mpvProcess) return
   try {
+    const paused = await getPaused()
+    if (paused) return
+    
     const pos = await getTimePos()
     const dur = await getDuration()
     if (dur <= 0) return

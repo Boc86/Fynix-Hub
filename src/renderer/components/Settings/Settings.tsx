@@ -48,7 +48,6 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
   const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
-  const [localVylaApiKey, setLocalVylaApiKey] = useState(store.vylaApiKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
@@ -295,7 +294,6 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('customIndexers', localCustomIndexers),
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
-        window.api.settings.set('vylaApiKey', localVylaApiKey),
       ])
       store.setTmdbApiKey(localTmdb)
       store.setFanartApiKey(localFanart)
@@ -304,7 +302,6 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setCustomIndexers(localCustomIndexers)
       store.setIntroDbApiKey(localIntroDb)
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
-      store.setVylaApiKey(localVylaApiKey)
       await store.saveToDisk()
       store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
@@ -327,6 +324,8 @@ export default function Settings({ onClose }: SettingsProps) {
     }
 
     function handleKeyDown(e: KeyboardEvent) {
+      if (addProfilePromptOpen || deleteProfileConfirm) return
+      
       const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)
 
       let newTab: SettingsTab | null = null
@@ -392,7 +391,7 @@ export default function Settings({ onClose }: SettingsProps) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeTab])
+  }, [activeTab, addProfilePromptOpen, deleteProfileConfirm])
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -455,18 +454,6 @@ export default function Settings({ onClose }: SettingsProps) {
                      Forced-only subtitles (only foreign dialogue)
                    </label>
                  </div>
-               </div>
-
-               <div className={styles.settingGroup}>
-                 <h3 className={styles.settingTitle}>Vyla API Key</h3>
-                 <p className={styles.settingDesc}>API key for Rivestream torrent sources. Falls back to built-in key if empty.</p>
-                 <input
-                   type="password"
-                   className={styles.input}
-                   placeholder="Enter Vyla API Key (optional)"
-                   value={localVylaApiKey}
-                   onChange={(e) => setLocalVylaApiKey(e.target.value)}
-                 />
                </div>
 
                <div className={styles.settingGroup}>
@@ -1421,7 +1408,7 @@ export default function Settings({ onClose }: SettingsProps) {
            </div>
          )
 
-// Removed invalid extra brace that broke switch statementcase 'advanced':
+      case 'advanced':
          return (
            <div className={styles.tabContent}>
              <div className={styles.settingGroup}>

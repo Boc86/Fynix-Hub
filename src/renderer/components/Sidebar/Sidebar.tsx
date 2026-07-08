@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './Sidebar.module.css'
 import { useSettingsStore } from '../../store/settingsStore'
 
-export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'live-tv' | 'settings'
+export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'live-tv' | 'epg' | 'settings'
 
 export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'live-tv', 'settings']
 

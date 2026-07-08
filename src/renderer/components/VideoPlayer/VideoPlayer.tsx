@@ -159,7 +159,6 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
       exitedRef.current = true
       saveProgress()
       scrobble('stop').catch(() => {})
-      markAsWatched().catch(() => {})
       window.api.mpv.getLastExitCode().then((code) => {
         if (code === 42) {
           onNextEpisode()
@@ -262,7 +261,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         }
         prevPlayStateRef.current = playing
 
-        if (!wasEnded && dur > 0 && pos >= dur - 5 && pos > 0) {
+        if (!wasEnded && dur > 0 && pos >= dur - 5 && pos > 0 && mediaInfo) {
           wasEnded = true
           saveProgress()
           await scrobble('stop')

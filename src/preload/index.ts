@@ -182,7 +182,7 @@ const api = {
   mpv: {
       isAvailable: () => ipcRenderer.invoke('mpv:is-available'),
     addSubtitle: (filePath: string) => ipcRenderer.invoke('mpv:add-subtitle', filePath),
-      start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext, audioLanguage),
+      start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext, audioLanguage, playbackInfo, referer),
       stop: () => ipcRenderer.invoke('mpv:stop'),
       isRunning: () => ipcRenderer.invoke('mpv:is-running'),
       togglePause: () => ipcRenderer.invoke('mpv:toggle-pause'),

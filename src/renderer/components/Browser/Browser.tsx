@@ -304,7 +304,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   }, [continueWatching.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length])
 
   useEffect(() => {
-    if ((continueWatching.length > 0 || trending.length > 0) && browserRef.current) {
+    if (browserRef.current) {
       browserRef.current.focus()
     }
   }, [continueWatching.length, trending.length])

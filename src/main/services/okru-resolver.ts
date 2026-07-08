@@ -103,7 +103,7 @@ function htmlDecode(s: string): string {
   return s
     .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(parseInt(code, 10)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_m, code) => String.fromCharCode(parseInt(code, 16)))
-    .replace(/&(amp|lt|gt|quot|apos);/g, (_m, c) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[c] as string))
+    .replace(/&(amp|lt|gt|quot|apos);/g, (_m, c: string) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as Record<string, string>)[c])
     .replace(/\\\\u0026/g, '&')
     .replace(/\\u0026/g, '&')
     .replace(/\\\//g, '/')
