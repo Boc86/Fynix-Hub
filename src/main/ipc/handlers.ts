@@ -984,6 +984,18 @@ export async function registerIpcHandlers(): Promise<void> {
     return { success: true }
   })
 
+  handle('usenet:list-downloads', async () => {
+    return UsenetService.listDownloads()
+  })
+
+  handle('usenet:remove-download', async (_event, id) => {
+    return UsenetService.removeDownload(id)
+  })
+
+  handle('usenet:search-webdav-cache', async (_event, query) => {
+    return UsenetService.searchWebdavCache(query)
+  })
+
   handle('mpv:get-sub-action', async () => {
     return MpvService.getSubAction()
   })

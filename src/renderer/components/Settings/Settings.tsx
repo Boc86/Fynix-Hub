@@ -26,19 +26,20 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'torrents' | 'usenet' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'search' | 'connections' | 'torrents' | 'usenet' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
-  { id: 'connections', label: 'Connections', shortcut: '2' },
-  { id: 'torrents', label: 'Torrents', shortcut: '3' },
-  { id: 'usenet', label: 'Usenet', shortcut: '4' },
-  { id: 'youtube', label: 'YouTube', shortcut: '5' },
-  { id: 'sports', label: 'Sports', shortcut: '6' },
-  { id: 'live-tv', label: 'Live TV', shortcut: '7' },
-  { id: 'profiles', label: 'Profiles', shortcut: '8' },
-  { id: 'advanced', label: 'Advanced', shortcut: '9' },
-  { id: 'remote', label: 'Remote', shortcut: '0' },
+  { id: 'search', label: 'Search', shortcut: '2' },
+  { id: 'connections', label: 'Connections', shortcut: '3' },
+  { id: 'torrents', label: 'Torrents', shortcut: '4' },
+  { id: 'usenet', label: 'Usenet', shortcut: '5' },
+  { id: 'youtube', label: 'YouTube', shortcut: '6' },
+  { id: 'sports', label: 'Sports', shortcut: '7' },
+  { id: 'live-tv', label: 'Live TV', shortcut: '8' },
+  { id: 'profiles', label: 'Profiles', shortcut: '9' },
+  { id: 'advanced', label: 'Advanced', shortcut: '' },
+  { id: 'remote', label: 'Remote', shortcut: '' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -93,6 +94,8 @@ export default function Settings({ onClose }: SettingsProps) {
   const [debridStatuses, setDebridStatuses] = useState<Record<string, { valid: boolean; expiry?: string; error?: string }>>({})
   const [usenetConnStatus, setUsenetConnStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle')
   const [usenetConnError, setUsenetConnError] = useState('')
+  const [completedDownloads, setCompletedDownloads] = useState<any[]>([])
+  const [completedDownloadsState, setCompletedDownloadsState] = useState<'idle' | 'loading' | 'error'>('idle')
 
   const resolutions = ['4K', '1080p', '720p', '480p']
 
@@ -141,7 +144,16 @@ export default function Settings({ onClose }: SettingsProps) {
         setSportsList(list)
       }).catch(() => {})
     }
-  }, [activeTab])
+    if (activeTab === 'usenet' && localEnableUsenet) {
+      setCompletedDownloadsState('loading')
+      window.api.usenet.listDownloads().then(downloads => {
+        setCompletedDownloads(downloads.filter((d: any) => d.status === 'Completed'))
+        setCompletedDownloadsState('idle')
+      }).catch(() => {
+        setCompletedDownloadsState('error')
+      })
+    }
+  }, [activeTab, localEnableUsenet])
 
   // Sync localLiveTvCountries with store changes
   useEffect(() => {
@@ -322,6 +334,19 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
         window.api.settings.set('sportsApiProKey', localSportsApiProKey),
+        window.api.settings.set('usenetEnabled', localEnableUsenet),
+        window.api.settings.set('usenetProvider', localUsenetProvider),
+        window.api.settings.set('sabnzbdUrl', localSabUrl),
+        window.api.settings.set('sabnzbdApiKey', localSabKey),
+        window.api.settings.set('nzbgetUrl', localNzbUrl),
+        window.api.settings.set('nzbgetUsername', localNzbUser),
+        window.api.settings.set('nzbgetPassword', localNzbPass),
+        window.api.settings.set('nzbdavUrl', localNzbDavUrl),
+        window.api.settings.set('nzbdavApiKey', localNzbDavApiKey),
+        window.api.settings.set('nzbdavWebdavUser', localNzbDavWebdavUser),
+        window.api.settings.set('nzbdavWebdavPass', localNzbDavWebdavPass),
+        window.api.settings.set('enabledUsenetIndexers', localEnabledUsenetIndexers),
+        window.api.settings.set('customUsenetIndexers', localCustomUsenetIndexers),
       ])
       store.setTmdbApiKey(localTmdb)
       store.setFanartApiKey(localFanart)
@@ -331,6 +356,19 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setIntroDbApiKey(localIntroDb)
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
       store.setSportsApiProKey(localSportsApiProKey)
+      store.setUsenetEnabled(localEnableUsenet)
+      store.setUsenetProvider(localUsenetProvider)
+      store.setSabnzbdUrl(localSabUrl)
+      store.setSabnzbdApiKey(localSabKey)
+      store.setNzbgetUrl(localNzbUrl)
+      store.setNzbgetUsername(localNzbUser)
+      store.setNzbgetPassword(localNzbPass)
+      store.setNzbDavUrl(localNzbDavUrl)
+      store.setNzbDavApiKey(localNzbDavApiKey)
+      store.setNzbDavWebdavUser(localNzbDavWebdavUser)
+      store.setNzbDavWebdavPass(localNzbDavWebdavPass)
+      store.setEnabledUsenetIndexers(localEnabledUsenetIndexers)
+      store.setCustomUsenetIndexers(localCustomUsenetIndexers)
       await store.saveToDisk()
       store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
@@ -371,9 +409,9 @@ export default function Settings({ onClose }: SettingsProps) {
           const prevIndex = (currentIndex - 1 + TABS.length) % TABS.length
           newTab = TABS[prevIndex].id
         } else {
-          const num = e.key === '0' ? 9 : parseInt(e.key) - 1
-          const tabIndex = e.key === '0' ? TABS.length - 1 : num
-          if (tabIndex < TABS.length) {
+          const num = parseInt(e.key) - 1
+          const tabIndex = num
+          if (tabIndex < TABS.length && TABS[tabIndex].shortcut === e.key) {
             newTab = TABS[tabIndex].id
           }
         }
@@ -568,18 +606,8 @@ export default function Settings({ onClose }: SettingsProps) {
             </div>
 
             <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Playback</h3>
-              <p className={styles.settingDesc}>Auto-play: skip torrent selection and play the best match immediately</p>
-              <div className={styles.toggleGrid}>
-                <button
-                  tabIndex={0}
-                  className={`${styles.toggle} ${store.autoPlayTorrent ? styles.toggleActive : ''}`}
-                  onClick={() => store.setAutoPlayTorrent(!store.autoPlayTorrent)}
-                >
-                  Auto-Play {store.autoPlayTorrent ? 'ON' : 'OFF'}
-                </button>
-              </div>
-              <p className={styles.settingDesc} style={{ marginTop: 12 }}>Skip torrents larger than this size (0 = unlimited)</p>
+              <h3 className={styles.settingTitle}>Max Torrent Size</h3>
+              <p className={styles.settingDesc}>Skip torrents larger than this size (0 = unlimited)</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
                   type="number"
@@ -593,6 +621,114 @@ export default function Settings({ onClose }: SettingsProps) {
                 <span className={styles.settingDesc}>GB</span>
               </div>
             </div>
+          </div>
+        )
+
+      case 'search':
+        return (
+          <div className={styles.tabContent}>
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Search Providers</h3>
+              <p className={styles.settingDesc}>Enable or disable search sources</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.vylaSearchEnabled ? styles.toggleActive : ''}`}
+                  onClick={() => store.setVylaSearchEnabled(!store.vylaSearchEnabled)}
+                >
+                  Vyla {store.vylaSearchEnabled ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.torrentSearchEnabled ? styles.toggleActive : ''}`}
+                  onClick={() => store.setTorrentSearchEnabled(!store.torrentSearchEnabled)}
+                >
+                  Torrents {store.torrentSearchEnabled ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.usenetSearchEnabled ? styles.toggleActive : ''}`}
+                  onClick={() => store.setUsenetSearchEnabled(!store.usenetSearchEnabled)}
+                >
+                  Usenet {store.usenetSearchEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Auto-Play</h3>
+              <p className={styles.settingDesc}>Skip selection and play the best match immediately</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.autoPlayTorrent ? styles.toggleActive : ''}`}
+                  onClick={() => store.setAutoPlayTorrent(!store.autoPlayTorrent)}
+                >
+                  Auto-Play {store.autoPlayTorrent ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Preemptive Search Termination</h3>
+              <p className={styles.settingDesc}>Stop searching once a configurable number of results is found</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.preemptiveSearchTermination ? styles.toggleActive : ''}`}
+                  onClick={() => store.setPreemptiveSearchTermination(!store.preemptiveSearchTermination)}
+                >
+                  Preemptive Termination {store.preemptiveSearchTermination ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+
+            {store.autoPlayTorrent && store.preemptiveSearchTermination && (
+              <>
+                <div className={styles.settingGroup}>
+                  <h3 className={styles.settingTitle}>Search Limits</h3>
+                  <p className={styles.settingDesc} style={{ marginBottom: 4 }}>Max results per provider before stopping</p>
+                  <div className={styles.searchLimitRow}>
+                    <div className={styles.searchLimitField}>
+                      <label className={styles.settingDesc}>Vyla</label>
+                      <input
+                        tabIndex={0}
+                        type="number"
+                        className={styles.input}
+                        min={1}
+                        max={100}
+                        value={store.vylaSearchLimit}
+                        onChange={(e) => store.setVylaSearchLimit(Math.max(1, parseInt(e.target.value) || 5))}
+                      />
+                    </div>
+                    <div className={styles.searchLimitField}>
+                      <label className={styles.settingDesc}>Torrents</label>
+                      <input
+                        tabIndex={0}
+                        type="number"
+                        className={styles.input}
+                        min={1}
+                        max={100}
+                        value={store.torrentSearchLimit}
+                        onChange={(e) => store.setTorrentSearchLimit(Math.max(1, parseInt(e.target.value) || 10))}
+                      />
+                    </div>
+                    <div className={styles.searchLimitField}>
+                      <label className={styles.settingDesc}>Usenet</label>
+                      <input
+                        tabIndex={0}
+                        type="number"
+                        className={styles.input}
+                        min={1}
+                        max={100}
+                        value={store.usenetSearchLimit}
+                        onChange={(e) => store.setUsenetSearchLimit(Math.max(1, parseInt(e.target.value) || 5))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )
 
@@ -1173,20 +1309,6 @@ export default function Settings({ onClose }: SettingsProps) {
         )
 
       case 'usenet': {
-        const freeIndexers = [
-          { id: 'binsearch', name: 'BinSearch', url: 'https://www.binsearch.info' },
-          { id: 'binzb', name: 'BiNZB', url: 'https://www.binzb.com' },
-          { id: 'clubnzb', name: 'ClubNZB', url: 'https://clubnzb.com' },
-          { id: 'findnzb', name: 'Findnzb', url: 'https://www.findnzb.com' },
-          { id: 'nzbfriends', name: 'NZBFriends', url: 'https://www.nzbfriends.com' },
-          { id: 'nzbindex', name: 'NZBIndex', url: 'https://www.nzbindex.com' },
-          { id: 'nzbindexnl', name: 'NZBIndexNL', url: 'https://www.nzbindex.nl' },
-          { id: 'nzbstars', name: 'NZBStars.com', url: 'https://www.nzbstars.com' },
-        ]
-        const toggleUsenetIndexer = (id: string) => {
-          setLocalEnabledUsenetIndexers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-        }
-
         const addUsenetCustomIndexer = () => {
           const { name, url, apiKey } = newUsenetCustom
           if (!name.trim() || !url.trim()) return
@@ -1199,6 +1321,7 @@ export default function Settings({ onClose }: SettingsProps) {
             builtIn: false,
           }
           setLocalCustomUsenetIndexers(prev => [...prev, idx])
+          setLocalEnabledUsenetIndexers(prev => prev.includes(idx.id) ? prev : [...prev, idx.id])
           setNewUsenetCustom({ name: '', url: '', apiKey: '' })
         }
 
@@ -1381,32 +1504,6 @@ export default function Settings({ onClose }: SettingsProps) {
                 </div>
 
                 <div className={styles.settingGroup}>
-                  <h3 className={styles.settingTitle}>Free Indexers</h3>
-                  <p className={styles.settingDesc}>Built-in free Usenet indexers (auto-enabled)</p>
-                  <div className={styles.indexerList}>
-                    {freeIndexers.map(idx => (
-                      <label key={idx.id} className={styles.indexerRow}>
-                        <input
-                          tabIndex={0}
-                          type="checkbox"
-                          checked={localEnabledUsenetIndexers.includes(idx.id)}
-                          onChange={() => toggleUsenetIndexer(idx.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              toggleUsenetIndexer(idx.id)
-                            }
-                          }}
-                        />
-                        <span className={styles.indexerName}>{idx.name}</span>
-                        <span className={styles.indexerMeta}>{idx.url}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className={styles.settingGroup}>
                   <h3 className={styles.settingTitle}>Custom NewzNab Indexers</h3>
                   <p className={styles.settingDesc}>Add private Usenet indexers (NewzNab API compatible)</p>
                   <div className={styles.customIndexerList}>
@@ -1469,6 +1566,60 @@ export default function Settings({ onClose }: SettingsProps) {
                       onChange={(e) => setNewUsenetCustom(prev => ({ ...prev, apiKey: e.target.value }))}
                     />
                     <button tabIndex={0} className={styles.connectBtn} onClick={addUsenetCustomIndexer}>Add Custom Indexer</button>
+                  </div>
+                </div>
+
+                <div className={styles.settingGroup}>
+                  <h3 className={styles.settingTitle}>Completed Downloads</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      tabIndex={0}
+                      className={styles.connectBtn}
+                      disabled={completedDownloadsState === 'loading'}
+                      onClick={async () => {
+                        setCompletedDownloadsState('loading')
+                        try {
+                          const downloads = await window.api.usenet.listDownloads()
+                          setCompletedDownloads(downloads.filter((d: any) => d.status === 'Completed'))
+                        } catch {}
+                        setCompletedDownloadsState('idle')
+                      }}
+                    >
+                      {completedDownloadsState === 'loading' ? 'Loading...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {completedDownloadsState === 'loading' && (
+                    <p className={styles.authHint}>Loading completed downloads...</p>
+                  )}
+                  {completedDownloadsState === 'error' && (
+                    <p className={styles.errorText}>Failed to load downloads</p>
+                  )}
+                  {completedDownloads.length === 0 && completedDownloadsState === 'idle' && (
+                    <p className={styles.authHint}>No completed downloads found.</p>
+                  )}
+                  <div className={styles.customIndexerList}>
+                    {completedDownloads.map((d: any) => (
+                      <div key={d.id} className={styles.customIndexerCard}>
+                        <div className={styles.customIndexerRow}>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
+                            <span className={styles.indexerName}>{d.name}</span>
+                            <span className={styles.indexerMeta}>{d.category} · {(d.size / 1073741824).toFixed(1)} GB</span>
+                          </div>
+                          <div className={styles.customIndexerActions}>
+                            <button
+                              tabIndex={0}
+                              className={styles.disconnectBtn}
+                              onClick={async () => {
+                                await window.api.usenet.removeDownload(d.id)
+                                setCompletedDownloads(prev => prev.filter((x: any) => x.id !== d.id))
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </>
