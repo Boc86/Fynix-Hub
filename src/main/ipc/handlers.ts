@@ -281,12 +281,20 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('torrent:search', async (event, query) => {
     console.log('[Handler] torrent:search', JSON.stringify(query).slice(0, 200))
-    const enabledIndexers = CacheService.getSetting<string[]>('enabledIndexers') || TorrentSearchService.getDefaultEnabledIndexers()
-    console.log('[Handler] enabledIndexers count:', enabledIndexers.length)
-    const customIndexers = CacheService.getSetting<TorrentSearchService.CustomIndexer[]>('customIndexers') || []
-    
+    const providers = query.providers || {}
+    const searchTorrents = providers.torrent !== false
+    const searchVyla = providers.vyla !== false
+
+    const enabledIndexers = searchTorrents
+      ? (CacheService.getSetting<string[]>('enabledIndexers') || TorrentSearchService.getDefaultEnabledIndexers())
+      : []
+    console.log('[Handler] enabledIndexers count:', enabledIndexers.length, 'searchTorrents:', searchTorrents, 'searchVyla:', searchVyla)
+    const customIndexers = searchTorrents
+      ? (CacheService.getSetting<TorrentSearchService.CustomIndexer[]>('customIndexers') || [])
+      : []
+
     // Kick off Vyla search immediately (in parallel with torrent indexers)
-    const vylaPromise = query.tmdbId
+    const vylaPromise = searchVyla && query.tmdbId
       ? ExtractorService.searchStreams(
           { tmdbId: query.tmdbId, type: query.type, season: query.season, episode: query.episode },
           (source) => event.sender.send('torrent:rive-result', source)
@@ -294,9 +302,11 @@ export async function registerIpcHandlers(): Promise<void> {
       : Promise.resolve()
 
     try {
-      const torrentResults = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers, (result) => {
-        event.sender.send('torrent:indexer-result', result)
-      })
+      const torrentResults = searchTorrents
+        ? await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers, (result) => {
+            event.sender.send('torrent:indexer-result', result)
+          })
+        : []
 
       console.log('[Handler] torrent:search returned', torrentResults.length, 'torrents')
       // Log raw results for debugging (first 30)
@@ -304,14 +314,16 @@ export async function registerIpcHandlers(): Promise<void> {
       for (const r of torrentResults.slice(0, 30)) {
         console.log(`  [${r.indexer}] seeds=${r.seeders} leechers=${r.leechers} size=${r.size} title="${r.title.slice(0, 80)}" infoHash=${r.infoHash.slice(0, 16)}`)
       }
-      
+
       // Asynchronously pre-cache metadata for top 15 results (fire-and-forget, don't block response)
-      setImmediate(() => {
-        WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(err => {
-          console.error('[Handler] prefetchBatch failed (non-critical):', err?.message || err)
+      if (torrentResults.length > 0) {
+        setImmediate(() => {
+          WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(err => {
+            console.error('[Handler] prefetchBatch failed (non-critical):', err?.message || err)
+          })
         })
-      })
-      
+      }
+
       return {
         torrents: torrentResults,
         rive: []
@@ -947,10 +959,28 @@ export async function registerIpcHandlers(): Promise<void> {
     const enabledIds = CacheService.getSetting<string[]>('enabledUsenetIndexers') || UsenetSearchService.getDefaultEnabledIndexerIds()
     const customIndexers = CacheService.getSetting<UsenetSearchService.UsenetIndexerConfig[]>('customUsenetIndexers') || []
     try {
-      const results = await UsenetSearchService.searchUsenet(query, enabledIds, customIndexers, (result) => {
-        event.sender.send('usenet:result', result)
-      })
-      console.log('[Handler] usenet:search returned', results.length, 'results')
+      const [results, cacheResults] = await Promise.all([
+        UsenetSearchService.searchUsenet(query, enabledIds, customIndexers, (result) => {
+          event.sender.send('usenet:result', result)
+        }),
+        UsenetService.searchWebdavCache(query.query || query.title || ''),
+      ])
+      console.log('[Handler] usenet:search returned', results.length, 'results, webdav cache:', cacheResults.length)
+      // Merge WebDAV cache results (already downloaded — streamable immediately)
+      for (const cr of cacheResults) {
+        results.push({
+          title: cr.name,
+          size: cr.size || 0,
+          indexer: 'NzbDav Cache',
+          quality: 'Unknown',
+          nzbUrl: '',
+          infoHash: '',
+          group: '',
+          poster: 0,
+          date: '',
+          streamUrl: cr.streamUrl,
+        })
+      }
       return results
     } catch (err: any) {
       console.error('[Handler] usenet:search failed:', err.message)
