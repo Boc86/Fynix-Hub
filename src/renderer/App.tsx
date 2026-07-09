@@ -60,6 +60,7 @@ export default function App() {
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
   const autoPlayIndexRef = useRef(0)
   const currentInfoHashRef = useRef<string | null>(null)
+  const currentUsenetIdRef = useRef<string | null>(null)
   const resumePositionRef = useRef<number | undefined>(undefined)
   const resumeDurationRef = useRef<number>(3600) // default 1h estimate
   const searchSessionRef = useRef(0)
@@ -262,13 +263,17 @@ export default function App() {
     }
   }, [playerInfo?.resumePosition])
 
-  // Stop mpv and clean up torrent when leaving player view
+  // Stop mpv and clean up torrent/usenet when leaving player view
   useEffect(() => {
     if (view !== 'player') {
       window.api.mpv.stop().catch(() => {})
       if (currentInfoHashRef.current) {
         window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
         currentInfoHashRef.current = null
+      }
+      if (currentUsenetIdRef.current) {
+        window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
+        currentUsenetIdRef.current = null
       }
     }
   }, [view])
@@ -480,8 +485,14 @@ export default function App() {
         }
       }))
       debridCachedMap = cached
-      setTorrentCachedMap(cached)
-      window.api.log(`[Debrid] Final cached map: ${Object.keys(cached).length} unique hashes`)
+      setTorrentCachedMap(prev => {
+        const merged = { ...prev }
+        for (const [hash, svcs] of Object.entries(cached)) {
+          if (svcs.length > 0) merged[hash] = svcs
+        }
+        return merged
+      })
+      window.api.log(`[Debrid] Final cached map: ${Object.keys(cached).length} batch hashes merged into existing`)
       window.api.writeDebugFile({
         phase: 'debrid-cache-check',
         query,
@@ -601,6 +612,7 @@ export default function App() {
       const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title)
       if (status) {
         window.api.log('[App] Usenet download started:', status.id, status.name)
+        currentUsenetIdRef.current = status.id
         navigate('player')
         // Poll for completion
         const poll = setInterval(async () => {
@@ -901,6 +913,12 @@ export default function App() {
           const p = pos / dur
           if (isFinite(p) && p > 0) {
             window.api.watch.updateProgress(pi.tmdbId, pi.mediaType, p, pi.season, pi.episode)
+            // If fully watched and Usenet download, clean up
+            if (currentUsenetIdRef.current && p >= 0.9) {
+              window.api.log('[App] Fully watched, cleaning up Usenet download:', currentUsenetIdRef.current)
+              window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
+              currentUsenetIdRef.current = null
+            }
           }
         }
       })
@@ -911,6 +929,7 @@ export default function App() {
       window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
     }
     currentInfoHashRef.current = null
+    currentUsenetIdRef.current = null
     setStreamUrl(undefined)
     setStreamError(null)
     setPlayerInfo(undefined)
@@ -1048,6 +1067,19 @@ export default function App() {
       if (currentInfoHashRef.current) {
         window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
         currentInfoHashRef.current = null
+      }
+      // Delete Usenet download if fully watched
+      const pi = playerInfoRef.current
+      if (currentUsenetIdRef.current && pi) {
+        window.api.watch.getProgress(pi.tmdbId, pi.mediaType, pi.season, pi.episode).then(progress => {
+          if (progress !== null && progress >= 0.9) {
+            window.api.log('[App] Fully watched, cleaning up Usenet download:', currentUsenetIdRef.current)
+            window.api.usenet.removeDownload(currentUsenetIdRef.current!).catch(() => {})
+          }
+          currentUsenetIdRef.current = null
+        }).catch(() => {
+          currentUsenetIdRef.current = null
+        })
       }
     })
     return unsub

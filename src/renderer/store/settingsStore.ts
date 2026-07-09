@@ -77,6 +77,10 @@ interface SettingsState {
   usenetSearchEnabled: boolean
   torrentSearchEnabled: boolean
   vylaSearchEnabled: boolean
+  preemptiveSearchTermination: boolean
+  vylaSearchLimit: number
+  torrentSearchLimit: number
+  usenetSearchLimit: number
   profiles: UserProfile[]
   activeProfileId: string | null
   autoLoginProfileId: string | null
@@ -133,6 +137,10 @@ interface SettingsState {
   setUsenetSearchEnabled: (enabled: boolean) => void
   setTorrentSearchEnabled: (enabled: boolean) => void
   setVylaSearchEnabled: (enabled: boolean) => void
+  setPreemptiveSearchTermination: (enabled: boolean) => void
+  setVylaSearchLimit: (limit: number) => void
+  setTorrentSearchLimit: (limit: number) => void
+  setUsenetSearchLimit: (limit: number) => void
 
   // Profile management
   addProfile: (name: string, avatarPath?: string) => void
@@ -193,11 +201,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   nzbgetUrl: '',
   nzbgetUsername: '',
   nzbgetPassword: '',
-  enabledUsenetIndexers: ['binsearch', 'binzb', 'clubnzb', 'findnzb', 'nzbfriends', 'nzbindex', 'nzbindexnl', 'nzbstars'],
+  enabledUsenetIndexers: [],
   customUsenetIndexers: [],
   usenetSearchEnabled: true,
   torrentSearchEnabled: true,
   vylaSearchEnabled: true,
+  preemptiveSearchTermination: false,
+  vylaSearchLimit: 5,
+  torrentSearchLimit: 10,
+  usenetSearchLimit: 5,
   profiles: [],
   activeProfileId: null,
   autoLoginProfileId: null,
@@ -254,6 +266,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setUsenetSearchEnabled: (enabled) => { set({ usenetSearchEnabled: enabled }); get().saveToDisk() },
   setTorrentSearchEnabled: (enabled) => { set({ torrentSearchEnabled: enabled }); get().saveToDisk() },
   setVylaSearchEnabled: (enabled) => { set({ vylaSearchEnabled: enabled }); get().saveToDisk() },
+  setPreemptiveSearchTermination: (enabled) => { set({ preemptiveSearchTermination: enabled }); get().saveToDisk() },
+  setVylaSearchLimit: (limit) => { set({ vylaSearchLimit: limit }); get().saveToDisk() },
+  setTorrentSearchLimit: (limit) => { set({ torrentSearchLimit: limit }); get().saveToDisk() },
+  setUsenetSearchLimit: (limit) => { set({ usenetSearchLimit: limit }); get().saveToDisk() },
 
   // --- Profile Management Actions ---
   addProfile: (name, avatarPath) => {
@@ -460,6 +476,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('usenetSearchEnabled', state.usenetSearchEnabled),
         window.api.settings.set('torrentSearchEnabled', state.torrentSearchEnabled),
         window.api.settings.set('vylaSearchEnabled', state.vylaSearchEnabled),
+        window.api.settings.set('preemptiveSearchTermination', state.preemptiveSearchTermination),
+        window.api.settings.set('vylaSearchLimit', state.vylaSearchLimit),
+        window.api.settings.set('torrentSearchLimit', state.torrentSearchLimit),
+        window.api.settings.set('usenetSearchLimit', state.usenetSearchLimit),
         window.api.settings.set('profiles', state.profiles),
         window.api.settings.set('activeProfileId', state.activeProfileId),
         window.api.settings.set('autoLoginProfileId', state.autoLoginProfileId),

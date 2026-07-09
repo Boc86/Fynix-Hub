@@ -1,5 +1,3 @@
-import * as CacheService from './cache.service'
-
 export interface UsenetQuery {
   query?: string
   title?: string
@@ -32,16 +30,7 @@ export interface UsenetIndexerConfig {
   builtIn: boolean
 }
 
-const FREE_INDEXERS: UsenetIndexerConfig[] = [
-  { id: 'binsearch', name: 'BinSearch', url: 'https://www.binsearch.info', apiKey: '', enabled: true, builtIn: true },
-  { id: 'binzb', name: 'BiNZB', url: 'https://www.binzb.com', apiKey: '', enabled: true, builtIn: true },
-  { id: 'clubnzb', name: 'ClubNZB', url: 'https://clubnzb.com', apiKey: '', enabled: true, builtIn: true },
-  { id: 'findnzb', name: 'Findnzb', url: 'https://www.findnzb.com', apiKey: '', enabled: true, builtIn: true },
-  { id: 'nzbfriends', name: 'NZBFriends', url: 'https://www.nzbfriends.com', apiKey: '', enabled: true, builtIn: true },
-  { id: 'nzbindex', name: 'NZBIndex', url: 'https://www.nzbindex.com', apiKey: '', enabled: true, builtIn: true },
-  { id: 'nzbindexnl', name: 'NZBIndexNL', url: 'https://www.nzbindex.nl', apiKey: '', enabled: true, builtIn: true },
-  { id: 'nzbstars', name: 'NZBStars.com', url: 'https://www.nzbstars.com', apiKey: '', enabled: true, builtIn: true },
-]
+const BUILT_IN_INDEXERS: UsenetIndexerConfig[] = []
 
 function qualityFromTitle(title: string): string {
   const lower = title.toLowerCase()
@@ -64,63 +53,12 @@ function rankAndFilter(results: UsenetResult[], limit: number = 200): UsenetResu
     .slice(0, limit)
 }
 
-async function searchFreeIndexer(
-  indexer: UsenetIndexerConfig,
-  query: string
-): Promise<UsenetResult[]> {
-  if (!indexer.enabled) return []
-
-  try {
-    const searchUrl = `${indexer.url}/search?q=${encodeURIComponent(query)}`
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000)
-    const response = await fetch(searchUrl, {
-      headers: { 'User-Agent': 'FynixHub/1.0' },
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-    if (!response.ok) return []
-
-    const html = await response.text()
-    const results: UsenetResult[] = []
-    const lines = html.split('\n')
-    let inResults = false
-
-    for (const line of lines) {
-      if (line.includes('class=\"r\"') || line.includes('class=\"result\"') || line.toLowerCase().includes('<item>')) {
-        inResults = true
-        continue
-      }
-      if (inResults) {
-        const titleMatch = line.match(/<a[^>]*>([^<]+)<\/a>/i)
-        if (titleMatch) {
-          results.push({
-            title: titleMatch[1].trim(),
-            size: 0,
-            indexer: indexer.name,
-            quality: qualityFromTitle(titleMatch[1].trim()),
-            nzbUrl: '',
-            infoHash: '',
-            group: '',
-            poster: 1,
-            date: '',
-          })
-        }
-      }
-    }
-
-    return results
-  } catch {
-    return []
-  }
-}
-
 export function getFreeIndexers(): UsenetIndexerConfig[] {
-  return FREE_INDEXERS
+  return BUILT_IN_INDEXERS
 }
 
 export function getDefaultEnabledIndexerIds(): string[] {
-  return FREE_INDEXERS.map(i => i.id)
+  return BUILT_IN_INDEXERS.map(i => i.id)
 }
 
 export async function searchUsenet(
@@ -130,36 +68,58 @@ export async function searchUsenet(
   onResult?: (result: UsenetResult) => void
 ): Promise<UsenetResult[]> {
   const searchTerm = query.query || query.title || ''
-  if (!searchTerm) return []
-
-  const allIndexers = FREE_INDEXERS.filter(i => enabledIndexerIds.includes(i.id))
-  const allCustom = customIndexers.filter(i => i.enabled && enabledIndexerIds.includes(i.id))
-
-  const promises = allIndexers.map(idx => searchFreeIndexer(idx, searchTerm))
-
-  // Support for NZBHydra / NewzNab compatible indexers
-  for (const idx of allCustom) {
-    promises.push(searchNewznabIndexer(idx, searchTerm))
+  if (!searchTerm) {
+    console.log('[UsenetSearch] No search term provided (query=%s title=%s)', query.query, query.title)
+    return []
   }
+
+  console.log('[UsenetSearch] Searching for "%s" (type=%s year=%s)', searchTerm, query.type, query.year)
+
+  const allCustom = customIndexers.filter(i => i.enabled && enabledIndexerIds.includes(i.id))
+  const builtInPromise: Promise<UsenetResult[]>[] = []
+
+  console.log('[UsenetSearch] Enabled custom Newznab indexers: %d (%s)', allCustom.length, allCustom.length ? allCustom.map(i => i.id).join(', ') : 'NONE')
+  if (builtInPromise.length === 0 && allCustom.length === 0) {
+    console.log('[UsenetSearch] No Newznab indexers configured — 0 results expected.')
+    console.log('[UsenetSearch] To get Usenet search results, add a Newznab-compatible custom indexer in Settings → Usenet.')
+  }
+
+  const promises = [...builtInPromise, ...allCustom.map(idx => searchNewznabIndexer(idx, searchTerm))]
 
   const resultsArrays = await Promise.all(promises)
   const allResults = resultsArrays.flat()
+
+  console.log('[UsenetSearch] Total raw results: %d across %d Newznab indexer(s)', allResults.length, promises.length)
 
   for (const r of allResults) {
     onResult?.(r)
   }
 
-  return rankAndFilter(allResults)
+  const ranked = rankAndFilter(allResults)
+  console.log('[UsenetSearch] Returning %d ranked results', ranked.length)
+  return ranked
 }
 
 async function searchNewznabIndexer(
   indexer: UsenetIndexerConfig,
   query: string
 ): Promise<UsenetResult[]> {
-  if (!indexer.enabled || !indexer.url || !indexer.apiKey) return []
+  if (!indexer.enabled) {
+    console.log('[UsenetSearch] Newznab indexer %s is disabled, skipping', indexer.id)
+    return []
+  }
+  if (!indexer.url || !indexer.apiKey) {
+    console.log('[UsenetSearch] Newznab indexer %s missing url or apiKey, skipping', indexer.id)
+    return []
+  }
+
+  const base = indexer.url.replace(/\/+$/, '')
+  const apiBase = base.endsWith('/api') ? base : `${base}/api`
+  const searchUrl = `${apiBase}?t=search&q=${encodeURIComponent(query)}&limit=100&apikey=${indexer.apiKey}&o=json`
+  const logUrl = `${apiBase}?t=search&q=${encodeURIComponent(query)}&limit=100&apikey=${indexer.apiKey.slice(0, 8)}...&o=json`
+  console.log('[UsenetSearch] Fetching Newznab indexer %s: %s', indexer.id, logUrl)
 
   try {
-    const searchUrl = `${indexer.url.endsWith('/') ? indexer.url.slice(0, -1) : indexer.url}/api?t=search&q=${encodeURIComponent(query)}&apikey=${indexer.apiKey}&o=json`
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15000)
     const response = await fetch(searchUrl, {
@@ -167,34 +127,60 @@ async function searchNewznabIndexer(
       signal: controller.signal,
     })
     clearTimeout(timeout)
-    if (!response.ok) return []
+
+    console.log('[UsenetSearch] %s responded with status %d', indexer.id, response.status)
+    if (!response.ok) {
+      console.log('[UsenetSearch] %s returned non-OK status, skipping', indexer.id)
+      return []
+    }
 
     const data = await response.json()
-    if (!data?.channel?.item) return []
+    if (!data?.channel?.item) {
+      console.log('[UsenetSearch] %s returned 0 items (no channel.item in response)', indexer.id)
+      return []
+    }
 
-    return (data.channel.item as any[]).map(item => {
+    const items = Array.isArray(data.channel.item) ? data.channel.item : [data.channel.item]
+    console.log('[UsenetSearch] %s returned %d items', indexer.id, items.length)
+
+    if (items.length > 0) {
+      const sample = items[0]
+      console.log('[UsenetSearch] First item keys: %s', Object.keys(sample).join(', '))
+      console.log('[UsenetSearch] First item enclosure: %s, link: %s, guid: %s',
+        JSON.stringify(sample.enclosure).slice(0, 200),
+        (sample.link || '').slice(0, 80),
+        (sample.guid || '').slice(0, 80))
+    }
+
+    return items.map((item: any) => {
       const title = item.title || ''
-      const enclosure = item.enclosure || {}
+      const enclosure = (Array.isArray(item.enclosure) ? item.enclosure[0] : item.enclosure) || {}
+      const enclosureUrl = enclosure.url || enclosure['@attributes']?.url || ''
       const attrMap: Record<string, string> = {}
-      if (item['newznab:attr']) {
-        for (const attr of item['newznab:attr']) {
+      const attrsRaw = item['newznab:attr'] || item.attr
+      if (attrsRaw) {
+        const attrs = Array.isArray(attrsRaw) ? attrsRaw : [attrsRaw]
+        for (const attr of attrs) {
           if (attr?.name) attrMap[attr.name] = attr.value
         }
       }
 
+      const nzbUrl = enclosureUrl || item.link || item.guid || ''
+
       return {
         title,
-        size: parseInt(enclosure.length || '0', 10),
+        size: parseInt(enclosure.length || item.attr_size || '0', 10),
         indexer: indexer.name,
         quality: qualityFromTitle(title),
-        nzbUrl: enclosure.url || '',
+        nzbUrl,
         infoHash: attrMap['infoHash'] || '',
         group: attrMap['group'] || '',
         poster: parseInt(attrMap['poster'] || '1', 10),
         date: attrMap['date'] || '',
       }
     })
-  } catch {
+  } catch (err: any) {
+    console.log('[UsenetSearch] %s fetch failed: %s', indexer.id, err?.message || err)
     return []
   }
 }

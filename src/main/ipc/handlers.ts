@@ -584,7 +584,6 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => {
-    console.log('[Handler] mpv:start', url.slice(0, 80) + '...', 'accent:', accentColor ?? 'default', 'audioLang:', audioLanguage ?? 'none')
     try {
       await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage, playbackInfo, referer)
       if (hasNext !== undefined) {
@@ -983,6 +982,18 @@ export async function registerIpcHandlers(): Promise<void> {
   handle('usenet:reload-config', async () => {
     UsenetService.loadConfig()
     return { success: true }
+  })
+
+  handle('usenet:list-downloads', async () => {
+    return UsenetService.listDownloads()
+  })
+
+  handle('usenet:remove-download', async (_event, id) => {
+    return UsenetService.removeDownload(id)
+  })
+
+  handle('usenet:search-webdav-cache', async (_event, query) => {
+    return UsenetService.searchWebdavCache(query)
   })
 
   handle('mpv:get-sub-action', async () => {

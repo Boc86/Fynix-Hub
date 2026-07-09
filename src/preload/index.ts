@@ -279,6 +279,9 @@ const api = {
     getDownloadStatus: (id: string) => ipcRenderer.invoke('usenet:get-download-status', id),
     getStreamUrl: (id: string) => ipcRenderer.invoke('usenet:get-stream-url', id),
     reloadConfig: () => ipcRenderer.invoke('usenet:reload-config'),
+    listDownloads: () => ipcRenderer.invoke('usenet:list-downloads'),
+    removeDownload: (id: string) => ipcRenderer.invoke('usenet:remove-download', id),
+    searchWebdavCache: (query: string) => ipcRenderer.invoke('usenet:search-webdav-cache', query),
     onResult: (callback: (result: any) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, result: any) => callback(result)
       ipcRenderer.on('usenet:result', handler)

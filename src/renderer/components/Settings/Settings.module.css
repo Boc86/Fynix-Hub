@@ -578,3 +578,21 @@
   box-shadow: 0 0 0 2px var(--accent), 0 0 12px rgba(var(--accent-rgb), 0.5);
   transform: scale(1.1);
 }
+
+.searchLimitRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.searchLimitField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 100px;
+}
+
+.searchLimitField .input {
+  margin-bottom: 0;
+}

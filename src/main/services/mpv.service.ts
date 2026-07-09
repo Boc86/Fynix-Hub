@@ -24,8 +24,6 @@ const MPV_BINARY_CANDIDATES: string[] = [
 ]
 
 function findMpvCommand(): { cmd: string; mpvDir: string } {
-  console.log('[MPV] Resources path:', process.resourcesPath, '__dirname:', __dirname)
-
   const candidates = [
     ...MPV_BINARY_CANDIDATES,
     path.join(process.resourcesPath, 'app.asar.unpacked/assets/bin/mpv/mpv'),
@@ -39,17 +37,12 @@ function findMpvCommand(): { cmd: string; mpvDir: string } {
     'mpv',
   ]
 
-  const tried: string[] = []
   for (const c of candidates) {
-    tried.push(c)
     if (fs.existsSync(c)) {
-      console.log('[MPV] Found binary at:', c)
       return { cmd: c, mpvDir: path.dirname(c) }
     }
   }
 
-  console.log('[MPV] Tried paths:', tried.map(c => c + ' (exists: ' + fs.existsSync(c) + ')'))
-  console.log('[MPV] No binary found, defaulting to mpv')
   return { cmd: 'mpv', mpvDir: '' }
 }
 
@@ -134,11 +127,6 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     }
   }
 
-  console.log('[MPV] Env DISPLAY:', process.env.DISPLAY)
-  console.log('[MPV] Env FLATPAK_ID:', process.env.FLATPAK_ID)
-  if (accentColor) console.log('[MPV] Accent color for OSC:', accentColor)
-  if (audioLanguage) console.log('[MPV] Preferred audio language:', audioLanguage)
-
   const { cmd, mpvDir } = findMpvCommand()
 
   const mpvArgs = [
@@ -215,9 +203,6 @@ export async function startPlayback(url: string, resumePosition?: number, accent
 
   mpvArgs.push(playUrl)
 
-  const fullArgs = [...mpvArgs]
-  console.log('[MPV] Starting:', cmd, fullArgs.join(' '))
-
   const libPaths: string[] = []
   if (mpvDir) {
     libPaths.push(path.join(mpvDir, 'lib'))
@@ -231,7 +216,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     env.LD_LIBRARY_PATH = ldLibPath
   }
 
-  mpvProcess = spawn(cmd, fullArgs, {
+  mpvProcess = spawn(cmd, mpvArgs, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env,
   })
@@ -263,22 +248,6 @@ export async function startPlayback(url: string, resumePosition?: number, accent
         } else {
           reject(new Error(`mpv exited with code ${code}`))
         }
-      }
-    })
-
-    let stderrBuf = ''
-    mpvProcess!.stdout?.on('data', (data: Buffer) => {
-      console.log('[MPV] stdout:', data.toString().trim())
-    })
-
-    mpvProcess!.stderr?.on('data', (data: Buffer) => {
-      stderrBuf += data.toString()
-      console.log('[MPV] stderr:', data.toString().trim())
-    })
-
-    mpvProcess!.on('close', () => {
-      if (stderrBuf) {
-        console.log('[MPV] Full stderr:\n' + stderrBuf.trim())
       }
     })
 
@@ -425,7 +394,6 @@ export async function setHasNext(hasNext: boolean): Promise<void> {
 
 export async function setClearlogo(text: string): Promise<void> {
   try {
-    console.log('[MPV] Sending set-clearlogo:', text.slice(0, 50))
     await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-clearlogo', text] })
   } catch {}
 }
@@ -439,7 +407,6 @@ export async function clearClearlogo(): Promise<void> {
 export async function setPlot(text: string): Promise<void> {
   try {
     const truncated = text.length > 500 ? text.slice(0, 500) + '...' : text
-    console.log('[MPV] Sending set-plot:', truncated.slice(0, 80))
     await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-plot', truncated] })
   } catch {}
 }
