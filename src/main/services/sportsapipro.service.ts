@@ -67,12 +67,26 @@ function imageUrlV1(sport: string, competitionId: number, version?: number): str
   return version ? `${base}?imageVersion=${version}` : base
 }
 
-async function imageUrlV2(sportPath: string, tournamentId: number): Promise<string | null> {
+async function fetchImageV2(sportPath: string, tournamentId: number): Promise<string | null> {
   try {
-    const data = await fetchApi<{ success: boolean; imageUrl?: string }>(API_BASE_V2, `/${sportPath}/api/tournament/${tournamentId}/image`)
-    return data?.imageUrl || null
+    const url = `${API_BASE_V2}/${sportPath}/images/tournaments/${tournamentId}`
+    console.log(`[SportsAPIPRO] Fetching V2 image: ${url}`)
+    const res = await fetch(url, {
+      headers: {
+        'x-api-key': apiKey,
+        'User-Agent': 'Mozilla/5.0',
+      },
+    })
+    if (!res.ok) {
+      console.log(`[SportsAPIPRO] V2 image HTTP ${res.status} for tournament ${tournamentId}`)
+      return null
+    }
+    const contentType = res.headers.get('content-type') || 'image/png'
+    const buf = Buffer.from(await res.arrayBuffer())
+    console.log(`[SportsAPIPRO] V2 image OK: ${buf.length} bytes, type=${contentType}`)
+    return `data:${contentType};base64,${buf.toString('base64')}`
   } catch (err: any) {
-    console.log(`[SportsAPIPRO] Failed to get V2 image for tournament ${tournamentId}: ${err?.message || err}`)
+    console.log(`[SportsAPIPRO] Failed to fetch V2 image for tournament ${tournamentId}: ${err?.message || err}`)
     return null
   }
 }
@@ -140,21 +154,27 @@ export async function getCompetitions(sportKey: string): Promise<ApiCompetition[
 
 export async function getCompetitionImage(sportKey: string, leagueName: string): Promise<string | null> {
   const competitions = await getCompetitions(sportKey)
-  const match = competitions.find(c =>
-    c.name.toLowerCase() === leagueName.toLowerCase() ||
-    leagueName.toLowerCase().includes(c.name.toLowerCase()) ||
-    c.name.toLowerCase().includes(leagueName.toLowerCase())
-  )
-  if (!match) return null
+  const lowerLeague = leagueName.toLowerCase()
+  let match = competitions.find(c => c.name.toLowerCase() === lowerLeague)
+  if (!match) match = competitions.find(c => c.name.toLowerCase().includes(lowerLeague) || lowerLeague.includes(c.name.toLowerCase()))
+  // fallback: return first competition's image as best effort
+  if (!match && competitions.length > 0) {
+    console.log(`[SportsAPIPRO] No name match for "${leagueName}", using first competition: "${competitions[0].name}"`)
+    match = competitions[0]
+  }
+  if (!match) {
+    console.log(`[SportsAPIPRO] No competitions at all for sport "${sportKey}", returning null`)
+    return null
+  }
 
   const path = SPORT_TO_PATH[sportKey]
   if (!path) return null
 
-  // V2: fetch image URL from tournament endpoint
+  // V2: fetch image directly from API with auth header, return data: URL
   if (match.imageVersion === undefined) {
-    return imageUrlV2(path, match.id)
+    return fetchImageV2(path, match.id)
   }
 
-  // V1: construct image URL directly
+  // V1: construct image URL directly (public, no auth)
   return imageUrlV1(path, match.id, match.imageVersion)
 }

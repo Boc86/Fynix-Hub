@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import type { MediaItem, TorrentResult } from '../../types'
+import type { MediaItem, TorrentResult, UsenetResult } from '../../types'
 import MediaCard from '../MediaCard/MediaCard'
+import { useSettingsStore } from '../../store/settingsStore'
 import styles from './SearchModal.module.css'
 
 interface SearchModalProps {
@@ -9,6 +10,7 @@ interface SearchModalProps {
   keyboardOpen?: boolean
   onFreeSearch?: (query: string) => void
   onTorrentSelect?: (torrent: TorrentResult) => void
+  onUsenetSelect?: (usenet: UsenetResult) => void
 }
 
 type SearchFilter = 'all' | 'movie' | 'tv' | 'free'
@@ -26,11 +28,13 @@ function formatSize(bytes: number): string {
   return bytes + ' B'
 }
 
-export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSearch, onTorrentSelect }: SearchModalProps) {
+export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSearch, onTorrentSelect, onUsenetSelect }: SearchModalProps) {
+  const store = useSettingsStore()
   const [query, setQuery] = useState('')
   const [movieResults, setMovieResults] = useState<MediaItem[]>([])
   const [tvResults, setTvResults] = useState<MediaItem[]>([])
   const [torrentResults, setTorrentResults] = useState<TorrentResult[]>([])
+  const [usenetResults, setUsenetResults] = useState<UsenetResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [filter, setFilter] = useState<SearchFilter>('all')
   const [focusedSection, setFocusedSection] = useState<'input' | 'filter' | 'result'>('input')
@@ -39,25 +43,44 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const modalRef = useRef<HTMLDivElement>(null)
+  const [sourceVyla, setSourceVyla] = useState(store.vylaSearchEnabled)
+  const [sourceTorrent, setSourceTorrent] = useState(store.torrentSearchEnabled)
+  const [sourceUsenet, setSourceUsenet] = useState(store.usenetSearchEnabled)
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  const doSearch = useCallback(async (q: string) => {
+  const doSearch = useCallback(async (q: string, srcVyla = sourceVyla, srcTorrent = sourceTorrent, srcUsenet = sourceUsenet) => {
     if (!q.trim()) {
       setMovieResults([])
       setTvResults([])
       setTorrentResults([])
+      setUsenetResults([])
       return
     }
     setIsSearching(true)
     if (filter === 'free') {
-      try {
-        const results = await window.api.torrent.search({ query: q, type: 'movie' })
-        setTorrentResults(results || [])
-      } catch {
+      const promises: Promise<any>[] = []
+      if (srcTorrent) {
+        promises.push(
+          window.api.torrent.search({ query: q, type: 'movie' })
+            .then(r => { setTorrentResults(r || []); return r })
+            .catch(() => { setTorrentResults([]); return [] })
+        )
+      }
+      if (srcUsenet) {
+        promises.push(
+          window.api.usenet.search({ query: q, type: 'movie' })
+            .then(r => { setUsenetResults(r || []); return r })
+            .catch(() => { setUsenetResults([]); return [] })
+        )
+      }
+      if (promises.length === 0) {
         setTorrentResults([])
+        setUsenetResults([])
+      } else {
+        await Promise.allSettled(promises)
       }
     } else {
       try {
@@ -73,7 +96,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       }
     }
     setIsSearching(false)
-  }, [filter])
+  }, [filter, sourceVyla, sourceTorrent, sourceUsenet])
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
@@ -91,7 +114,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
         : []
 
   const filterCount = query.trim() ? FILTERS.length : 0
-  const resultCount = filter === 'free' ? torrentResults.length : results.length
+  const resultCount = filter === 'free' ? torrentResults.length + usenetResults.length : results.length
   const isTorrentView = filter === 'free'
 
   useEffect(() => {
@@ -99,6 +122,13 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       doSearch(query)
     }
   }, [filter])
+
+  // Re-search when source toggles change
+  useEffect(() => {
+    if (query.trim() && isTorrentView) {
+      doSearch(query)
+    }
+  }, [sourceVyla, sourceTorrent, sourceUsenet])
 
   useEffect(() => {
     const sections = (): Array<{ id: 'input' | 'filter' | 'result'; count: number }> => [
@@ -220,16 +250,41 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
           </div>
         )}
         <div className={styles.results}>
+          {isTorrentView && (
+            <div style={{ display: 'flex', gap: 6, padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <button
+                tabIndex={-1}
+                className={`${styles.sourceToggle} ${sourceVyla ? styles.sourceActive : ''}`}
+                onClick={() => { setSourceVyla(!sourceVyla) }}
+              >
+                Vyla
+              </button>
+              <button
+                tabIndex={-1}
+                className={`${styles.sourceToggle} ${sourceTorrent ? styles.sourceActive : ''}`}
+                onClick={() => { setSourceTorrent(!sourceTorrent) }}
+              >
+                Torrents
+              </button>
+              <button
+                tabIndex={-1}
+                className={`${styles.sourceToggle} ${sourceUsenet ? styles.sourceActive : ''}`}
+                onClick={() => { setSourceUsenet(!sourceUsenet) }}
+              >
+                Usenet
+              </button>
+            </div>
+          )}
           {isSearching && <p className={styles.status}>Searching...</p>}
-          {!isSearching && isTorrentView && query && torrentResults.length === 0 && (
-            <p className={styles.status}>No torrents found</p>
+          {!isSearching && isTorrentView && query && torrentResults.length === 0 && usenetResults.length === 0 && (
+            <p className={styles.status}>No results found</p>
           )}
           {!isSearching && !isTorrentView && results.length === 0 && query && (
             <p className={styles.status}>No results found</p>
           )}
           {isTorrentView ? (
             <div className={styles.torrentList}>
-              {torrentResults.map((torrent, idx) => (
+              {sourceTorrent && torrentResults.map((torrent, idx) => (
                 <div
                   key={`${torrent.infoHash}-${idx}`}
                   className={`${styles.torrentRow} ${focusedSection === 'result' && focusedIdx === idx ? styles.focused : ''}`}
@@ -238,7 +293,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
                   tabIndex={-1}
                 >
                   <div className={styles.torrentInfo}>
-                    <div className={styles.torrentTitle}>{torrent.title}</div>
+                    <div className={styles.torrentTitle}>📦 {torrent.title}</div>
                     <div className={styles.torrentMeta}>
                       <span className={styles.torrentQuality}>{torrent.quality}</span>
                       <span>{formatSize(torrent.size)}</span>
@@ -248,6 +303,27 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
                   </div>
                 </div>
               ))}
+              {sourceUsenet && usenetResults.map((usenet, idx) => {
+                const displayIdx = (sourceTorrent ? torrentResults.length : 0) + idx
+                return (
+                  <div
+                    key={`usenet-${idx}`}
+                    className={`${styles.torrentRow} ${focusedSection === 'result' && focusedIdx === displayIdx ? styles.focused : ''}`}
+                    onClick={() => onUsenetSelect?.(usenet)}
+                    role="button"
+                    tabIndex={-1}
+                  >
+                    <div className={styles.torrentInfo}>
+                      <div className={styles.torrentTitle}>📰 {usenet.title}</div>
+                      <div className={styles.torrentMeta}>
+                        <span className={styles.torrentQuality}>{usenet.quality}</span>
+                        <span>{formatSize(usenet.size)}</span>
+                        <span className={styles.torrentIndexer}>{usenet.indexer}</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className={styles.grid}>

@@ -271,6 +271,20 @@ const api = {
     getSchedule: (channelId: string, date: string) => ipcRenderer.invoke('epg:get-schedule', channelId, date),
     refresh: () => ipcRenderer.invoke('epg:refresh'),
   },
+  usenet: {
+    search: (query: any) => ipcRenderer.invoke('usenet:search', query),
+    getFreeIndexers: () => ipcRenderer.invoke('usenet:get-free-indexers'),
+    checkConnection: () => ipcRenderer.invoke('usenet:check-connection'),
+    sendNzb: (nzbUrl: string, title: string) => ipcRenderer.invoke('usenet:send-nzb', nzbUrl, title),
+    getDownloadStatus: (id: string) => ipcRenderer.invoke('usenet:get-download-status', id),
+    getStreamUrl: (id: string) => ipcRenderer.invoke('usenet:get-stream-url', id),
+    reloadConfig: () => ipcRenderer.invoke('usenet:reload-config'),
+    onResult: (callback: (result: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, result: any) => callback(result)
+      ipcRenderer.on('usenet:result', handler)
+      return () => { ipcRenderer.removeListener('usenet:result', handler) }
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

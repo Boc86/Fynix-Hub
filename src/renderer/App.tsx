@@ -18,7 +18,7 @@ import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt from './components/Prompt/Prompt'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
-import type { TorrentResult, RivestreamResult } from './types.d'
+import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 
@@ -49,7 +49,9 @@ export default function App() {
   const [torrentResults, setTorrentResults] = useState<TorrentResult[]>([])
   const [torrentCachedMap, setTorrentCachedMap] = useState<Record<string, string[]>>({})
   const [rivestreamResults, setRivestreamResults] = useState<RivestreamResult[]>([])
+  const [usenetResults, setUsenetResults] = useState<UsenetResult[]>([])
   const [torrentSearching, setTorrentSearching] = useState(false)
+  const [usenetSearching, setUsenetSearching] = useState(false)
   const [streamUrl, setStreamUrl] = useState<string | undefined>()
   const [streamError, setStreamError] = useState<string | null>(null)
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | undefined>()
@@ -499,6 +501,23 @@ export default function App() {
     unsubStream()
     searchRunningRef.current = false
     setTorrentSearching(false)
+
+    // Run Usenet search in parallel (fire and forget)
+    if (useSettingsStore.getState().usenetSearchEnabled && useSettingsStore.getState().usenetEnabled) {
+      setUsenetSearching(true)
+      window.api.usenet.search({ query: query.title || query.query, title: query.title, year: query.year, type: query.type === 'episode' ? 'tv' : 'movie', season: query.season, episode: query.episode })
+        .then((results: UsenetResult[]) => {
+          setUsenetResults(results || [])
+          setUsenetSearching(false)
+        })
+        .catch(() => {
+          setUsenetResults([])
+          setUsenetSearching(false)
+        })
+    } else {
+      setUsenetResults([])
+    }
+
     window.api.writeDebugFile({
       phase: 'search-complete',
       query,
@@ -568,6 +587,51 @@ export default function App() {
     const streamRes = await window.api.torrent.getStreamUrl(torrentResult.infoHash)
     return streamRes.url
   }, [])
+
+  const playUsenet = useCallback(async (result: UsenetResult) => {
+    window.api.log('[App] playUsenet', result.title)
+    setTorrentSearchOpen(false)
+    setFreeSearchOpen(false)
+    setFreeSearchQuery('')
+    setPlayerLoading(true)
+    setStreamError(null)
+    setStreamUrl(undefined)
+
+    try {
+      const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title)
+      if (status) {
+        window.api.log('[App] Usenet download started:', status.id, status.name)
+        navigate('player')
+        // Poll for completion
+        const poll = setInterval(async () => {
+          const s = await window.api.usenet.getDownloadStatus(status.id)
+          if (s && s.progress >= 100) {
+            clearInterval(poll)
+            const stream = await window.api.usenet.getStreamUrl(status.id)
+            if (stream?.url) {
+              const audioLang = getAudioLang()
+              try {
+                await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              } catch (mpvErr: any) {
+                window.api.log('[App] mpv.start failed:', mpvErr?.message)
+                setStreamError(mpvErr?.message || 'Failed to start player')
+              }
+            } else {
+              setStreamError('Could not get stream URL for completed download')
+            }
+            setPlayerLoading(false)
+          }
+        }, 3000)
+      } else {
+        setStreamError('Failed to send NZB to download client')
+        setPlayerLoading(false)
+      }
+    } catch (err: any) {
+      window.api.log('[App] playUsenet error:', err?.message || err)
+      setStreamError(err?.message || 'Failed to start Usenet download')
+      setPlayerLoading(false)
+    }
+  }, [navigate, accentColor])
 
   const startPlayback = useCallback(async (result: TorrentResult) => {
     window.api.log('[App] startPlayback', result.title, result.infoHash.slice(0, 16))
@@ -1112,6 +1176,9 @@ export default function App() {
             onCancel={handleCancelAddProfile}
           />
         )}
+        {virtualKeyboardOpen && (
+          <VirtualKeyboard inputElement={keyboardInputRef.current as HTMLInputElement | HTMLTextAreaElement | null} onClose={() => setVirtualKeyboardOpen(false)} />
+        )}
       </>
     )
   }
@@ -1184,7 +1251,7 @@ export default function App() {
                 currentInfoHashRef.current = null
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://dami-tv.pro/')
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://cdnlivetv.is/')
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] Replay playback failed:', err.message)
@@ -1211,7 +1278,7 @@ export default function App() {
                 currentInfoHashRef.current = null
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://dami-tv.pro/')
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://cdnlivetv.is/')
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] LiveTV playback failed:', err.message)
@@ -1250,6 +1317,10 @@ export default function App() {
               setSearchOpen(false)
               startPlayback(torrent)
             }}
+            onUsenetSelect={(usenet) => {
+              setSearchOpen(false)
+              playUsenet(usenet)
+            }}
           />
         )}
       {contextTarget && (
@@ -1274,9 +1345,12 @@ export default function App() {
             cachedMap={torrentCachedMap}
             loading={torrentSearching}
             rivestreamResults={rivestreamResults}
+            usenetResults={usenetResults}
+            usenetLoading={usenetSearching}
             onSelect={startPlayback}
             onSelectRivestream={handlePlayEmbed}
-            onClose={() => { window.api.log('[App] TorrentSearch onClose triggered'); setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}); setRivestreamResults([]) }}
+            onSelectUsenet={playUsenet}
+            onClose={() => { window.api.log('[App] TorrentSearch onClose triggered'); setTorrentSearchOpen(false); setTorrentSearchTitle(''); setTorrentSearchYear(undefined); setTorrentResults([]); setTorrentCachedMap({}); setRivestreamResults([]); setUsenetResults([]) }}
           />
         )}
         {freeSearchOpen && (
@@ -1286,8 +1360,11 @@ export default function App() {
             results={torrentResults}
             cachedMap={torrentCachedMap}
             loading={torrentSearching}
+            usenetResults={usenetResults}
+            usenetLoading={usenetSearching}
             onSelect={startPlayback}
-            onClose={() => { setFreeSearchOpen(false); setFreeSearchQuery(''); setTorrentResults([]); setTorrentCachedMap({}); setTorrentSearchOpen(false) }}
+            onSelectUsenet={playUsenet}
+            onClose={() => { setFreeSearchOpen(false); setFreeSearchQuery(''); setTorrentResults([]); setTorrentCachedMap({}); setTorrentSearchOpen(false); setUsenetResults([]) }}
           />
         )}
     </Layout>

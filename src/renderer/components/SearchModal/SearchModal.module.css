@@ -177,3 +177,26 @@
 .torrentIndexer {
   color: var(--text-secondary);
 }
+
+.sourceToggle {
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sourceToggle:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.sourceActive {
+  background: rgba(var(--accent-rgb), 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}

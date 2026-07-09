@@ -148,12 +148,10 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       if (result?.hlsUrl) {
         await onPlayUrl(result.hlsUrl)
       } else {
-        setPlayError(`No playable source for ${ch.name}`)
-        setTimeout(() => setPlayError(null), 3000)
+        setPlayError(`No playable source for ${ch.name}. The channel's stream URL could not be extracted.`)
       }
     } catch (err: any) {
-      setPlayError(err?.message || 'Failed to play channel')
-      setTimeout(() => setPlayError(null), 3000)
+      setPlayError(`Failed to play ${ch.name}: ${err?.message || 'Unknown error'}`)
     }
     setPlaying(null)
   }, [onPlayUrl])

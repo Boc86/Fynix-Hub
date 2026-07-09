@@ -4,11 +4,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as YoutubeService from './youtube.service'
 import * as OkruResolver from './okru-resolver'
-import * as TraktService from './trakt.service'
 
 let mpvProcess: ChildProcess | null = null
-let currentPlayback: { tmdbId: number; mediaType: string; season?: number; episode?: number } | null = null
-let scrobbleInterval: NodeJS.Timeout | null = null
 let ipcSocketPath = '/tmp/mpv-fynix.sock'
 let onExitCb: ((code: number | null, signal: string | null) => void) | null = null
 let lastExitCode: number | null = null
@@ -74,7 +71,7 @@ function waitForSocket(socketPath: string, timeoutMs: number): Promise<void> {
   })
 }
 
-function sendCommand(command: object, timeoutMs = 5000): Promise<any> {
+function sendCommand(command: object): Promise<any> {
   return new Promise((resolve, reject) => {
     const doConnect = (retriesLeft: number) => {
       const client = new net.Socket()
@@ -110,29 +107,15 @@ function sendCommand(command: object, timeoutMs = 5000): Promise<any> {
       setTimeout(() => {
         client.destroy()
         reject(new Error('IPC command timed out'))
-      }, timeoutMs)
+      }, 5000)
     }
 
     doConnect(10)  // up to ~5s retries
   })
 }
 
-export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string): Promise<void> {
+export async function startPlayback(url: string, resumePosition?: number, accentColor?: string, audioLanguage?: string, _playbackInfo?: any, _referer?: string): Promise<void> {
   await stopPlayback()
-
-  let traktResumePercent: number | null = null
-  if (playbackInfo && TraktService.isAuthenticated()) {
-    try {
-      const playback = await TraktService.getPlayback()
-      const current = playback?.data?.current
-      if (current && current.ids.tmdb === playbackInfo.tmdbId) {
-        traktResumePercent = current.progress
-        console.log(`[MPV] Found Trakt resume point: ${traktResumePercent}%`)
-      }
-    } catch (e) {
-      console.warn('[MPV] Failed to fetch Trakt playback:', e)
-    }
-  }
 
   if (fs.existsSync(ipcSocketPath)) {
     try { fs.unlinkSync(ipcSocketPath) } catch {}
@@ -168,12 +151,12 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--no-keepaspect',
     '--no-window-dragging',
     '--hwdec=no',
-    '--vo=gpu',
-    '--gpu-context=x11egl',
+    '--vo=gpu-next',
+    '--gpu-context=auto',
+    '--gpu-api=opengl',
     '--cache-pause-initial=yes',
     '--cache=yes',
     '--demuxer-readahead-secs=60',
-    '--ytdl=no',
   ]
 
   if (audioLanguage) {
@@ -181,24 +164,16 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   }
 
   if (/^https?:\/\//.test(playUrl)) {
-    const isLocalCache = /^http:\/\/127\.0\.0\.1/.test(playUrl)
     const isOkCdn = /okcdn\.ru/i.test(playUrl)
     const isVk = /vk\.com|vkvideo/i.test(playUrl)
-
-    if (!isLocalCache) {
-      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
-    }
-
     if (isOkCdn) {
       mpvArgs.push('--referrer=https://ok.ru/')
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
       mpvArgs.push('--http-header-fields=Origin: https://ok.ru')
     } else if (isVk) {
       mpvArgs.push('--referrer=https://vk.com/')
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
       mpvArgs.push('--http-header-fields=Origin: https://vk.com')
-    }
-
-    if (referer && !isLocalCache && !isOkCdn && !isVk) {
-      mpvArgs.push(`--referrer=${referer}`)
     }
   }
 
@@ -310,31 +285,16 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     // Resolve immediately after spawn — don't block on IPC socket.
     // The renderer's poll loop handles IPC errors via try/catch.
     settled = true
-    
-    if (playbackInfo) {
-      currentPlayback = playbackInfo
-      startScrobbling()
-    }
-    
     resolve()
 
     // Do resume-seek asynchronously in the background once socket is ready
-    if (resumePos || traktResumePercent) {
+    if (resumePos) {
       waitForSocket(ipcSocketPath, 10000)
         .then(async () => {
+          console.log('[MPV] Socket ready, seeking to resume position:', resumePos)
           try {
-            let finalPos = resumePos
-            if (finalPos === undefined && traktResumePercent !== null) {
-              const duration = await getDuration()
-              finalPos = (traktResumePercent / 100) * duration
-              console.log(`[MPV] Calculated Trakt resume position: ${finalPos}s from ${traktResumePercent}% of ${duration}s`)
-            }
-
-            if (finalPos && finalPos > 0) {
-              console.log('[MPV] Socket ready, seeking to resume position:', finalPos)
-              await sendCommand({ command: ['set', 'time-pos', finalPos] })
-              console.log('[MPV] Resume seek completed')
-            }
+            await sendCommand({ command: ['set', 'time-pos', resumePos] })
+            console.log('[MPV] Resume seek completed')
           } catch (e) {
             console.warn('[MPV] Resume seek failed:', e)
           }
@@ -349,35 +309,15 @@ export async function startPlayback(url: string, resumePosition?: number, accent
 }
 
 export async function stopPlayback(): Promise<void> {
-  if (scrobbleInterval) {
-    clearInterval(scrobbleInterval)
-    scrobbleInterval = null
-  }
-  if (currentPlayback) {
-    try {
-      const pos = await getTimePos().catch(() => 0)
-      const dur = await getDuration().catch(() => 0)
-      const progress = dur > 0 ? pos / dur : 0
-      const payload = TraktService.buildScrobblePayload(
-        currentPlayback.tmdbId,
-        currentPlayback.mediaType,
-        progress,
-        currentPlayback.season,
-        currentPlayback.episode
-      )
-      await TraktService.scrobble('stop', payload).catch(() => {})
-    } catch {}
-    currentPlayback = null
-  }
-
   if (mpvProcess) {
+    const proc = mpvProcess
     try {
       await sendCommand({ command: ['quit'] })
     } catch {}
-    mpvProcess.kill('SIGTERM')
+    proc.kill('SIGTERM')
     setTimeout(() => {
-      if (mpvProcess && !mpvProcess.killed) {
-        mpvProcess.kill('SIGKILL')
+      if (!proc.killed) {
+        proc.kill('SIGKILL')
       }
     }, 500)
     mpvProcess = null
@@ -422,7 +362,7 @@ export async function getProperty(name: string): Promise<any> {
 
 export async function getTimePos(): Promise<number> {
   try {
-    const res = await sendCommand({ command: ['get_property', 'time-pos'] }, 2000)
+    const res = await sendCommand({ command: ['get_property', 'time-pos'] })
     return res?.data ?? 0
   } catch {
     return 0
@@ -515,35 +455,6 @@ export async function clearUpNext(): Promise<void> {
   try {
     await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-up-next'] })
   } catch {}
-}
-
-async function updateScrobble() {
-  if (!currentPlayback || !mpvProcess) return
-  try {
-    const paused = await getPaused()
-    if (paused) return
-    
-    const pos = await getTimePos()
-    const dur = await getDuration()
-    if (dur <= 0) return
-    
-    const progress = pos / dur
-    const payload = TraktService.buildScrobblePayload(
-      currentPlayback.tmdbId,
-      currentPlayback.mediaType,
-      progress,
-      currentPlayback.season,
-      currentPlayback.episode
-    )
-    await TraktService.scrobble('start', payload)
-  } catch (e) {
-    console.warn('[MPV] Scrobble heartbeat failed:', e)
-  }
-}
-
-function startScrobbling() {
-  if (scrobbleInterval) clearInterval(scrobbleInterval)
-  scrobbleInterval = setInterval(updateScrobble, 60000) // Update every 60s
 }
 
 export function getLastExitCode(): number | null {

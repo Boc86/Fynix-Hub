@@ -25,6 +25,8 @@ import * as SportsDBService from '../services/sportsdb.service'
 import * as DamiTVService from '../services/dami-tv.service'
 import * as SportsApiProService from '../services/sportsapipro.service'
 import * as EpgService from '../services/epg.service'
+import * as UsenetSearchService from '../services/usenet-search.service'
+import * as UsenetService from '../services/usenet.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -561,6 +563,7 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
     if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
     if (key === 'sportsApiProKey') SportsApiProService.setApiKey(String(value))
+    if (key === 'liveTvUser' || key === 'liveTvPlan') DamiTVService.clearChannelsCache()
     // SportsService uses public Sportarr API, no key needed
 })
 
@@ -846,10 +849,21 @@ export async function registerIpcHandlers(): Promise<void> {
     if (!imageUrl) { console.log('[ProxyImage] No URL'); return null }
 
     let url = imageUrl
-    let referer = 'https://dami-tv.pro/'
+    let referer = 'https://cdnlivetv.is/'
     if (!url.startsWith('http')) {
-      url = `https://dami-tv.pro${url.startsWith('/') ? '' : '/'}${url}`
+      url = `https://cdnlivetv.tv${url.startsWith('/') ? '' : '/'}${url}`
+      const liveTvUser = CacheService.getSetting<string>('liveTvUser') || 'cdnlivetv'
+      const liveTvPlan = CacheService.getSetting<string>('liveTvPlan') || 'free'
+      url = `${url}?user=${encodeURIComponent(liveTvUser)}&plan=${encodeURIComponent(liveTvPlan)}`
+      referer = 'https://cdnlivetv.tv/'
     } else {
+      // add auth for cdnlivetv hosted images
+      if (url.includes('cdnlivetv.tv') || url.includes('cdnlivetv.is')) {
+        const liveTvUser = CacheService.getSetting<string>('liveTvUser') || 'cdnlivetv'
+        const liveTvPlan = CacheService.getSetting<string>('liveTvPlan') || 'free'
+        const separator = url.includes('?') ? '&' : '?'
+        url = `${url}${separator}user=${encodeURIComponent(liveTvUser)}&plan=${encodeURIComponent(liveTvPlan)}`
+      }
       try { const p = new URL(url); referer = `${p.protocol}//${p.host}/` } catch {}
     }
 
@@ -927,6 +941,48 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('epg:refresh', async () => {
     await EpgService.refreshEpg()
+  })
+
+  handle('usenet:search', async (event, query) => {
+    console.log('[Handler] usenet:search', JSON.stringify(query).slice(0, 200))
+    const enabledIds = CacheService.getSetting<string[]>('enabledUsenetIndexers') || UsenetSearchService.getDefaultEnabledIndexerIds()
+    const customIndexers = CacheService.getSetting<UsenetSearchService.UsenetIndexerConfig[]>('customUsenetIndexers') || []
+    try {
+      const results = await UsenetSearchService.searchUsenet(query, enabledIds, customIndexers, (result) => {
+        event.sender.send('usenet:result', result)
+      })
+      console.log('[Handler] usenet:search returned', results.length, 'results')
+      return results
+    } catch (err: any) {
+      console.error('[Handler] usenet:search failed:', err.message)
+      return []
+    }
+  })
+
+  handle('usenet:check-connection', async () => {
+    return UsenetService.checkConnection()
+  })
+
+  handle('usenet:send-nzb', async (_event, nzbUrl, title) => {
+    console.log('[Handler] usenet:send-nzb', title)
+    return UsenetService.sendNzb(nzbUrl, title)
+  })
+
+  handle('usenet:get-download-status', async (_event, id) => {
+    return UsenetService.getDownloadStatus(id)
+  })
+
+  handle('usenet:get-free-indexers', () => {
+    return UsenetSearchService.getFreeIndexers()
+  })
+
+  handle('usenet:get-stream-url', async (_event, id) => {
+    return { url: await UsenetService.getStreamUrl(id) }
+  })
+
+  handle('usenet:reload-config', async () => {
+    UsenetService.loadConfig()
+    return { success: true }
   })
 
   handle('mpv:get-sub-action', async () => {
