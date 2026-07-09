@@ -301,13 +301,13 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
                 key={p.id}
                 ref={(el) => { profileMenuItemsRef.current[i] = el! }}
                 tabIndex={0}
-                onClick={() => {
-                  setActiveProfile(p.id)
+                onClick={async () => {
+                  await setActiveProfile(p.id)
                   setProfileMenuOpen(false)
                   onClose()
                 }}
                 onFocus={() => setProfileMenuFocused(i)}
-                onKeyDown={(e) => {
+                onKeyDown={async (e) => {
                   if (e.key === 'ArrowDown') {
                     e.preventDefault()
                     const next = (i + 1) % profiles.length
@@ -320,7 +320,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
                     profileMenuItemsRef.current[prev]?.focus()
                   } else if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    setActiveProfile(p.id)
+                    await setActiveProfile(p.id)
                     setProfileMenuOpen(false)
                     onClose()
                   } else if (e.key === 'Escape') {

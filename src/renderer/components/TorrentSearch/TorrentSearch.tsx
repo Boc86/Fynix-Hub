@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
-import type { TorrentResult, RivestreamResult } from '../../types.d'
+import type { TorrentResult, RivestreamResult, UsenetResult } from '../../types.d'
 import { useSettingsStore } from '../../store/settingsStore'
 import styles from './TorrentSearch.module.css'
 
@@ -10,8 +10,11 @@ interface TorrentSearchProps {
   cachedMap: Record<string, string[]>
   loading: boolean
   rivestreamResults?: RivestreamResult[]
+  usenetResults?: UsenetResult[]
+  usenetLoading?: boolean
   onSelect: (result: TorrentResult) => void
   onSelectRivestream?: (result: RivestreamResult) => void
+  onSelectUsenet?: (result: UsenetResult) => void
   onClose: () => void
 }
 
@@ -77,7 +80,13 @@ function matchesLanguage(title: string, languages: string[]): boolean {
   })
 }
 
-export default function TorrentSearch({ title, year, results, cachedMap, loading, rivestreamResults, onSelect, onSelectRivestream, onClose }: TorrentSearchProps) {
+function usenetFormatSize(bytes: number): string {
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(1)} GB`
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(0)} MB`
+  return `${(bytes / 1024).toFixed(0)} KB`
+}
+
+export default function TorrentSearch({ title, year, results, cachedMap, loading, rivestreamResults, usenetResults, usenetLoading, onSelect, onSelectRivestream, onSelectUsenet, onClose }: TorrentSearchProps) {
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [localRiveResults, setLocalRiveResults] = useState<RivestreamResult[]>([])
   const prefLangs = useSettingsStore(s => s.preferredLanguages)
@@ -92,8 +101,10 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   }, [])
 
   const combinedRiveResults = [...(rivestreamResults || []), ...localRiveResults]
+  const combinedUsenetResults = usenetResults || []
   const overlayRef = useRef<HTMLDivElement>(null)
   const rivestreamCount = combinedRiveResults.length
+  const usenetCount = combinedUsenetResults.length
 
   const listRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -139,7 +150,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
     }
   }, [results, prefLangs, prefRes, maxTorrentSize, cachedMap])
 
-  const totalItems = rivestreamCount + scoredResults.length
+  const totalItems = rivestreamCount + usenetCount + scoredResults.length
 
   const cachedCountInList = scoredResults.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).length
 
@@ -153,15 +164,17 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
       e.preventDefault()
       if (selectedIdx < rivestreamCount && onSelectRivestream && combinedRiveResults) {
         onSelectRivestream(combinedRiveResults[selectedIdx])
+      } else if (selectedIdx >= rivestreamCount && selectedIdx < rivestreamCount + usenetCount && onSelectUsenet) {
+        onSelectUsenet(combinedUsenetResults[selectedIdx - rivestreamCount])
       } else {
-        const torrentIdx = selectedIdx - rivestreamCount
+        const torrentIdx = selectedIdx - rivestreamCount - usenetCount
         if (scoredResults[torrentIdx]) {
           onSelect(scoredResults[torrentIdx])
         }
       }
     }
     e.stopPropagation()
-  }, [scoredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream])
+  }, [scoredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream, usenetCount, combinedUsenetResults, onSelectUsenet])
 
   return (
     <div className={styles.overlay} tabIndex={-1} ref={overlayRef} onKeyDown={handleOverlayKeyDown} onClick={onClose}>
@@ -207,7 +220,39 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
              </>
            )}
 
-          {!loading && scoredResults.length === 0 && rivestreamCount === 0 && (
+           {!loading && usenetLoading && (
+             <div className={styles.loading}>
+               <div className={styles.spinner} />
+               <span>Searching Usenet...</span>
+             </div>
+           )}
+
+           {!loading && !usenetLoading && usenetCount > 0 && (
+             <>
+               <div className={styles.sectionLabel}>Usenet</div>
+               {combinedUsenetResults.map((r, idx) => {
+                 const displayIdx = rivestreamCount + idx
+                 return (
+                   <div
+                     key={`usenet-${idx}`}
+                     ref={el => { itemRefs.current[displayIdx] = el }}
+                     className={`${styles.result} ${displayIdx === selectedIdx ? styles.selected : ''}`}
+                     onClick={() => onSelectUsenet?.(r)}
+                     onMouseEnter={() => setSelectedIdx(displayIdx)}
+                   >
+                     <div className={styles.resultTitle}>{r.title}</div>
+                     <div className={styles.resultMeta}>
+                       <span className={`${styles.badge} ${styles.quality}`}>{r.quality}</span>
+                       <span className={`${styles.badge} ${styles.indexer}`}>{r.indexer}</span>
+                       <span className={styles.size}>{usenetFormatSize(r.size)}</span>
+                     </div>
+                   </div>
+                 )
+               })}
+             </>
+           )}
+
+          {!loading && scoredResults.length === 0 && rivestreamCount === 0 && usenetCount === 0 && (
             <div className={styles.empty}>
               No torrents found
             </div>
@@ -216,7 +261,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
             <>
               <div className={styles.sectionLabel}>Torrents</div>
               {scoredResults.map((r, idx) => {
-                const displayIdx = rivestreamCount + idx
+                const displayIdx = rivestreamCount + usenetCount + idx
                 return (
                   <div
                     key={`${r.infoHash}-${idx}`}
@@ -247,7 +292,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
 
         {totalItems > 0 && (
           <div className={styles.footer}>
-            <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{rivestreamCount > 0 ? ' · Direct Stream = instant play' : Object.keys(cachedMap).length > 0 ? ' · Cached = instant stream' : ''}</span>
+            <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{rivestreamCount > 0 ? ' · Direct Stream = instant play' : ''}{usenetCount > 0 ? ' · Usenet = streams via download client' : ''}{Object.keys(cachedMap).length > 0 ? ' · Cached = instant stream' : ''}</span>
             {(prefLangs.length > 0 || prefRes.length > 0) && (
               <span className={styles.filterInfo}> · preferences boost results</span>
             )}

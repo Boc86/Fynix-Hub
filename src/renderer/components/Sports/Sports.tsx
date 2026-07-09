@@ -110,6 +110,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [leagueImgErrors, setLeagueImgErrors] = useState<Set<string>>(new Set())
   const [teamImgErrors, setTeamImgErrors] = useState<Set<string>>(new Set())
   const [leagueDbImages, setLeagueDbImages] = useState<Record<string, string>>({})
+  const [leaguesPage, setLeaguesPage] = useState(1)
+  const LEAGUES_PER_PAGE = 50
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
@@ -185,16 +187,59 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     }).catch((err: any) => window.api.log(`[Sports] TheSportsDB getAllSports error: ${err?.message || err}`))
   }, [store.sportsList.length])
 
+  const fetchLeagueDbImage = useCallback(async (sportName: string | undefined, leagueName: string, leagueId: string) => {
+    if (!sportName) { window.api.log(`[Sports] fetchLeagueDbImage: no sportName for "${leagueName}"`); return }
+    const key = sportName.toLowerCase()
+    window.api.log(`[Sports] fetchLeagueDbImage: name="${sportName}" key="${key}" league="${leagueName}"`)
+    try {
+      const imgUrl = await window.api.sportsapipro.getCompetitionImage(key, leagueName)
+      if (imgUrl) {
+        window.api.log(`[Sports] SportsAPIPRO found image for "${leagueName}"`)
+        setLeagueDbImages(prev => ({ ...prev, [leagueId]: imgUrl }))
+        return
+      }
+      window.api.log(`[Sports] SportsAPIPRO no image for "${leagueName}"`)
+    } catch (err: any) {
+      window.api.log(`[Sports] SportsAPIPRO error: ${err?.message || err}`)
+    }
+    const dbName = OUR_TO_DB_SPORT[key]
+    if (!dbName) { window.api.log(`[Sports] No TheSportsDB name mapping for key="${key}"`); return }
+    try {
+      const teams = await window.api.sportsdb.getTeamsBySport(dbName)
+      const match = teams.find((t: any) =>
+        t.league?.toLowerCase() === leagueName.toLowerCase() ||
+        t.name?.toLowerCase() === leagueName.toLowerCase()
+      )
+      if (match?.badge) {
+        window.api.log(`[Sports] TheSportsDB found badge for "${leagueName}"`)
+        setLeagueDbImages(prev => ({ ...prev, [leagueId]: match.badge }))
+      } else {
+        window.api.log(`[Sports] TheSportsDB no match for "${leagueName}" among ${teams.length} teams`)
+      }
+    } catch (err: any) {
+      window.api.log(`[Sports] TheSportsDB error: ${err?.message || err}`)
+    }
+  }, [])
+
   const loadLeagues = useCallback(async (sport: any) => {
     store.setLoading(true)
     setSelectedCountry('')
+    setLeaguesPage(1)
     useSportsStore.setState({ selectedSport: sport, view: 'leagues', leagues: [] })
     try {
       const leagues = await window.api.sports.getLeaguesBySport(sport.id)
       store.setLeagues(leagues)
+      // trigger fallback image fetching for leagues without logoUrl
+      if (sport.name) {
+        for (const league of leagues) {
+          if (!league.logoUrl && !leagueDbImages[league.id] && !leagueImgErrors.has(league.id)) {
+            fetchLeagueDbImage(sport.name, league.name, league.id)
+          }
+        }
+      }
     } catch { store.setError('Failed to load leagues') }
     store.setLoading(false)
-  }, [store])
+  }, [store, leagueDbImages, leagueImgErrors, fetchLeagueDbImage])
 
   const loadSeasons = useCallback(async (league: any) => {
     store.setLoading(true)
@@ -409,40 +454,6 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     } catch { onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined) }
     setReplaySearching(false)
   }, [store.selectedEvent, onPlay, isTeamEvent])
-
-  const fetchLeagueDbImage = useCallback(async (sportName: string | undefined, leagueName: string, leagueId: string) => {
-    if (!sportName) { window.api.log(`[Sports] fetchLeagueDbImage: no sportName for "${leagueName}"`); return }
-    const key = sportName.toLowerCase()
-    window.api.log(`[Sports] fetchLeagueDbImage: name="${sportName}" key="${key}" league="${leagueName}"`)
-    try {
-      const imgUrl = await window.api.sportsapipro.getCompetitionImage(key, leagueName)
-      if (imgUrl) {
-        window.api.log(`[Sports] SportsAPIPRO found image for "${leagueName}"`)
-        setLeagueDbImages(prev => ({ ...prev, [leagueId]: imgUrl }))
-        return
-      }
-      window.api.log(`[Sports] SportsAPIPRO no image for "${leagueName}"`)
-    } catch (err: any) {
-      window.api.log(`[Sports] SportsAPIPRO error: ${err?.message || err}`)
-    }
-    const dbName = OUR_TO_DB_SPORT[key]
-    if (!dbName) { window.api.log(`[Sports] No TheSportsDB name mapping for key="${key}"`); return }
-    try {
-      const teams = await window.api.sportsdb.getTeamsBySport(dbName)
-      const match = teams.find((t: any) =>
-        t.league?.toLowerCase() === leagueName.toLowerCase() ||
-        t.name?.toLowerCase() === leagueName.toLowerCase()
-      )
-      if (match?.badge) {
-        window.api.log(`[Sports] TheSportsDB found badge for "${leagueName}"`)
-        setLeagueDbImages(prev => ({ ...prev, [leagueId]: match.badge }))
-      } else {
-        window.api.log(`[Sports] TheSportsDB no match for "${leagueName}" among ${teams.length} teams`)
-      }
-    } catch (err: any) {
-      window.api.log(`[Sports] TheSportsDB error: ${err?.message || err}`)
-    }
-  }, [])
 
   const goBack = useCallback(() => {
     if (showSchedule) {
@@ -739,14 +750,16 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           </div>
         )
 
-      case 'leagues':
+      case 'leagues': {
+        const paginated = filteredLeagues.slice(0, leaguesPage * LEAGUES_PER_PAGE)
+        const hasMore = paginated.length < filteredLeagues.length
         return (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>{store.selectedSport?.name} Leagues</h2>
             {leagueCountries.length > 1 && (
               <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                 <button
-                  onClick={() => setSelectedCountry('')}
+                  onClick={() => { setSelectedCountry(''); setLeaguesPage(1) }}
                   style={{
                     padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
                     fontSize: 12, fontWeight: 600,
@@ -757,7 +770,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 {leagueCountries.map(country => (
                   <button
                     key={country}
-                    onClick={() => setSelectedCountry(country)}
+                    onClick={() => { setSelectedCountry(country); setLeaguesPage(1) }}
                     style={{
                       padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
                       fontSize: 12, fontWeight: 600,
@@ -769,7 +782,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }} data-grid>
-              {filteredLeagues.map((league: any, i: number) => (
+              {paginated.map((league: any, i: number) => (
                 <div key={league.id} data-focus-index={i} tabIndex={0}
                   style={cardStyle(isFocused(i, focusedIndex))}
                   onClick={() => loadSeasons(league)}
@@ -794,9 +807,22 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 </div>
               ))}
             </div>
+            {hasMore && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
+                <button
+                  tabIndex={0}
+                  onClick={() => setLeaguesPage(p => p + 1)}
+                  style={{
+                    padding: '10px 28px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 600,
+                  }}
+                >Show More ({filteredLeagues.length - paginated.length} remaining)</button>
+              </div>
+            )}
             {filteredLeagues.length === 0 && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No leagues found{selectedCountry ? ` for ${selectedCountry}` : ` for ${store.selectedSport?.name}`}</div>}
           </div>
         )
+      }
 
       case 'seasons':
         return (

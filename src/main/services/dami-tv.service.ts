@@ -1,20 +1,12 @@
 import * as CacheService from './cache.service'
 
-const API_BASE = 'https://dami-tv.pro/papi/api'
+const API_BASE = 'https://api.cdnlivetv.is/api/v1'
 const CACHE_TTL = 60000
 const CHANNELS_CACHE_TTL = 300000
-const CHANNELS_URL = 'https://dami-tv.pro/data/tv-channels.json?v=516'
-const CHANNELS_FALLBACK_URLS = [
-  'https://dami-tv.pro/data/tv-channels.json',
-  'https://dami-tv.pro/channels.json',
-  'https://dami-tv.pro/data/channels.json',
-  'https://dami-tv.pro/api/channels',
-  'https://dami-tv.pro/papi/api/channels',
-]
 
 const CC_MAP: [string, string][] = [
   ['united states', 'us'], ['usa', 'us'], ['u.s', 'us'],
-  [' uk', 'uk'], ['u.k', 'uk'], ['britain', 'uk'], ['england', 'uk'],
+  [' uk', 'gb'], ['u.k', 'gb'], ['britain', 'gb'], ['england', 'gb'],
   ['spain', 'es'], ['espa', 'es'],
   ['italy', 'it'], ['italia', 'it'],
   ['france', 'fr'], ['french', 'fr'],
@@ -107,16 +99,21 @@ export interface DamiTVChannel {
 }
 
 function parseChannel(item: any): DamiTVChannel {
-  const code = (typeof item.country === 'string' ? item.country : '') || detectCountryCode(item.name || '')
+  const code = (typeof item.country === 'string' ? item.country.toLowerCase() : '') || detectCountryCode(item.name || '')
+  let image = item.image || item.logo || item.icon || ''
+  // strip full cdnlivetv URLs to relative path so proxy adds auth query params
+  if (image.startsWith('https://cdnlivetv.tv/')) {
+    image = image.slice('https://cdnlivetv.tv'.length)
+  }
   return {
-    id: String(item.id || ''),
-    name: item.name || '',
-    image: item.image || '',
+    id: String(item.id || item.channel_id || item.channel || ''),
+    name: item.name || item.title || '',
+    image,
     countryCode: code,
     countryName: COUNTRY_NAMES[code] || code.toUpperCase(),
     countryFlag: countryFlag(code),
-    playerUrl: item.playerUrl || '',
-    source: item.source || '',
+    playerUrl: item.playerUrl || item.player_url || item.embed || `https://embed.cdnlivetv.is/player.php?channel=${item.id || item.channel_id || ''}`,
+    source: item.source || item.group || item.category || '',
     status: item.status || '',
   }
 }
@@ -147,169 +144,73 @@ function parseStream(item: any): DamiTVStream {
 export async function getStreams(): Promise<DamiTVCategory[]> {
   const cached = CacheService.getCache('dami-tv:streams')
   if (cached) return JSON.parse(cached)
-
-  const res = await fetch(`${API_BASE}/streams`, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-  })
-  if (!res.ok) throw new Error(`DAMI-TV HTTP ${res.status}`)
-  const data = await res.json()
-
-  const categories: DamiTVCategory[] = (data.streams || []).map((cat: any) => ({
-    name: cat.category || cat.category_name || '',
-    streams: (cat.streams || []).map(parseStream),
-  }))
-
-  CacheService.setCache('dami-tv:streams', JSON.stringify(categories), CACHE_TTL)
-  return categories
+  return []
 }
 
 export async function getStreamsByCategory(category: string): Promise<DamiTVStream[]> {
-  const all = await getStreams()
-  return all.find(c => c.name === category)?.streams || []
+  return []
+}
+
+export function clearChannelsCache() {
+  CacheService.setCache('dami-tv:channels', '', 0)
+  console.log('[LiveTV] Channels cache cleared')
+}
+
+function getCredentials(): { user: string; plan: string } {
+  const user = CacheService.getSetting<string>('liveTvUser') || 'cdnlivetv'
+  const plan = CacheService.getSetting<string>('liveTvPlan') || 'free'
+  return { user, plan }
 }
 
 export async function getChannels(): Promise<DamiTVChannel[]> {
   const cached = CacheService.getCache('dami-tv:channels')
   if (cached) return JSON.parse(cached)
 
-  const urlsToTry = [CHANNELS_URL, ...CHANNELS_FALLBACK_URLS]
-  let lastErr: Error | null = null
+  const { user, plan } = getCredentials()
+  const url = `${API_BASE}/channels/?user=${encodeURIComponent(user)}&plan=${encodeURIComponent(plan)}`
 
-  for (const url of urlsToTry) {
-    console.log(`[DamiTV] Trying channels URL: ${url}`)
-    try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-      })
-      if (!res.ok) {
-        console.log(`[DamiTV] HTTP ${res.status} for ${url}`)
-        if (res.status === 404) continue
-        throw new Error(`DAMI-TV channels HTTP ${res.status}`)
-      }
-      const data = await res.json()
-
-      // save the working URL for next time
-      CacheService.setSetting('damiTvChannelsUrl', url)
-
-      const channels: DamiTVChannel[] = (data.channels || []).map(parseChannel)
-
-      CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
-      console.log(`[DamiTV] Loaded ${channels.length} channels from ${url}`)
-      return channels
-    } catch (err: any) {
-      console.log(`[DamiTV] Failed for ${url}: ${err?.message || err}`)
-      lastErr = err
+  console.log(`[LiveTV] Fetching channels: ${url}`)
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    if (!res.ok) {
+      console.log(`[LiveTV] HTTP ${res.status} for channels`)
+      throw new Error(`LiveTV channels HTTP ${res.status}`)
     }
-  }
+    const data = await res.json()
 
-  // try stored URL from a previous successful run
-  const storedUrl = CacheService.getSetting<string>('damiTvChannelsUrl')
-  if (storedUrl && !urlsToTry.includes(storedUrl)) {
-    console.log(`[DamiTV] Trying stored URL: ${storedUrl}`)
-    try {
-      const res = await fetch(storedUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-      if (res.ok) {
-        const data = await res.json()
-        const channels: DamiTVChannel[] = (data.channels || []).map(parseChannel)
-        CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
-        console.log(`[DamiTV] Loaded ${channels.length} channels from stored URL`)
-        return channels
-      }
-    } catch {}
-  }
+    // handle both { channels: [...] } and raw array responses
+    const rawChannels = Array.isArray(data) ? data : (data.channels || data.data || [])
+    console.log(`[LiveTV] API returned ${rawChannels.length} raw items`)
 
-  if (lastErr) throw lastErr
-  throw new Error('DAMI-TV channels all URLs returned 404')
+    const channels: DamiTVChannel[] = rawChannels.map(parseChannel).filter((c: DamiTVChannel) => c.name)
+
+    CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
+    CacheService.setCache('dami-tv:channels-stale', JSON.stringify(channels), 86400000 * 7) // keep stale for 7 days
+    console.log(`[LiveTV] Loaded ${channels.length} channels from cdnlivetv.is`)
+    return channels
+  } catch (err: any) {
+    console.warn(`[LiveTV] Failed to fetch channels: ${err?.message || err}`)
+
+    // fallback: check if we have stale cached data
+    const stale = CacheService.getCache('dami-tv:channels-stale')
+    if (stale) {
+      console.log('[LiveTV] Using stale cached channels')
+      return JSON.parse(stale)
+    }
+    throw err
+  }
 }
 
 export async function getChannelsByCountry(countryCode: string): Promise<DamiTVChannel[]> {
   const all = await getChannels()
   if (countryCode === 'all') return all
   return all.filter(c => c.countryCode === countryCode)
-}
-
-function b64decode(s: string): string {
-  let padded = s
-  while (padded.length % 4) padded += '='
-  return Buffer.from(padded, 'base64').toString('utf-8')
-}
-
-function extractHlsUrlFromPlayerPage(html: string): string | null {
-  const fnRe = /function\s+(\w+)\s*\(\s*s\s*\)\s*\{[^}]*replace\s*\(\s*\/-\/g\s*,\s*['"]\+['"]\s*\)/
-  const fnMatch = html.match(fnRe)
-  if (!fnMatch) return null
-  const decodeFn = fnMatch[1]
-
-  const vars: Record<string, string> = {}
-  const varRe = new RegExp(`var\\s+(\\w+)\\s*=\\s*['"]([A-Za-z0-9+/=]+)['"]`, 'g')
-  let m
-  while ((m = varRe.exec(html)) !== null) {
-    vars[m[1]] = m[2]
-  }
-
-  const escapedFn = decodeFn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const partPat = `${escapedFn}\\((\\w+)\\)`
-  const chainPat = `(?:${partPat}\\+)+${partPat}`
-  const chainRe = new RegExp(chainPat, 'g')
-
-  while ((m = chainRe.exec(html)) !== null) {
-    const allVars: string[] = []
-    const innerRe = new RegExp(`${escapedFn}\\((\\w+)\\)`, 'g')
-    let im
-    while ((im = innerRe.exec(m[0])) !== null) {
-      allVars.push(im[1])
-    }
-
-    if (allVars.length >= 3) {
-      let url = ''
-      let valid = true
-      for (const v of allVars) {
-        const b64 = vars[v]
-        if (!b64) { valid = false; break }
-        try { url += b64decode(b64) } catch { valid = false; break }
-      }
-      if (valid && (url.includes('.m3u8') || url.includes('playlist') || url.includes('cdnlivetv'))) {
-        return url
-      }
-    }
-  }
-
-  return null
-}
-
-export async function extractChannelUrl(channelId: string): Promise<{ hlsUrl?: string; embedUrl?: string }> {
-  try {
-    const channels = await getChannels()
-    const ch = channels.find(c => c.id === channelId)
-    if (!ch || !ch.playerUrl) {
-      console.warn(`[DamiTV] No playerUrl for channel ${channelId}`)
-      return {}
-    }
-
-    const res = await fetch(ch.playerUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://dami-tv.pro/',
-      },
-    })
-    if (!res.ok) {
-      console.warn(`[DamiTV] player page HTTP ${res.status} for ${channelId}`)
-      return {}
-    }
-    const html = await res.text()
-
-    const hlsUrl = extractHlsUrlFromPlayerPage(html)
-    if (hlsUrl) {
-      console.log(`[DamiTV] Resolved HLS URL for channel ${channelId}`)
-      return { hlsUrl }
-    }
-
-    console.warn(`[DamiTV] Could not extract HLS URL from player page for ${channelId}`)
-    return {}
-  } catch (err) {
-    console.warn(`[DamiTV] extractChannelUrl failed for ${channelId}:`, err)
-    return {}
-  }
 }
 
 export async function getAvailableCountries(): Promise<{ code: string; name: string; flag: string; count: number }[]> {
@@ -327,3 +228,76 @@ export async function getAvailableCountries(): Promise<{ code: string; name: str
     }))
     .sort((a, b) => b.count - a.count)
 }
+
+export async function extractChannelUrl(channelId: string): Promise<{ hlsUrl?: string; embedUrl?: string }> {
+  try {
+    const channels = await getChannels()
+    const ch = channels.find(c => c.id === channelId)
+    if (!ch || !ch.playerUrl) {
+      console.warn(`[LiveTV] No playerUrl for channel ${channelId}`)
+      return {}
+    }
+
+    const urlController = new AbortController()
+    const urlTimeout = setTimeout(() => urlController.abort(), 10000)
+    const res = await fetch(ch.playerUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://cdnlivetv.is/',
+      },
+      signal: urlController.signal,
+    })
+    clearTimeout(urlTimeout)
+    if (!res.ok) {
+      console.warn(`[LiveTV] player page HTTP ${res.status} for ${channelId}`)
+      return {}
+    }
+    const html = await res.text()
+
+    // try common HLS patterns
+    const hlsUrl = extractHlsUrl(html)
+    if (hlsUrl) {
+      console.log(`[LiveTV] Resolved HLS URL for channel ${channelId}`)
+      return { hlsUrl }
+    }
+
+    // try to find an iframe with a stream URL
+    const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i)
+    if (iframeMatch) {
+      console.log(`[LiveTV] Found iframe for channel ${channelId}: ${iframeMatch[1]}`)
+      return { embedUrl: iframeMatch[1] }
+    }
+
+    console.warn(`[LiveTV] Could not extract URL from player page for ${channelId}`)
+    return {}
+  } catch (err) {
+    console.warn(`[LiveTV] extractChannelUrl failed for ${channelId}:`, err)
+    return {}
+  }
+}
+
+function extractHlsUrl(html: string): string | null {
+  // direct .m3u8 URLs
+  const m3u8Re = /https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/g
+  let m = m3u8Re.exec(html)
+  if (m) return m[0]
+
+  // base64-encoded m3u8 URLs
+  const b64Re = /['"]([A-Za-z0-9+/=]{40,})['"]/g
+  while ((m = b64Re.exec(html)) !== null) {
+    try {
+      const decoded = Buffer.from(m[1], 'base64').toString('utf-8')
+      if (decoded.includes('.m3u8') || decoded.includes('cdnlivetv')) return decoded
+    } catch {}
+  }
+
+  // JavaScript variables with m3u8
+  const varRe = /['"]([^"']*\.m3u8[^"']*)['"]/g
+  while ((m = varRe.exec(html)) !== null) {
+    if (m[1].startsWith('http')) return m[1]
+  }
+
+  return null
+}
+
+

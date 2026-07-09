@@ -145,6 +145,18 @@ export interface RivestreamResult {
   indexer: string
 }
 
+export interface UsenetResult {
+  title: string
+  size: number
+  indexer: string
+  quality: string
+  nzbUrl: string
+  infoHash: string
+  group: string
+  poster: number
+  date: string
+}
+
 export interface IntroSegment {
   type: 'intro' | 'recap' | 'credits'
   startMs: number | null

@@ -26,18 +26,19 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'connections' | 'indexers' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'connections' | 'torrents' | 'usenet' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
   { id: 'connections', label: 'Connections', shortcut: '2' },
-  { id: 'indexers', label: 'Indexers', shortcut: '3' },
-  { id: 'youtube', label: 'YouTube', shortcut: '4' },
-  { id: 'sports', label: 'Sports', shortcut: '5' },
-  { id: 'live-tv', label: 'Live TV', shortcut: '6' },
-  { id: 'profiles', label: 'Profiles', shortcut: '7' },
-  { id: 'advanced', label: 'Advanced', shortcut: '8' },
-  { id: 'remote', label: 'Remote', shortcut: '9' },
+  { id: 'torrents', label: 'Torrents', shortcut: '3' },
+  { id: 'usenet', label: 'Usenet', shortcut: '4' },
+  { id: 'youtube', label: 'YouTube', shortcut: '5' },
+  { id: 'sports', label: 'Sports', shortcut: '6' },
+  { id: 'live-tv', label: 'Live TV', shortcut: '7' },
+  { id: 'profiles', label: 'Profiles', shortcut: '8' },
+  { id: 'advanced', label: 'Advanced', shortcut: '9' },
+  { id: 'remote', label: 'Remote', shortcut: '0' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -51,6 +52,20 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localSportsApiProKey, setLocalSportsApiProKey] = useState(store.sportsApiProKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
+  const [localEnableUsenet, setLocalEnableUsenet] = useState(store.usenetEnabled)
+  const [localUsenetProvider, setLocalUsenetProvider] = useState(store.usenetProvider)
+  const [localSabUrl, setLocalSabUrl] = useState(store.sabnzbdUrl)
+  const [localSabKey, setLocalSabKey] = useState(store.sabnzbdApiKey)
+  const [localNzbUrl, setLocalNzbUrl] = useState(store.nzbgetUrl)
+  const [localNzbUser, setLocalNzbUser] = useState(store.nzbgetUsername)
+  const [localNzbPass, setLocalNzbPass] = useState(store.nzbgetPassword)
+  const [localNzbDavUrl, setLocalNzbDavUrl] = useState(store.nzbdavUrl)
+  const [localNzbDavApiKey, setLocalNzbDavApiKey] = useState(store.nzbdavApiKey)
+  const [localNzbDavWebdavUser, setLocalNzbDavWebdavUser] = useState(store.nzbdavWebdavUser)
+  const [localNzbDavWebdavPass, setLocalNzbDavWebdavPass] = useState(store.nzbdavWebdavPass)
+  const [localEnabledUsenetIndexers, setLocalEnabledUsenetIndexers] = useState<string[]>(store.enabledUsenetIndexers)
+  const [localCustomUsenetIndexers, setLocalCustomUsenetIndexers] = useState<any[]>(store.customUsenetIndexers)
+  const [newUsenetCustom, setNewUsenetCustom] = useState({ name: '', url: '', apiKey: '' })
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [trackerRefreshState, setTrackerRefreshState] = useState<'idle' | 'refreshing' | 'done' | 'error'>('idle')
@@ -76,6 +91,8 @@ export default function Settings({ onClose }: SettingsProps) {
   const [addProfilePromptOpen, setAddProfilePromptOpen] = useState(false)
   const [deleteProfileConfirm, setDeleteProfileConfirm] = useState<string | null>(null)
   const [debridStatuses, setDebridStatuses] = useState<Record<string, { valid: boolean; expiry?: string; error?: string }>>({})
+  const [usenetConnStatus, setUsenetConnStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle')
+  const [usenetConnError, setUsenetConnError] = useState('')
 
   const resolutions = ['4K', '1080p', '720p', '480p']
 
@@ -342,7 +359,7 @@ export default function Settings({ onClose }: SettingsProps) {
 
       let newTab: SettingsTab | null = null
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key >= '1' && e.key <= '9')) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || (e.key >= '0' && e.key <= '9')) {
         if (isTyping) return
         e.preventDefault()
         if (e.key === 'ArrowRight') {
@@ -354,7 +371,8 @@ export default function Settings({ onClose }: SettingsProps) {
           const prevIndex = (currentIndex - 1 + TABS.length) % TABS.length
           newTab = TABS[prevIndex].id
         } else {
-          const tabIndex = parseInt(e.key) - 1
+          const num = e.key === '0' ? 9 : parseInt(e.key) - 1
+          const tabIndex = e.key === '0' ? TABS.length - 1 : num
           if (tabIndex < TABS.length) {
             newTab = TABS[tabIndex].id
           }
@@ -982,11 +1000,11 @@ export default function Settings({ onClose }: SettingsProps) {
           </div>
         )
 
-      case 'indexers':
+      case 'torrents':
         return (
           <div className={styles.tabContent}>
             <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Built-in Indexers</h3>
+              <h3 className={styles.settingTitle}>Built-in Torrent Indexers</h3>
               <p className={styles.settingDesc}>Enable or disable built-in public indexers</p>
               <div className={styles.indexerList}>
                 {builtInIndexers.map(idx => (
@@ -1153,6 +1171,311 @@ export default function Settings({ onClose }: SettingsProps) {
             </div>
           </div>
         )
+
+      case 'usenet': {
+        const freeIndexers = [
+          { id: 'binsearch', name: 'BinSearch', url: 'https://www.binsearch.info' },
+          { id: 'binzb', name: 'BiNZB', url: 'https://www.binzb.com' },
+          { id: 'clubnzb', name: 'ClubNZB', url: 'https://clubnzb.com' },
+          { id: 'findnzb', name: 'Findnzb', url: 'https://www.findnzb.com' },
+          { id: 'nzbfriends', name: 'NZBFriends', url: 'https://www.nzbfriends.com' },
+          { id: 'nzbindex', name: 'NZBIndex', url: 'https://www.nzbindex.com' },
+          { id: 'nzbindexnl', name: 'NZBIndexNL', url: 'https://www.nzbindex.nl' },
+          { id: 'nzbstars', name: 'NZBStars.com', url: 'https://www.nzbstars.com' },
+        ]
+        const toggleUsenetIndexer = (id: string) => {
+          setLocalEnabledUsenetIndexers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+        }
+
+        const addUsenetCustomIndexer = () => {
+          const { name, url, apiKey } = newUsenetCustom
+          if (!name.trim() || !url.trim()) return
+          const idx = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: name.trim(),
+            url: url.trim(),
+            apiKey: apiKey.trim(),
+            enabled: true,
+            builtIn: false,
+          }
+          setLocalCustomUsenetIndexers(prev => [...prev, idx])
+          setNewUsenetCustom({ name: '', url: '', apiKey: '' })
+        }
+
+        const removeUsenetCustomIndexer = (id: string) => {
+          setLocalCustomUsenetIndexers(prev => prev.filter(i => i.id !== id))
+        }
+
+        const saveUsenetSettings = async () => {
+          store.setUsenetEnabled(localEnableUsenet)
+          store.setUsenetProvider(localUsenetProvider)
+          store.setSabnzbdUrl(localSabUrl)
+          store.setSabnzbdApiKey(localSabKey)
+          store.setNzbgetUrl(localNzbUrl)
+          store.setNzbgetUsername(localNzbUser)
+          store.setNzbgetPassword(localNzbPass)
+          store.setNzbDavUrl(localNzbDavUrl)
+          store.setNzbDavApiKey(localNzbDavApiKey)
+          store.setNzbDavWebdavUser(localNzbDavWebdavUser)
+          store.setNzbDavWebdavPass(localNzbDavWebdavPass)
+          store.setEnabledUsenetIndexers(localEnabledUsenetIndexers)
+          store.setCustomUsenetIndexers(localCustomUsenetIndexers)
+          await store.saveToDisk()
+          await window.api.usenet.reloadConfig()
+        }
+
+        return (
+          <div className={styles.tabContent}>
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Usenet</h3>
+              <p className={styles.settingDesc}>Search and stream from Usenet newsgroups. Requires a download client.</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${localEnableUsenet ? styles.toggleActive : ''}`}
+                  onClick={() => setLocalEnableUsenet(!localEnableUsenet)}
+                >
+                  Usenet {localEnableUsenet ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </div>
+            </div>
+
+            {localEnableUsenet && (
+              <>
+                  <div className={styles.settingGroup}>
+                    <h3 className={styles.settingTitle}>Download Client / Streamer</h3>
+                    <p className={styles.settingDesc}>Connect to SABnzbd, NZBGet or NzbDav for downloading/streaming NZB files</p>
+                    <div className={styles.toggleGrid}>
+                      <button
+                        tabIndex={0}
+                        className={`${styles.toggle} ${localUsenetProvider === 'sabnzbd' ? styles.toggleActive : ''}`}
+                        onClick={() => setLocalUsenetProvider('sabnzbd')}
+                      >
+                        SABnzbd
+                      </button>
+                      <button
+                        tabIndex={0}
+                        className={`${styles.toggle} ${localUsenetProvider === 'nzbget' ? styles.toggleActive : ''}`}
+                        onClick={() => setLocalUsenetProvider('nzbget')}
+                      >
+                        NZBGet
+                      </button>
+                      <button
+                        tabIndex={0}
+                        className={`${styles.toggle} ${localUsenetProvider === 'nzbdav' ? styles.toggleActive : ''}`}
+                        onClick={() => setLocalUsenetProvider('nzbdav')}
+                      >
+                        NzbDav
+                      </button>
+                    </div>
+
+                    {localUsenetProvider === 'sabnzbd' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <input
+                          tabIndex={0}
+                          type="text"
+                          className={styles.input}
+                          placeholder="SABnzbd URL (e.g. http://localhost:8080)"
+                          value={localSabUrl}
+                          onChange={(e) => setLocalSabUrl(e.target.value)}
+                        />
+                        <input
+                          tabIndex={0}
+                          type="password"
+                          className={styles.input}
+                          placeholder="SABnzbd API Key"
+                          value={localSabKey}
+                          onChange={(e) => setLocalSabKey(e.target.value)}
+                        />
+                      </div>
+                    ) : localUsenetProvider === 'nzbget' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <input
+                          tabIndex={0}
+                          type="text"
+                          className={styles.input}
+                          placeholder="NZBGet URL (e.g. http://localhost:6789)"
+                          value={localNzbUrl}
+                          onChange={(e) => setLocalNzbUrl(e.target.value)}
+                        />
+                        <input
+                          tabIndex={0}
+                          type="text"
+                          className={styles.input}
+                          placeholder="NZBGet Username"
+                          value={localNzbUser}
+                          onChange={(e) => setLocalNzbUser(e.target.value)}
+                        />
+                        <input
+                          tabIndex={0}
+                          type="password"
+                          className={styles.input}
+                          placeholder="NZBGet Password"
+                          value={localNzbPass}
+                          onChange={(e) => setLocalNzbPass(e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <input
+                          tabIndex={0}
+                          type="text"
+                          className={styles.input}
+                          placeholder="NzbDav URL (e.g. http://localhost:3000)"
+                          value={localNzbDavUrl}
+                          onChange={(e) => setLocalNzbDavUrl(e.target.value)}
+                        />
+                        <input
+                          tabIndex={0}
+                          type="password"
+                          className={styles.input}
+                          placeholder="NzbDav API Key (from Settings > SABnzbd)"
+                          value={localNzbDavApiKey}
+                          onChange={(e) => setLocalNzbDavApiKey(e.target.value)}
+                        />
+                        <input
+                          tabIndex={0}
+                          type="text"
+                          className={styles.input}
+                          placeholder="WebDAV Username (from Settings > WebDAV)"
+                          value={localNzbDavWebdavUser}
+                          onChange={(e) => setLocalNzbDavWebdavUser(e.target.value)}
+                        />
+                        <input
+                          tabIndex={0}
+                          type="password"
+                          className={styles.input}
+                          placeholder="WebDAV Password"
+                          value={localNzbDavWebdavPass}
+                          onChange={(e) => setLocalNzbDavWebdavPass(e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      tabIndex={0}
+                      className={styles.connectBtn}
+                      onClick={async () => {
+                        setUsenetConnStatus('checking')
+                        setUsenetConnError('')
+                        await saveUsenetSettings()
+                        try {
+                          const result = await window.api.usenet.checkConnection()
+                          setUsenetConnStatus(result.connected ? 'connected' : 'error')
+                          if (!result.connected) setUsenetConnError(result.error || 'Connection failed')
+                        } catch (err: any) {
+                          setUsenetConnStatus('error')
+                          setUsenetConnError(err?.message || 'Connection failed')
+                        }
+                      }}
+                    >
+                      {usenetConnStatus === 'checking' ? 'Testing...' : 'Test Connection'}
+                    </button>
+                    <button tabIndex={0} className={styles.connectBtn} onClick={saveUsenetSettings}>
+                      Save
+                    </button>
+                  </div>
+                  {usenetConnStatus === 'connected' && <p className={styles.connected}>Connected successfully</p>}
+                  {usenetConnStatus === 'error' && <p className={styles.errorText}>{usenetConnError}</p>}
+                </div>
+
+                <div className={styles.settingGroup}>
+                  <h3 className={styles.settingTitle}>Free Indexers</h3>
+                  <p className={styles.settingDesc}>Built-in free Usenet indexers (auto-enabled)</p>
+                  <div className={styles.indexerList}>
+                    {freeIndexers.map(idx => (
+                      <label key={idx.id} className={styles.indexerRow}>
+                        <input
+                          tabIndex={0}
+                          type="checkbox"
+                          checked={localEnabledUsenetIndexers.includes(idx.id)}
+                          onChange={() => toggleUsenetIndexer(idx.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              toggleUsenetIndexer(idx.id)
+                            }
+                          }}
+                        />
+                        <span className={styles.indexerName}>{idx.name}</span>
+                        <span className={styles.indexerMeta}>{idx.url}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={styles.settingGroup}>
+                  <h3 className={styles.settingTitle}>Custom NewzNab Indexers</h3>
+                  <p className={styles.settingDesc}>Add private Usenet indexers (NewzNab API compatible)</p>
+                  <div className={styles.customIndexerList}>
+                    {localCustomUsenetIndexers.length === 0 && (
+                      <p className={styles.authHint}>No custom indexers added.</p>
+                    )}
+                    {localCustomUsenetIndexers.map(idx => (
+                      <div key={idx.id} className={styles.customIndexerCard}>
+                        <div className={styles.customIndexerRow}>
+                          <label className={styles.indexerRow}>
+                            <input
+                              tabIndex={0}
+                              type="checkbox"
+                              checked={idx.enabled}
+                              onChange={(e) => setLocalCustomUsenetIndexers(prev =>
+                                prev.map(i => i.id === idx.id ? { ...i, enabled: e.target.checked } : i)
+                              )}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setLocalCustomUsenetIndexers(prev =>
+                                    prev.map(i => i.id === idx.id ? { ...i, enabled: !i.enabled } : i)
+                                  )
+                                }
+                              }}
+                            />
+                            <span className={styles.indexerName}>{idx.name}</span>
+                            <span className={styles.indexerMeta}>{idx.url}</span>
+                          </label>
+                          <div className={styles.customIndexerActions}>
+                            <button tabIndex={0} className={styles.disconnectBtn} onClick={() => removeUsenetCustomIndexer(idx.id)}>Remove</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className={styles.customIndexerForm}>
+                    <input
+                      tabIndex={0}
+                      className={styles.input}
+                      placeholder="Name"
+                      value={newUsenetCustom.name}
+                      onChange={(e) => setNewUsenetCustom(prev => ({ ...prev, name: e.target.value }))}
+                    />
+                    <input
+                      tabIndex={0}
+                      className={styles.input}
+                      placeholder="NewzNab URL (e.g. https://indexer.com/api)"
+                      value={newUsenetCustom.url}
+                      onChange={(e) => setNewUsenetCustom(prev => ({ ...prev, url: e.target.value }))}
+                    />
+                    <input
+                      tabIndex={0}
+                      type="password"
+                      className={styles.input}
+                      placeholder="API Key (optional for free indexers)"
+                      value={newUsenetCustom.apiKey}
+                      onChange={(e) => setNewUsenetCustom(prev => ({ ...prev, apiKey: e.target.value }))}
+                    />
+                    <button tabIndex={0} className={styles.connectBtn} onClick={addUsenetCustomIndexer}>Add Custom Indexer</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )
+      }
 
       case 'youtube':
         return (
@@ -1333,6 +1656,31 @@ export default function Settings({ onClose }: SettingsProps) {
                 </button>
               </div>
             </div>
+
+            {store.liveTvEnabled && (
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>API Credentials</h3>
+                <p className={styles.settingDesc}>LiveTV channel source credentials. Defaults: user=<strong>cdnlivetv</strong>, plan=<strong>free</strong>.</p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    className={styles.input}
+                    style={{ flex: 1, marginBottom: 0 }}
+                    placeholder="User (e.g. cdnlivetv)"
+                    value={store.liveTvUser}
+                    onChange={(e) => store.setLiveTvUser(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className={styles.input}
+                    style={{ flex: 1, marginBottom: 0 }}
+                    placeholder="Plan (e.g. free)"
+                    value={store.liveTvPlan}
+                    onChange={(e) => store.setLiveTvPlan(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
 
             {store.liveTvEnabled && (
               <div className={styles.settingGroup}>

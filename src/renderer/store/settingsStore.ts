@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { CustomIndexer } from '../../main/services/torrent-search.service'
+import type { UsenetIndexerConfig } from '../../main/services/usenet-search.service'
 
 export interface UserProfile {
   id: string
@@ -51,6 +52,8 @@ interface SettingsState {
   opensubtitlesApiKey: string
   opensubtitlesForcedOnly: boolean
   sportsApiProKey: string
+  liveTvUser: string
+  liveTvPlan: string
   preferredAudioLanguage: string
   accentColor: string
   remoteMapping: Record<string, string>
@@ -58,6 +61,22 @@ interface SettingsState {
   sportsSelected: string[]
   liveTvEnabled: boolean
   selectedLiveTvCountries: string[]
+  usenetEnabled: boolean
+  usenetProvider: 'sabnzbd' | 'nzbget' | 'nzbdav'
+  nzbdavUrl: string
+  nzbdavApiKey: string
+  nzbdavWebdavUser: string
+  nzbdavWebdavPass: string
+  sabnzbdUrl: string
+  sabnzbdApiKey: string
+  nzbgetUrl: string
+  nzbgetUsername: string
+  nzbgetPassword: string
+  enabledUsenetIndexers: string[]
+  customUsenetIndexers: UsenetIndexerConfig[]
+  usenetSearchEnabled: boolean
+  torrentSearchEnabled: boolean
+  vylaSearchEnabled: boolean
   profiles: UserProfile[]
   activeProfileId: string | null
   autoLoginProfileId: string | null
@@ -89,6 +108,8 @@ interface SettingsState {
   setOpensubtitlesApiKey: (key: string) => void
   setOpensubtitlesForcedOnly: (forced: boolean) => void
   setSportsApiProKey: (key: string) => void
+  setLiveTvUser: (user: string) => void
+  setLiveTvPlan: (plan: string) => void
   setPreferredAudioLanguage: (lang: string) => void
   setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
@@ -96,6 +117,22 @@ interface SettingsState {
   setSportsSelected: (ids: string[]) => void
   setLiveTvEnabled: (enabled: boolean) => void
   setSelectedLiveTvCountries: (codes: string[]) => void
+  setUsenetEnabled: (enabled: boolean) => void
+  setUsenetProvider: (provider: 'sabnzbd' | 'nzbget' | 'nzbdav') => void
+  setNzbDavUrl: (url: string) => void
+  setNzbDavApiKey: (key: string) => void
+  setNzbDavWebdavUser: (user: string) => void
+  setNzbDavWebdavPass: (pass: string) => void
+  setSabnzbdUrl: (url: string) => void
+  setSabnzbdApiKey: (key: string) => void
+  setNzbgetUrl: (url: string) => void
+  setNzbgetUsername: (username: string) => void
+  setNzbgetPassword: (password: string) => void
+  setEnabledUsenetIndexers: (ids: string[]) => void
+  setCustomUsenetIndexers: (indexers: UsenetIndexerConfig[]) => void
+  setUsenetSearchEnabled: (enabled: boolean) => void
+  setTorrentSearchEnabled: (enabled: boolean) => void
+  setVylaSearchEnabled: (enabled: boolean) => void
 
   // Profile management
   addProfile: (name: string, avatarPath?: string) => void
@@ -136,6 +173,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   opensubtitlesApiKey: '',
   opensubtitlesForcedOnly: true,
   sportsApiProKey: '',
+  liveTvUser: 'cdnlivetv',
+  liveTvPlan: 'free',
   preferredAudioLanguage: '',
   accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
@@ -143,6 +182,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   sportsSelected: [],
   liveTvEnabled: false,
   selectedLiveTvCountries: [],
+  usenetEnabled: false,
+  usenetProvider: 'sabnzbd',
+  nzbdavUrl: '',
+  nzbdavApiKey: '',
+  nzbdavWebdavUser: 'admin',
+  nzbdavWebdavPass: '',
+  sabnzbdUrl: '',
+  sabnzbdApiKey: '',
+  nzbgetUrl: '',
+  nzbgetUsername: '',
+  nzbgetPassword: '',
+  enabledUsenetIndexers: ['binsearch', 'binzb', 'clubnzb', 'findnzb', 'nzbfriends', 'nzbindex', 'nzbindexnl', 'nzbstars'],
+  customUsenetIndexers: [],
+  usenetSearchEnabled: true,
+  torrentSearchEnabled: true,
+  vylaSearchEnabled: true,
   profiles: [],
   activeProfileId: null,
   autoLoginProfileId: null,
@@ -174,6 +229,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setOpensubtitlesApiKey: (key) => { set({ opensubtitlesApiKey: key }); get().saveToDisk() },
   setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
   setSportsApiProKey: (key) => { set({ sportsApiProKey: key }); get().saveToDisk() },
+  setLiveTvUser: (user) => { set({ liveTvUser: user }); get().saveToDisk() },
+  setLiveTvPlan: (plan) => { set({ liveTvPlan: plan }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
@@ -181,6 +238,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
+  setUsenetEnabled: (enabled) => { set({ usenetEnabled: enabled }); get().saveToDisk() },
+  setUsenetProvider: (provider) => { set({ usenetProvider: provider }); get().saveToDisk() },
+  setNzbDavUrl: (url) => { set({ nzbdavUrl: url }); get().saveToDisk() },
+  setNzbDavApiKey: (key) => { set({ nzbdavApiKey: key }); get().saveToDisk() },
+  setNzbDavWebdavUser: (user) => { set({ nzbdavWebdavUser: user }); get().saveToDisk() },
+  setNzbDavWebdavPass: (pass) => { set({ nzbdavWebdavPass: pass }); get().saveToDisk() },
+  setSabnzbdUrl: (url) => { set({ sabnzbdUrl: url }); get().saveToDisk() },
+  setSabnzbdApiKey: (key) => { set({ sabnzbdApiKey: key }); get().saveToDisk() },
+  setNzbgetUrl: (url) => { set({ nzbgetUrl: url }); get().saveToDisk() },
+  setNzbgetUsername: (username) => { set({ nzbgetUsername: username }); get().saveToDisk() },
+  setNzbgetPassword: (password) => { set({ nzbgetPassword: password }); get().saveToDisk() },
+  setEnabledUsenetIndexers: (ids) => { set({ enabledUsenetIndexers: ids }); get().saveToDisk() },
+  setCustomUsenetIndexers: (indexers) => { set({ customUsenetIndexers: indexers }); get().saveToDisk() },
+  setUsenetSearchEnabled: (enabled) => { set({ usenetSearchEnabled: enabled }); get().saveToDisk() },
+  setTorrentSearchEnabled: (enabled) => { set({ torrentSearchEnabled: enabled }); get().saveToDisk() },
+  setVylaSearchEnabled: (enabled) => { set({ vylaSearchEnabled: enabled }); get().saveToDisk() },
 
   // --- Profile Management Actions ---
   addProfile: (name, avatarPath) => {
@@ -361,6 +434,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('opensubtitlesApiKey', state.opensubtitlesApiKey),
         window.api.settings.set('opensubtitlesForcedOnly', state.opensubtitlesForcedOnly),
         window.api.settings.set('sportsApiProKey', state.sportsApiProKey),
+        window.api.settings.set('liveTvUser', state.liveTvUser),
+        window.api.settings.set('liveTvPlan', state.liveTvPlan),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),
@@ -369,6 +444,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('sportsSelected', state.sportsSelected),
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
         window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
+        window.api.settings.set('usenetEnabled', state.usenetEnabled),
+        window.api.settings.set('usenetProvider', state.usenetProvider),
+        window.api.settings.set('nzbdavUrl', state.nzbdavUrl),
+        window.api.settings.set('nzbdavApiKey', state.nzbdavApiKey),
+        window.api.settings.set('nzbdavWebdavUser', state.nzbdavWebdavUser),
+        window.api.settings.set('nzbdavWebdavPass', state.nzbdavWebdavPass),
+        window.api.settings.set('sabnzbdUrl', state.sabnzbdUrl),
+        window.api.settings.set('sabnzbdApiKey', state.sabnzbdApiKey),
+        window.api.settings.set('nzbgetUrl', state.nzbgetUrl),
+        window.api.settings.set('nzbgetUsername', state.nzbgetUsername),
+        window.api.settings.set('nzbgetPassword', state.nzbgetPassword),
+        window.api.settings.set('enabledUsenetIndexers', state.enabledUsenetIndexers),
+        window.api.settings.set('customUsenetIndexers', state.customUsenetIndexers),
+        window.api.settings.set('usenetSearchEnabled', state.usenetSearchEnabled),
+        window.api.settings.set('torrentSearchEnabled', state.torrentSearchEnabled),
+        window.api.settings.set('vylaSearchEnabled', state.vylaSearchEnabled),
         window.api.settings.set('profiles', state.profiles),
         window.api.settings.set('activeProfileId', state.activeProfileId),
         window.api.settings.set('autoLoginProfileId', state.autoLoginProfileId),
