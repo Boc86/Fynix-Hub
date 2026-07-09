@@ -19,6 +19,7 @@ export interface UsenetResult {
   group: string
   poster: number
   date: string
+  streamUrl?: string
 }
 
 export interface UsenetIndexerConfig {

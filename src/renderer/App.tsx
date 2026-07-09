@@ -59,6 +59,8 @@ export default function App() {
   const [genreType, setGenreType] = useState<'movie' | 'tv' | undefined>()
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
   const autoPlayIndexRef = useRef(0)
+  const autoPlayUsenetRef = useRef<UsenetResult[]>([])
+  const autoPlayUsenetPromiseRef = useRef<Promise<void> | null>(null)
   const currentInfoHashRef = useRef<string | null>(null)
   const currentUsenetIdRef = useRef<string | null>(null)
   const resumePositionRef = useRef<number | undefined>(undefined)
@@ -419,29 +421,32 @@ export default function App() {
       }
     })
 
-    // Provider 1: public indexers + Vyla streams
-    const searchPromise = window.api.torrent.search(query)
-      .then(res => {
-        const torrents = res.torrents || []
-        const rive = res.rive || []
-        setTorrentResults(torrents)
-        setRivestreamResults(rive)
-        window.api.writeDebugFile({
-          phase: 'search-results',
-          query,
-          torrentCount: torrents.length,
-          riveCount: rive.length,
-          results: torrents.map((r: TorrentResult) => ({ title: r.title, infoHash: r.infoHash, indexer: r.indexer, seeders: r.seeders, magnetUri: r.magnetUri?.slice(0, 80) })),
-        }).catch(() => {})
-        return torrents
-      })
-      .catch(err => {
-        console.error('[App] Public indexer search failed:', err)
-        window.api.writeDebugFile({ phase: 'indexer-error', query, error: err?.message }).catch(() => {})
-        setTorrentResults([])
-        setRivestreamResults([])
-        return []
-      })
+    // Provider 1: public indexers + Vyla streams (skip if both toggles are off)
+    const { torrentSearchEnabled, vylaSearchEnabled } = useSettingsStore.getState()
+    const searchPromise = (torrentSearchEnabled || vylaSearchEnabled)
+      ? window.api.torrent.search({ ...query, providers: { torrent: torrentSearchEnabled, vyla: vylaSearchEnabled } })
+        .then(res => {
+          const torrents = torrentSearchEnabled ? (res.torrents || []) : []
+          const rive = vylaSearchEnabled ? (res.rive || []) : []
+          setTorrentResults(torrents)
+          setRivestreamResults(rive)
+          window.api.writeDebugFile({
+            phase: 'search-results',
+            query,
+            torrentCount: torrents.length,
+            riveCount: rive.length,
+            results: torrents.map((r: TorrentResult) => ({ title: r.title, infoHash: r.infoHash, indexer: r.indexer, seeders: r.seeders, magnetUri: r.magnetUri?.slice(0, 80) })),
+          }).catch(() => {})
+          return torrents
+        })
+        .catch(err => {
+          console.error('[App] Public indexer search failed:', err)
+          window.api.writeDebugFile({ phase: 'indexer-error', query, error: err?.message }).catch(() => {})
+          setTorrentResults([])
+          setRivestreamResults([])
+          return []
+        })
+      : Promise.resolve([])
 
     let debridCachedMap: Record<string, string[]> = {}
     let perService: Record<string, number> = {}
@@ -608,17 +613,35 @@ export default function App() {
     setStreamError(null)
     setStreamUrl(undefined)
 
+    // Direct stream if already cached (WebDAV cache result)
+    if (result.streamUrl) {
+      window.api.log('[App] playUsenet: streaming directly from WebDAV cache')
+      const audioLang = getAudioLang()
+      navigate('player')
+      try {
+        await window.api.mpv.start(result.streamUrl, undefined, accentColor, false, audioLang)
+        setPlayerLoading(false)
+      } catch (mpvErr: any) {
+        window.api.log('[App] mpv.start failed:', mpvErr?.message)
+        setStreamError(mpvErr?.message || 'Failed to start player')
+        setPlayerLoading(false)
+      }
+      return
+    }
+
     try {
       const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title)
       if (status) {
         window.api.log('[App] Usenet download started:', status.id, status.name)
         currentUsenetIdRef.current = status.id
         navigate('player')
-        // Poll for completion
+        // Poll for completion or failure
         const poll = setInterval(async () => {
           const s = await window.api.usenet.getDownloadStatus(status.id)
-          if (s && s.progress >= 100) {
+          if (!s) return
+          if (s.progress >= 100) {
             clearInterval(poll)
+            currentUsenetIdRef.current = null
             const stream = await window.api.usenet.getStreamUrl(status.id)
             if (stream?.url) {
               const audioLang = getAudioLang()
@@ -631,6 +654,28 @@ export default function App() {
             } else {
               setStreamError('Could not get stream URL for completed download')
             }
+            setPlayerLoading(false)
+          } else if (s.status === 'Failed' || s.status === 'Error') {
+            clearInterval(poll)
+            currentUsenetIdRef.current = null
+            window.api.log('[App] Usenet download failed:', s.status)
+            // If NzbDav refused due to duplicate, try WebDAV cache search for immediate stream
+            window.api.log('[App] Trying WebDAV cache search for failed download')
+            const cacheResults = await window.api.usenet.searchWebdavCache(result.title)
+            if (cacheResults.length > 0) {
+              const cached = cacheResults[0]
+              if (cached.streamUrl) {
+                const audioLang = getAudioLang()
+                try {
+                  await window.api.mpv.start(cached.streamUrl, undefined, accentColor, false, audioLang)
+                  setPlayerLoading(false)
+                  return
+                } catch (mpvErr: any) {
+                  window.api.log('[App] mpv.start failed:', mpvErr?.message)
+                }
+              }
+            }
+            setStreamError(`Download ${s.status}`)
             setPlayerLoading(false)
           }
         }, 3000)
@@ -687,8 +732,18 @@ export default function App() {
     }
     const results = autoPlayResultsRef.current
     if (index >= results.length) {
+      // Torrents exhausted — wait for Usenet search to finish, then try as fallback
+      if (autoPlayUsenetPromiseRef.current) {
+        await autoPlayUsenetPromiseRef.current
+      }
+      const usenetResults = autoPlayUsenetRef.current
+      if (usenetResults.length > 0) {
+        window.api.log(`[App] Auto-play: torrents exhausted, trying Usenet (${usenetResults.length} results)`)
+        tryAutoPlayUsenet(usenetResults, session)
+        return
+      }
       window.api.log(`[App] Auto-play exhausted ${index}/${results.length}, all failed`)
-      setStreamError('All torrents failed to play. Try disabling auto-play in Settings.')
+      setStreamError('All torrents and Usenet results failed to play. Try disabling auto-play in Settings.')
       setPlayerLoading(false)
       return
     }
@@ -715,6 +770,80 @@ export default function App() {
       tryAutoPlayResult(index + 1, session)
     }
   }, [playTorrent, accentColor, playerInfo?.mediaType, preferredAudioLang, preferredLangs])
+
+  const tryAutoPlayUsenet = useCallback(async (usenetResults: UsenetResult[], session?: number) => {
+    for (const result of usenetResults) {
+      if (session !== undefined && session !== searchSessionRef.current) {
+        window.api.log('[App] Auto-play Usenet: session changed, aborting')
+        return
+      }
+      window.api.log(`[App] Auto-play Usenet trying: ${result.title}`)
+
+      // Direct stream if already cached (WebDAV cache result)
+      if (result.streamUrl) {
+        window.api.log('[App] Auto-play Usenet: streaming directly from WebDAV cache')
+        const audioLang = getAudioLang()
+        try {
+          await window.api.mpv.start(result.streamUrl, undefined, accentColor, false, audioLang)
+          setPlayerLoading(false)
+          return
+        } catch (mpvErr: any) {
+          window.api.log('[App] Auto-play Usenet mpv.start failed:', mpvErr?.message)
+          continue
+        }
+      }
+
+      try {
+        const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title)
+        if (!status) {
+          window.api.log(`[App] Auto-play Usenet sendNzb returned no status for ${result.title}`)
+          continue
+        }
+        window.api.log('[App] Auto-play Usenet download started:', status.id, status.name)
+        currentUsenetIdRef.current = status.id
+        // Poll for completion or failure
+        const poll = setInterval(async () => {
+          const s = await window.api.usenet.getDownloadStatus(status.id)
+          if (!s) return
+          if (s.progress >= 100) {
+            clearInterval(poll)
+            currentUsenetIdRef.current = null
+            const stream = await window.api.usenet.getStreamUrl(status.id)
+            if (stream?.url) {
+              const audioLang = getAudioLang()
+              await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              setPlayerLoading(false)
+              return
+            }
+          } else if (s.status === 'Failed' || s.status === 'Error') {
+            clearInterval(poll)
+            currentUsenetIdRef.current = null
+            window.api.log('[App] Auto-play Usenet download failed:', s.status)
+            // WebDAV cache fallback on failure
+            const cacheResults = await window.api.usenet.searchWebdavCache(result.title)
+            if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
+              const audioLang = getAudioLang()
+              try {
+                await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+                setPlayerLoading(false)
+                return
+              } catch (mpvErr: any) {
+                window.api.log('[App] Auto-play Usenet mpv.start failed:', mpvErr?.message)
+              }
+            }
+            // Reached the end of this poll — the outer loop will try the next result
+          }
+        }, 3000)
+        return
+      } catch (err: any) {
+        window.api.log(`[App] Auto-play Usenet attempt failed: ${err.message}`)
+        // Continue to next result
+      }
+    }
+    window.api.log('[App] Auto-play Usenet: all results exhausted')
+    setStreamError('All torrents and Usenet results failed. Try disabling auto-play in Settings.')
+    setPlayerLoading(false)
+  }, [navigate, accentColor])
 
   const handlePlayUrl = useCallback(async (url: string) => {
     try {
@@ -768,7 +897,7 @@ export default function App() {
       resumePosition,
     })
 
-    const { autoPlayTorrent, maxTorrentSize } = useSettingsStore.getState()
+    const { autoPlayTorrent, maxTorrentSize, torrentSearchEnabled, vylaSearchEnabled, usenetSearchEnabled, usenetEnabled } = useSettingsStore.getState()
     if (!autoPlayTorrent) {
       window.api.log(`[App] handlePlay manual path, opening modal`)
       const isEpisode = selected.mediaType === 'tv' && episode !== null
@@ -788,36 +917,46 @@ export default function App() {
 
     try {
       const isEpisode = selected.mediaType === 'tv' && episode !== null
-      const res = await window.api.torrent.search({
+      const searchParams = {
         title: selected.title,
         year: selected.releaseDate ? parseInt(selected.releaseDate.slice(0, 4)) : undefined,
         type: isEpisode ? 'episode' : 'movie',
         season: isEpisode ? season : undefined,
         episode: isEpisode ? (episode ?? undefined) : undefined,
         tmdbId: selected.id,
-      })
-      const results: TorrentResult[] = res.torrents || []
+      }
 
-      if (results.length === 0) {
-        setStreamError('No torrents found for auto-play')
-        setPlayerLoading(false)
-        return
+      // Clear usenet auto-play ref
+      autoPlayUsenetRef.current = []
+
+      // Fire Usenet search in parallel
+      if (usenetSearchEnabled && usenetEnabled) {
+        autoPlayUsenetPromiseRef.current = window.api.usenet.search(searchParams).then((results: UsenetResult[]) => {
+          autoPlayUsenetRef.current = results || []
+          window.api.log(`[App] Auto-play Usenet got ${(results || []).length} results`)
+        }).catch(() => {
+          autoPlayUsenetRef.current = []
+        })
+      } else {
+        autoPlayUsenetPromiseRef.current = null
+        autoPlayUsenetRef.current = []
+      }
+
+      // Torrent search (only if torrent or Vyla is enabled)
+      let results: TorrentResult[] = []
+      if (torrentSearchEnabled || vylaSearchEnabled) {
+        const res = await window.api.torrent.search({ ...searchParams, providers: { torrent: torrentSearchEnabled, vyla: vylaSearchEnabled } })
+        results = res.torrents || []
       }
 
       const filtered = maxTorrentSize > 0
         ? results.filter((r: TorrentResult) => r.size <= maxTorrentSize * 1073741824)
         : results
 
-      if (filtered.length === 0) {
-        setStreamError('No torrents within the size limit')
-        setPlayerLoading(false)
-        return
-      }
-
       // Track which infoHashes are valid for this search (for playTorrent guard)
       searchInfoHashesRef.current = new Set(filtered.map((r: TorrentResult) => r.infoHash.toLowerCase()))
       autoPlayResultsRef.current = filtered
-      window.api.log(`[App] Auto-play session=${session} got ${filtered.length} results, hashes:`, filtered.map((r: TorrentResult) => `${r.title}=${r.infoHash.slice(0, 16)}`))
+      window.api.log(`[App] Auto-play session=${session} got ${filtered.length} torrent results`)
 
       // Try ALL Vyla sources sequentially before falling back to torrents.
       // Sources arrive as SSE events resolve (0–15s). Queue them and process
@@ -875,27 +1014,33 @@ export default function App() {
         // The 15s timeout below handles the final fallback
       }
 
-      const unsubRive = window.api.torrent.onRiveResult((result) => {
-        if (searchSessionRef.current !== session) { unsubRive(); return }
-        vylaQueue.push(result)
-        processVylaQueue()
-      })
+      if (vylaSearchEnabled) {
+        const unsubRive = window.api.torrent.onRiveResult((result) => {
+          if (searchSessionRef.current !== session) { unsubRive(); return }
+          vylaQueue.push(result)
+          processVylaQueue()
+        })
 
-      const vylaTimeout = setTimeout(() => {
-        unsubRive()
-        window.api.log(`[App] Vyla timeout (15s)`)
-        if (!vylaProcessing && !vylaDone) {
-          if (vylaQueue.length > 0) {
-            processVylaQueue()
-          } else {
-            vylaDone = true
-            tryAutoPlayResult(0, session)
+        const vylaTimeout = setTimeout(() => {
+          unsubRive()
+          window.api.log(`[App] Vyla timeout (15s)`)
+          if (!vylaProcessing && !vylaDone) {
+            if (vylaQueue.length > 0) {
+              processVylaQueue()
+            } else {
+              vylaDone = true
+              tryAutoPlayResult(0, session)
+            }
+          } else if (vylaProcessing) {
+            // A source is being polled — let it finish naturally
+            // processVylaQueue will handle fallback when queue empties
           }
-        } else if (vylaProcessing) {
-          // A source is being polled — let it finish naturally
-          // processVylaQueue will handle fallback when queue empties
-        }
-      }, 15000)
+        }, 15000)
+      } else {
+        // Vyla disabled — go straight to torrent/usenet auto-play
+        vylaDone = true
+        tryAutoPlayResult(0, session)
+      }
     } catch (err: any) {
       setStreamError(err?.message || 'Auto-play search failed')
       setPlayerLoading(false)
