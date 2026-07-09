@@ -13,6 +13,8 @@ interface Channel {
   status: string
 }
 
+const MAX_CONCURRENT = 5
+
 export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string) => Promise<void>; onBack: () => void }) {
   const settingsStore = useSettingsStore()
   const [channels, setChannels] = useState<Channel[]>([])
@@ -20,17 +22,19 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [playing, setPlaying] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
+  const [imgErrors, setImgErrors] = useState<Set<string>>(new Set())
+  const [imgCache, setImgCache] = useState<Record<string, string>>({})
   const containerRef = useRef<HTMLDivElement>(null)
+  const proxiedRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     setLoading(true)
     window.api.damiTv.getChannels().then(ch => {
+      window.api.log(`[LiveTV] ${ch.length} channels loaded, ${ch.filter((c: any) => c.image).length} have images`)
       setChannels(ch)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
-
-  useEffect(() => { containerRef.current?.focus() }, [loading])
 
   const filteredChannels = useMemo(() => {
     let result = channels
@@ -42,6 +46,33 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       return a.name.localeCompare(b.name)
     })
   }, [channels, settingsStore.selectedLiveTvCountries])
+
+  // proxy only visible (filtered) channels, in batches, async
+  useEffect(() => {
+    const toProxy = filteredChannels.filter(c => c.image && !imgCache[c.id] && !proxiedRef.current.has(c.id))
+    if (toProxy.length === 0) return
+    window.api.log(`[LiveTV] Proxying ${toProxy.length}/${filteredChannels.length} visible channel images`)
+    let idx = 0
+    let running = 0
+    function next() {
+      while (running < MAX_CONCURRENT && idx < toProxy.length) {
+        const ch = toProxy[idx++]
+        running++
+        proxiedRef.current.add(ch.id)
+        window.api.damiTv.proxyImage(ch.image).then(dataUrl => {
+          window.api.log(`[LiveTV] Proxy ${dataUrl ? 'OK' : 'FAIL'} for ${ch.name}`)
+          if (dataUrl) setImgCache(prev => ({ ...prev, [ch.id]: dataUrl }))
+          else setImgErrors(prev => { const n = new Set(prev); n.add(ch.id); return n })
+        }).catch(() => {
+          setImgErrors(prev => { const n = new Set(prev); n.add(ch.id); return n })
+        }).finally(() => {
+          running--
+          next()
+        })
+      }
+    }
+    next()
+  }, [filteredChannels, imgCache])
 
   const flatItems = useMemo(() => {
     const map = new Map<string, Channel[]>()
@@ -267,14 +298,14 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
                     aspectRatio: '16/9', background: '#111', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', position: 'relative',
                   }}>
-                    {ch.image ? (
-                      <img src={ch.image} alt={ch.name}
+                    {!imgErrors.has(ch.id) && (imgCache[ch.id] || ch.image?.startsWith('http')) ? (
+                      <img src={imgCache[ch.id] || ch.image} alt={ch.name}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        onError={() => setImgErrors(prev => { const n = new Set(prev); n.add(ch.id); return n })}
                       />
                     ) : (
                       <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
-                        {ch.name.charAt(0)}
+                        {ch.name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     {playing === ch.id && (

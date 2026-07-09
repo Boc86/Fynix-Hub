@@ -3,19 +3,47 @@
   <id>com.fynix.hub</id>
   <name>Fynix Hub</name>
   <summary>Media Hub with Netflix-like experience</summary>
+  <developer>
+    <name>Boc</name>
+  </developer>
   <description>
-    <p>Fynix Hub is a media center application that lets you stream movies and TV shows with Real-Debrid integration. Features a Netflix-like interface, remote control support, and seamless torrent streaming.</p>
+    <p>Fynix Hub is a modern media center application that brings together streaming, live TV, and sports into a single Netflix-like interface. Powered by Real-Debrid integration for high-quality torrent streaming.</p>
+    <p>Features:</p>
+    <ul>
+      <li>Browse and stream movies &amp; TV shows with a beautiful Netflix-style UI</li>
+      <li>Real-Debrid, TorBox, Premiumize, and AllDebrid integration for cached torrent streaming</li>
+      <li>Live TV channels from around the world</li>
+      <li>Sports hub with live schedules, results, and replays</li>
+      <li>Remote control support (MPV player)</li>
+      <li>Trakt.tv scrobbling and watchlist sync</li>
+      <li>Subtitle support via OpenSubtitles</li>
+      <li>Torrent search across multiple indexers</li>
+      <li>Customizable categories and content filtering</li>
+    </ul>
   </description>
   <metadata_license>FSFAP</metadata_license>
   <project_license>MIT</project_license>
-  <developer_name>Boc</developer_name>
   <url type="homepage">https://github.com/Boc86/Fynix-Hub</url>
   <url type="bugtracker">https://github.com/Boc86/Fynix-Hub/issues</url>
   <url type="donation">https://github.com/sponsors/Boc86</url>
+  <url type="vcs-browser">https://github.com/Boc86/Fynix-Hub</url>
+  <url type="help">https://github.com/Boc86/Fynix-Hub/discussions</url>
   <categories>
     <category>AudioVideo</category>
     <category>Video</category>
   </categories>
+  <keywords>
+    <keyword>media</keyword>
+    <keyword>streaming</keyword>
+    <keyword>torrent</keyword>
+    <keyword>netflix</keyword>
+    <keyword>movies</keyword>
+    <keyword>tv</keyword>
+    <keyword>sports</keyword>
+    <keyword>live-tv</keyword>
+    <keyword>real-debrid</keyword>
+    <keyword>debrid</keyword>
+  </keywords>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/Boc86/Fynix-Hub/master/docs/assets/screenshots/Home.png</image>
@@ -35,8 +63,29 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="1.1.0" date="2026-06-25"/>
+    <release version="1.1.0" date="2026-06-25">
+      <description>
+        <p>Initial public release with core features:</p>
+        <ul>
+          <li>Netflix-style movie and TV show browser</li>
+          <li>Real-Debrid, TorBox, Premiumize, AllDebrid integration</li>
+          <li>Live TV channels with EPG support</li>
+          <li>Sports hub with schedules, scores, and replays</li>
+          <li>Torrent search with multi-indexer support</li>
+          <li>MPV player with remote control</li>
+          <li>Trakt.tv scrobbling and watchlist</li>
+          <li>OpenSubtitles integration</li>
+          <li>Flatpak distribution</li>
+        </ul>
+      </description>
+    </release>
   </releases>
   <content_rating type="oars-1.1"/>
   <launchable type="desktop-id">com.fynix.hub.desktop</launchable>
+  <branding>
+    <color type="primary" scheme_preference="dark">#FF6B00</color>
+  </branding>
+  <custom>
+    <value key="flathub::manifest">https://raw.githubusercontent.com/Boc86/Fynix-Hub/master/com.fynix.hub.metainfo.xml</value>
+  </custom>
 </component>

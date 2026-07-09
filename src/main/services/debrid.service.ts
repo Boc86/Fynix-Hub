@@ -18,12 +18,18 @@ const TORBOX_SETTINGS_URL = 'https://torbox.app/settings'
 const OAUTH_BASE = 'https://api.real-debrid.com/oauth/v2'
 
 let realDebridKey: string | null = null
+let realDebridRefreshToken: string | null = null
+let realDebridClientId: string | null = null
+let realDebridClientSecret: string | null = null
 let torboxKey: string | null = null
 let premiumizeToken: string | null = null
 let alldebridToken: string | null = null
 
 export function loadKeys() {
   realDebridKey = CacheService.getSetting<string>('realDebridApiKey') || null
+  realDebridRefreshToken = CacheService.getSetting<string>('realDebridRefreshToken') || null
+  realDebridClientId = CacheService.getSetting<string>('realDebridClientId') || null
+  realDebridClientSecret = CacheService.getSetting<string>('realDebridClientSecret') || null
   torboxKey = CacheService.getSetting<string>('torboxApiKey') || null
   premiumizeToken = CacheService.getSetting<string>('premiumizeAccessToken') || null
   alldebridToken = CacheService.getSetting<string>('alldebridAccessToken') || null
@@ -58,15 +64,30 @@ export function getServices(): string[] {
   return SERVICE_ORDER.filter(s => isConfigured(s))
 }
 
-async function realDebridFetch(path: string, options: RequestInit = {}) {
+async function realDebridFetch(path: string, options: RequestInit = {}): Promise<any> {
   if (!realDebridKey) throw new Error('Real-Debrid not configured')
-  const res = await fetch(`${REAL_DEBRID_BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${realDebridKey}`,
-      ...(options.headers || {}),
-    },
-  })
+
+  const doFetch = async (): Promise<Response> => {
+    return fetch(`${REAL_DEBRID_BASE}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${realDebridKey}`,
+        ...(options.headers || {}),
+      },
+    })
+  }
+
+  let res = await doFetch()
+  if (res.status === 401) {
+    console.log('[Debrid] RD API returned 401 — attempting token refresh')
+    const refreshed = await realDebridRefreshAccessToken()
+    if (refreshed) {
+      res = await doFetch()
+    } else {
+      console.log('[Debrid] Token refresh failed — Real-Debrid may need re-authentication')
+    }
+  }
+
   if (!res.ok) throw new Error(`Real-Debrid error: ${res.status}`)
   if (res.status === 204) return null
   const text = await res.text()
@@ -99,41 +120,122 @@ export async function realDebridCheckCached(hashes: string[], magnets?: string[]
   if (!realDebridKey) return {}
 
   const result: Record<string, boolean> = {}
-  const toCheck = hashes.slice(0, 20)
-  let saw403 = false
+  // Limit to 6 active torrents (RD's current cap) to avoid "too many active downloads"
+  const toCheck = hashes.slice(0, 6)
 
-  const out = await Promise.allSettled(toCheck.map((hash, idx) =>
-    new Promise<{ hash: string; cached: boolean }>(async (resolve) => {
-      // Stagger each request by idx seconds to stay within RD's ~1 req/s rate limit
-      await new Promise(r => setTimeout(r, idx * 1000))
-      if (saw403) { resolve({ hash, cached: false }); return }
-      try {
-        const infoRes = await fetch(`${REAL_DEBRID_BASE}/torrents/instantAvailability/${hash}`, {
-          headers: { Authorization: `Bearer ${realDebridKey}` },
-        })
-        if (infoRes.status === 403) {
-          console.log(`[Debrid] instantAvailability ${hash.slice(0, 8)}: 403 — token invalid, skipping rest`)
-          saw403 = true
-          resolve({ hash, cached: false }); return
+  for (let i = 0; i < toCheck.length; i++) {
+    const hash = toCheck[i]
+    const magnet = magnets?.[i]
+    if (!magnet) {
+      console.log(`[Debrid] hash ${hash.slice(0, 8)}: no magnet URL, skipping`)
+      result[hash] = false
+      continue
+    }
+    try {
+      // Stagger between hashes to stay within RD's 250 req/min limit
+      if (i > 0) await new Promise(r => setTimeout(r, 900))
+
+      // Step 1: Add magnet
+      const addForm = new URLSearchParams({ magnet })
+      const addRes = await fetch(`${REAL_DEBRID_BASE}/torrents/addMagnet`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${realDebridKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: addForm.toString(),
+      })
+      if (addRes.status === 401) {
+        console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: 401 — attempting token refresh`)
+        const refreshed = await realDebridRefreshAccessToken()
+        if (refreshed) {
+          // Retry with new token
+          const retryRes = await fetch(`${REAL_DEBRID_BASE}/torrents/addMagnet`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${realDebridKey}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: addForm.toString(),
+          })
+          if (retryRes.status === 401) {
+            console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: 401 after refresh — skipping`)
+            result[hash] = false
+            continue
+          }
+          if (!retryRes.ok) {
+            console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: ${retryRes.status} after refresh — skipping`)
+            result[hash] = false
+            continue
+          }
+        } else {
+          console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: token refresh failed — skipping`)
+          result[hash] = false
+          continue
         }
-        if (!infoRes.ok) {
-          console.log(`[Debrid] instantAvailability ${hash.slice(0, 8)}: ${infoRes.status}`)
-          resolve({ hash, cached: false }); return
-        }
-        const data = await infoRes.json() as any
-        const variants = data?.[hash.toUpperCase()]
-        const cached = !!(variants?.rd?.length || variants?.[hash.toUpperCase()]?.rd?.length)
-        if (cached) console.log(`[Debrid] hash ${hash.slice(0, 8)}: CACHED`)
-        resolve({ hash, cached })
-      } catch (e: any) {
-        console.log(`[Debrid] hash ${hash.slice(0, 8)}: instantAvailability error ${e.message}`)
-        resolve({ hash, cached: false })
+      } else if (!addRes.ok) {
+        console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: ${addRes.status} — skipping`)
+        result[hash] = false
+        continue
       }
-    })
-  ))
-  for (const s of out) {
-    if (s.status === 'fulfilled') result[s.value.hash] = s.value.cached
+
+      const addData = await addRes.json() as any
+      const torrentId = addData.id as string
+      if (!torrentId) {
+        console.log(`[Debrid] addMagnet ${hash.slice(0, 8)}: no torrentId in response`)
+        result[hash] = false
+        continue
+      }
+
+      // Step 2: Select all files
+      const selForm = new URLSearchParams({ files: 'all' })
+      const selRes = await fetch(`${REAL_DEBRID_BASE}/torrents/selectFiles/${torrentId}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${realDebridKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: selForm.toString(),
+      })
+      // 204 = success, 202 = action already done — both acceptable
+      if (selRes.status !== 204 && selRes.status !== 202) {
+        console.log(`[Debrid] selectFiles ${hash.slice(0, 8)}: ${selRes.status} (continuing anyway)`)
+      }
+
+      // Step 3: Short poll for torrent info
+      await new Promise(r => setTimeout(r, 500))
+      const infoRes = await fetch(`${REAL_DEBRID_BASE}/torrents/info/${torrentId}`, {
+        headers: { Authorization: `Bearer ${realDebridKey}` },
+      })
+      if (!infoRes.ok) {
+        console.log(`[Debrid] torrentInfo ${hash.slice(0, 8)}: ${infoRes.status}`)
+        result[hash] = false
+        // Clean up
+        fetch(`${REAL_DEBRID_BASE}/torrents/delete/${torrentId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${realDebridKey}` },
+        }).catch(() => {})
+        continue
+      }
+      const infoData = await infoRes.json() as any
+      const cached = infoData.status === 'downloaded' && (infoData.links?.length > 0)
+
+      // Step 4: If NOT cached, delete the torrent to keep active list clean
+      if (!cached) {
+        await fetch(`${REAL_DEBRID_BASE}/torrents/delete/${torrentId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${realDebridKey}` },
+        }).catch(() => {})
+      }
+
+      if (cached) console.log(`[Debrid] hash ${hash.slice(0, 8)}: CACHED`)
+      result[hash] = cached
+    } catch (e: any) {
+      console.log(`[Debrid] hash ${hash.slice(0, 8)}: check error ${e.message}`)
+      result[hash] = false
+    }
   }
+
   const cachedCount = Object.values(result).filter(Boolean).length
   console.log(`[Debrid] cached: ${cachedCount}/${hashes.length}`)
   return result
@@ -228,6 +330,11 @@ export async function realDebridPollForCredentials(deviceCode: string): Promise<
     if (!res.ok) return ''
     const creds = await res.json()
     if (!creds.client_secret) return ''
+    // Store per-user client credentials for token refresh
+    realDebridClientId = creds.client_id
+    realDebridClientSecret = creds.client_secret
+    CacheService.setSetting('realDebridClientId', creds.client_id)
+    CacheService.setSetting('realDebridClientSecret', creds.client_secret)
     const tokenRes = await fetchWithTimeout(`${OAUTH_BASE}/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -236,10 +343,50 @@ export async function realDebridPollForCredentials(deviceCode: string): Promise<
     })
     if (!tokenRes.ok) throw new Error(`Real-Debrid token error: ${tokenRes.status}`)
     const tokenData = await tokenRes.json()
+    // Store refresh_token for automatic renewal
+    if (tokenData.refresh_token) {
+      realDebridRefreshToken = tokenData.refresh_token
+      CacheService.setSetting('realDebridRefreshToken', tokenData.refresh_token)
+    }
     return tokenData.access_token || ''
   } catch (err: any) {
     if (err?.message?.includes('token error')) throw err
     return ''
+  }
+}
+
+async function realDebridRefreshAccessToken(): Promise<boolean> {
+  if (!realDebridRefreshToken || !realDebridClientId || !realDebridClientSecret) {
+    console.log('[Debrid] Cannot refresh RD token — missing refresh_token or client credentials')
+    return false
+  }
+  try {
+    console.log('[Debrid] Refreshing Real-Debrid access token...')
+    const res = await fetchWithTimeout(`${OAUTH_BASE}/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `client_id=${realDebridClientId}&client_secret=${realDebridClientSecret}&code=${realDebridRefreshToken}&grant_type=http://oauth.net/grant_type/device/1.0`,
+      timeout: 15000,
+    })
+    if (!res.ok) {
+      console.log(`[Debrid] Token refresh failed: ${res.status}`)
+      return false
+    }
+    const data = await res.json()
+    if (data.access_token) {
+      realDebridKey = data.access_token
+      CacheService.setSetting('realDebridApiKey', data.access_token)
+      if (data.refresh_token) {
+        realDebridRefreshToken = data.refresh_token
+        CacheService.setSetting('realDebridRefreshToken', data.refresh_token)
+      }
+      console.log('[Debrid] Token refreshed successfully')
+      return true
+    }
+    return false
+  } catch (e: any) {
+    console.log(`[Debrid] Token refresh error: ${e.message}`)
+    return false
   }
 }
 

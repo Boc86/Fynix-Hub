@@ -4,19 +4,23 @@ import { useSettingsStore } from '../../store/settingsStore'
 
 const OUR_TO_DB_SPORT: Record<string, string> = {
   'football': 'Soccer',
-  'american-football': 'American Football',
   'basketball': 'Basketball',
-  'hockey': 'Ice Hockey',
-  'baseball': 'Baseball',
-  'motor-sports': 'Motor Sport',
-  'fight': 'Fight',
   'tennis': 'Tennis',
+  'motorsport': 'Motor Sport',
   'rugby': 'Rugby',
   'golf': 'Golf',
-  'billiards': 'Billiards',
-  'afl': 'Australian Rules Football',
   'darts': 'Darts',
   'cricket': 'Cricket',
+  'baseball': 'Baseball',
+  'hockey': 'Ice Hockey',
+  'combat': 'Fight',
+  'snooker': 'Billiards',
+  'handball': 'Handball',
+  'table tennis': 'Table Tennis',
+  'volleyball': 'Volleyball',
+  'badminton': 'Badminton',
+  'australian football': 'Australian Rules Football',
+  'soccer': 'Soccer',
 }
 
 interface ScheduleMatch {
@@ -103,6 +107,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [selectedCountry, setSelectedCountry] = useState<string>('')
   const [sportsdbImages, setSportsdbImages] = useState<Record<string, string>>({})
   const [failedSportImages, setFailedSportImages] = useState<Set<string>>(new Set())
+  const [leagueImgErrors, setLeagueImgErrors] = useState<Set<string>>(new Set())
+  const [teamImgErrors, setTeamImgErrors] = useState<Set<string>>(new Set())
+  const [leagueDbImages, setLeagueDbImages] = useState<Record<string, string>>({})
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
@@ -155,18 +162,27 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   useEffect(() => {
     if (store.sportsList.length === 0) return
     window.api.sportsdb.getAllSports().then((all: any[]) => {
+      window.api.log(`[Sports] TheSportsDB: ${all.length} sports returned`)
       const dbByName: Record<string, any> = {}
-      for (const s of all) dbByName[s.name?.toLowerCase()] = s
+      for (const s of all) {
+        dbByName[s.name?.toLowerCase()] = s
+        if (s.thumb) window.api.log(`[Sports] TheSportsDB: "${s.name}" has thumb`)
+      }
       const map: Record<string, string> = {}
       for (const sport of store.sportsList) {
-        const dbName = OUR_TO_DB_SPORT[sport.id]
+        const key = sport.name.toLowerCase()
+        const dbName = OUR_TO_DB_SPORT[key]
         if (dbName) {
           const dbSport = dbByName[dbName.toLowerCase()]
           if (dbSport?.thumb) map[sport.id] = dbSport.thumb
+          else window.api.log(`[Sports] No TheSportsDB thumb for "${sport.name}" (dbName="${dbName}")`)
+        } else {
+          window.api.log(`[Sports] No TheSportsDB name mapping for "${sport.name}" (key="${key}")`)
         }
       }
+      window.api.log(`[Sports] TheSportsDB images: ${Object.keys(map).length}/${store.sportsList.length} mapped`)
       setSportsdbImages(map)
-    }).catch(() => {})
+    }).catch((err: any) => window.api.log(`[Sports] TheSportsDB getAllSports error: ${err?.message || err}`))
   }, [store.sportsList.length])
 
   const loadLeagues = useCallback(async (sport: any) => {
@@ -213,21 +229,58 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         event.homeTeamId ? window.api.sports.getTeamDetails(event.homeTeamId) : Promise.resolve(null),
         event.awayTeamId ? window.api.sports.getTeamDetails(event.awayTeamId) : Promise.resolve(null),
       ])
-      if (!homeTeam?.logoUrl && event.homeTeamName) {
+      window.api.log(`[Sports] loadEventDetail: home=${homeTeam?.name || event.homeTeamName}, away=${awayTeam?.name || event.awayTeamName}`)
+
+      // run TheSportsDB lookups + SportsAPIPRO fallback in parallel so one slow fetch doesn't block the others
+      const fallbackImgPromise = (async () => {
+        if (!store.selectedSport?.name) { window.api.log(`[Sports] No selectedSport, skipping fallback`); return null }
+        const key = store.selectedSport.name.toLowerCase()
+        window.api.log(`[Sports] Trying SportsAPIPRO fallback for team logos (sport="${key}")`)
         try {
-          const teams = await window.api.sportsdb.searchTeams(event.homeTeamName)
-          if (teams?.[0]?.badge) { homeTeam.logoUrl = teams[0].badge }
-        } catch { /* ignore */ }
-      }
-      if (!awayTeam?.logoUrl && event.awayTeamName) {
-        try {
-          const teams = await window.api.sportsdb.searchTeams(event.awayTeamName)
-          if (teams?.[0]?.badge) { awayTeam.logoUrl = teams[0].badge }
-        } catch { /* ignore */ }
-      }
+          const img = await window.api.sportsapipro.getCompetitionImage(key, event.leagueName || event.homeTeamName || '')
+          if (img) {
+            window.api.log(`[Sports] SportsAPIPRO found fallback image`)
+          } else {
+            window.api.log(`[Sports] SportsAPIPRO no fallback image`)
+          }
+          return img
+        } catch (err: any) {
+          window.api.log(`[Sports] SportsAPIPRO fallback error: ${err?.message || err}`)
+          return null
+        }
+      })()
+
+      await Promise.all([
+        (async () => {
+          if (!homeTeam?.logoUrl && event.homeTeamName) {
+            try {
+              const teams = await window.api.sportsdb.searchTeams(event.homeTeamName)
+              window.api.log(`[Sports] TheSportsDB home "${event.homeTeamName}": ${teams?.length || 0} results`)
+              if (teams?.[0]?.badge) homeTeam.logoUrl = teams[0].badge
+            } catch (err: any) { window.api.log(`[Sports] TheSportsDB home error: ${err?.message || err}`) }
+          }
+        })(),
+        (async () => {
+          if (!awayTeam?.logoUrl && event.awayTeamName) {
+            try {
+              const teams = await window.api.sportsdb.searchTeams(event.awayTeamName)
+              window.api.log(`[Sports] TheSportsDB away "${event.awayTeamName}": ${teams?.length || 0} results`)
+              if (teams?.[0]?.badge) awayTeam.logoUrl = teams[0].badge
+            } catch (err: any) { window.api.log(`[Sports] TheSportsDB away error: ${err?.message || err}`) }
+          }
+        })(),
+        fallbackImgPromise.then((img) => {
+          if (img) {
+            // always apply fallback — Sportarr logos are often broken
+            if (!homeTeam?.logoUrl) homeTeam.logoUrl = img
+            if (!awayTeam?.logoUrl) awayTeam.logoUrl = img
+          }
+        }),
+      ])
+
       store.setHomeTeam(homeTeam)
       store.setAwayTeam(awayTeam)
-    } catch { /* teams optional */ }
+    } catch (err: any) { window.api.log(`[Sports] loadEventDetail error: ${err?.message || err}`) }
     store.setLoading(false)
   }, [store])
 
@@ -356,6 +409,40 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     } catch { onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined) }
     setReplaySearching(false)
   }, [store.selectedEvent, onPlay, isTeamEvent])
+
+  const fetchLeagueDbImage = useCallback(async (sportName: string | undefined, leagueName: string, leagueId: string) => {
+    if (!sportName) { window.api.log(`[Sports] fetchLeagueDbImage: no sportName for "${leagueName}"`); return }
+    const key = sportName.toLowerCase()
+    window.api.log(`[Sports] fetchLeagueDbImage: name="${sportName}" key="${key}" league="${leagueName}"`)
+    try {
+      const imgUrl = await window.api.sportsapipro.getCompetitionImage(key, leagueName)
+      if (imgUrl) {
+        window.api.log(`[Sports] SportsAPIPRO found image for "${leagueName}"`)
+        setLeagueDbImages(prev => ({ ...prev, [leagueId]: imgUrl }))
+        return
+      }
+      window.api.log(`[Sports] SportsAPIPRO no image for "${leagueName}"`)
+    } catch (err: any) {
+      window.api.log(`[Sports] SportsAPIPRO error: ${err?.message || err}`)
+    }
+    const dbName = OUR_TO_DB_SPORT[key]
+    if (!dbName) { window.api.log(`[Sports] No TheSportsDB name mapping for key="${key}"`); return }
+    try {
+      const teams = await window.api.sportsdb.getTeamsBySport(dbName)
+      const match = teams.find((t: any) =>
+        t.league?.toLowerCase() === leagueName.toLowerCase() ||
+        t.name?.toLowerCase() === leagueName.toLowerCase()
+      )
+      if (match?.badge) {
+        window.api.log(`[Sports] TheSportsDB found badge for "${leagueName}"`)
+        setLeagueDbImages(prev => ({ ...prev, [leagueId]: match.badge }))
+      } else {
+        window.api.log(`[Sports] TheSportsDB no match for "${leagueName}" among ${teams.length} teams`)
+      }
+    } catch (err: any) {
+      window.api.log(`[Sports] TheSportsDB error: ${err?.message || err}`)
+    }
+  }, [])
 
   const goBack = useCallback(() => {
     if (showSchedule) {
@@ -688,7 +775,18 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                   onClick={() => loadSeasons(league)}
                   onMouseEnter={() => setFocusedIndex(i)}
                 >
-                  {league.logoUrl && <img src={league.logoUrl} alt={league.name} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                  {(league.logoUrl && !leagueImgErrors.has(league.id)) ? (
+                    <img src={league.logoUrl} alt={league.name} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} onError={() => {
+                      setLeagueImgErrors(prev => new Set(prev).add(league.id))
+                      if (!leagueDbImages[league.id]) fetchLeagueDbImage(store.selectedSport?.name, league.name, league.id)
+                    }} />
+                  ) : leagueDbImages[league.id] ? (
+                    <img src={leagueDbImages[league.id]} alt={league.name} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} onError={() => setLeagueImgErrors(prev => new Set(prev).add(league.id))} />
+                  ) : (
+                    <div style={{ width: '100%', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.03)' }}>
+                      <div style={{ fontSize: 48, fontWeight: 800, color: 'rgba(255,255,255,0.1)' }}>{league.name?.charAt(0).toUpperCase() || '?'}</div>
+                    </div>
+                  )}
                   <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{league.name}</div>
                     <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{league.country}{league.abbreviation ? ` - ${league.abbreviation}` : ''}</div>
@@ -753,13 +851,25 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               {teamEvent ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 24, width: '100%', maxWidth: 500 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flex: 1, textAlign: 'center' }}>
-                    {store.homeTeam?.logoUrl && <img src={store.homeTeam.logoUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                    {store.homeTeam?.logoUrl && !teamImgErrors.has('home') ? (
+                      <img src={store.homeTeam.logoUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain' }} onError={() => setTeamImgErrors(prev => new Set(prev).add('home'))} />
+                    ) : (
+                      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.2)' }}>{(store.homeTeam?.name || event.homeTeamName || '?').charAt(0).toUpperCase()}</div>
+                      </div>
+                    )}
                     <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{store.homeTeam?.name || event.homeTeamName}</div>
                     {event.homeScore !== null && event.homeScore !== undefined && <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--accent, #FF6B00)' }}>{event.homeScore}</div>}
                   </div>
                   <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.3)', fontWeight: 600, padding: '0 8px' }}>VS</div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flex: 1, textAlign: 'center' }}>
-                    {store.awayTeam?.logoUrl && <img src={store.awayTeam.logoUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />}
+                    {store.awayTeam?.logoUrl && !teamImgErrors.has('away') ? (
+                      <img src={store.awayTeam.logoUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain' }} onError={() => setTeamImgErrors(prev => new Set(prev).add('away'))} />
+                    ) : (
+                      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.2)' }}>{(store.awayTeam?.name || event.awayTeamName || '?').charAt(0).toUpperCase()}</div>
+                      </div>
+                    )}
                     <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{store.awayTeam?.name || event.awayTeamName}</div>
                     {event.awayScore !== null && event.awayScore !== undefined && <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--accent, #FF6B00)' }}>{event.awayScore}</div>}
                   </div>
