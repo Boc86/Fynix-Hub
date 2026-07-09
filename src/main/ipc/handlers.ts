@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, app, dialog } from 'electron'
 import { handle } from './handler-wrapper'
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import * as TmdbService from '../services/tmdb.service'
 import * as TraktService from '../services/trakt.service'
 import * as WebTorrentService from '../services/webtorrent.service'
@@ -22,6 +23,7 @@ import * as StreamedPkService from '../services/streamedpk.service'
 import * as ExtractorService from '../services/extractor.service'
 import * as SportsDBService from '../services/sportsdb.service'
 import * as DamiTVService from '../services/dami-tv.service'
+import * as SportsApiProService from '../services/sportsapipro.service'
 import * as EpgService from '../services/epg.service'
 
 export async function registerIpcHandlers(): Promise<void> {
@@ -30,6 +32,7 @@ export async function registerIpcHandlers(): Promise<void> {
   DebridService.loadKeys()
   FanartService.loadApiKey()
   OpenSubtitlesService.loadApiKey()
+  SportsApiProService.loadApiKey()
   // SportsService uses public Sportarr API, no key needed
   EpgService.ensureEpgLoaded().catch(err => console.error('[Handler] EPG init error:', err?.message))
   await WebTorrentService.init()
@@ -289,7 +292,9 @@ export async function registerIpcHandlers(): Promise<void> {
       : Promise.resolve()
 
     try {
-      const torrentResults = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers)
+      const torrentResults = await TorrentSearchService.searchTorrents(query, enabledIndexers, customIndexers, (result) => {
+        event.sender.send('torrent:indexer-result', result)
+      })
 
       console.log('[Handler] torrent:search returned', torrentResults.length, 'torrents')
       // Log raw results for debugging (first 30)
@@ -555,6 +560,7 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'alldebridAccessToken') DebridService.loadKeys()
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
     if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
+    if (key === 'sportsApiProKey') SportsApiProService.setApiKey(String(value))
     // SportsService uses public Sportarr API, no key needed
 })
 
@@ -823,8 +829,72 @@ export async function registerIpcHandlers(): Promise<void> {
     return SportsDBService.searchLeagues(query)
   })
 
+  handle('sportsapipro:get-competition-image', async (_event, sportId: string, leagueName: string) => {
+    return SportsApiProService.getCompetitionImage(sportId, leagueName)
+  })
+
+  handle('sportsapipro:get-competitions', async (_event, sportId: string) => {
+    return SportsApiProService.getCompetitions(sportId)
+  })
+
   handle('dami-tv:get-streams', async () => {
     return DamiTVService.getStreams()
+  })
+
+  handle('dami-tv:proxy-image', async (_event, imageUrl: string) => {
+    console.log(`[ProxyImage] Proxying: "${imageUrl?.slice(0, 200)}"`)
+    if (!imageUrl) { console.log('[ProxyImage] No URL'); return null }
+
+    let url = imageUrl
+    let referer = 'https://dami-tv.pro/'
+    if (!url.startsWith('http')) {
+      url = `https://dami-tv.pro${url.startsWith('/') ? '' : '/'}${url}`
+    } else {
+      try { const p = new URL(url); referer = `${p.protocol}//${p.host}/` } catch {}
+    }
+
+    // disk cache
+    const IMG_CACHE = path.join(app.getPath('userData'), 'live-tv-images')
+    if (!fs.existsSync(IMG_CACHE)) fs.mkdirSync(IMG_CACHE, { recursive: true })
+    const hash = crypto.createHash('md5').update(url).digest('hex')
+    const cachedPath = path.join(IMG_CACHE, `${hash}.bin`)
+    const metaPath = path.join(IMG_CACHE, `${hash}.json`)
+
+    // check disk cache
+    if (fs.existsSync(cachedPath) && fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+        const buf = fs.readFileSync(cachedPath)
+        console.log(`[ProxyImage] Cache HIT for ${url.slice(0, 80)} (${buf.length} bytes, ${meta.contentType})`)
+        return `data:${meta.contentType};base64,${buf.toString('base64')}`
+      } catch { /* corrupted cache, re-fetch */ }
+    }
+
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': referer,
+        },
+      })
+      console.log(`[ProxyImage] HTTP ${res.status} for ${url.slice(0, 120)}`)
+      if (!res.ok) return null
+      const contentType = res.headers.get('content-type') || 'image/png'
+      const buf = Buffer.from(await res.arrayBuffer())
+
+      // save to disk cache
+      try {
+        fs.writeFileSync(cachedPath, buf)
+        fs.writeFileSync(metaPath, JSON.stringify({ contentType, url, fetched: Date.now() }))
+        console.log(`[ProxyImage] Cached to disk: ${hash}`)
+      } catch (e: any) { console.log(`[ProxyImage] Cache write failed: ${e.message}`) }
+
+      console.log(`[ProxyImage] OK ${buf.length} bytes, type=${contentType}`)
+      return `data:${contentType};base64,${buf.toString('base64')}`
+    } catch (err: any) {
+      console.log(`[ProxyImage] Error: ${err?.message || err}`)
+      return null
+    }
   })
 
   handle('dami-tv:get-channels', async () => {

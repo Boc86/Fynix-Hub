@@ -48,6 +48,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
   const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
+  const [localSportsApiProKey, setLocalSportsApiProKey] = useState(store.sportsApiProKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
   const [capturingKey, setCapturingKey] = useState<string | null>(null)
@@ -56,6 +57,8 @@ export default function Settings({ onClose }: SettingsProps) {
   const [trackerRefreshCount, setTrackerRefreshCount] = useState(0)
   const [trackerRefreshError, setTrackerRefreshError] = useState('')
   const [clearCacheState, setClearCacheState] = useState<'idle' | 'clearing' | 'done' | 'error'>('idle')
+  const [torrentCacheState, setTorrentCacheState] = useState<'idle' | 'clearing' | 'done' | 'error'>('idle')
+  const [torrentCacheStatus, setTorrentCacheStatus] = useState<{ count: number; sizeGb: string } | null>(null)
   const [tizentubeVersion, setTizentubeVersion] = useState<string | null>(null)
   const [tizentubeStatus, setTizentubeStatus] = useState<string>('')
   const [tizentubeUpdating, setTizentubeUpdating] = useState(false)
@@ -99,6 +102,13 @@ export default function Settings({ onClose }: SettingsProps) {
   useEffect(() => {
     window.api.tizentube.getVersion().then(v => {
       if (v) setTizentubeVersion(v)
+    }).catch(() => {})
+  }, [])
+
+  // Load torrent cache status on mount
+  useEffect(() => {
+    window.api.localCache.status().then(st => {
+      setTorrentCacheStatus(st)
     }).catch(() => {})
   }, [])
 
@@ -294,6 +304,7 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('customIndexers', localCustomIndexers),
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
+        window.api.settings.set('sportsApiProKey', localSportsApiProKey),
       ])
       store.setTmdbApiKey(localTmdb)
       store.setFanartApiKey(localFanart)
@@ -302,6 +313,7 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setCustomIndexers(localCustomIndexers)
       store.setIntroDbApiKey(localIntroDb)
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
+      store.setSportsApiProKey(localSportsApiProKey)
       await store.saveToDisk()
       store.setRemoteMapping(localRemoteMapping)
     setSaved(true)
@@ -454,10 +466,22 @@ export default function Settings({ onClose }: SettingsProps) {
                      Forced-only subtitles (only foreign dialogue)
                    </label>
                  </div>
-               </div>
+                </div>
 
                <div className={styles.settingGroup}>
-                 <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
+                 <h3 className={styles.settingTitle}>SportsAPIPro API</h3>
+                 <p className={styles.settingDesc}>API key for competition and team logos in Sports section. Get one at <a href="https://sportsapipro.com" target="_blank" rel="noopener noreferrer" style={{ color: '#FF6B00' }}>sportsapipro.com</a></p>
+                 <input
+                   type="password"
+                   className={styles.input}
+                   placeholder="Enter SportsAPIPro API Key"
+                   value={localSportsApiProKey}
+                   onChange={(e) => setLocalSportsApiProKey(e.target.value)}
+                 />
+               </div>
+
+                <div className={styles.settingGroup}>
+                  <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
                <p className={styles.settingDesc}>Filter torrent results by resolution</p>
               <div className={styles.toggleGrid}>
                 {resolutions.map(res => (
@@ -645,6 +669,9 @@ export default function Settings({ onClose }: SettingsProps) {
                   </p>
                   <button tabIndex={0} className={styles.disconnectBtn} onClick={async () => {
                     await window.api.settings.set('realDebridApiKey', null)
+                    await window.api.settings.set('realDebridRefreshToken', null)
+                    await window.api.settings.set('realDebridClientId', null)
+                    await window.api.settings.set('realDebridClientSecret', null)
                     store.setRealDebridApiKey('')
                     store.setRealDebridConnected(false)
                   }}>
@@ -1466,6 +1493,40 @@ export default function Settings({ onClose }: SettingsProps) {
                 >
                   {clearCacheState === 'clearing' ? 'Clearing...' : 'Clear Image Cache'}
                 </button>
+              </div>
+
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Torrent Cache</h3>
+                <p className={styles.settingDesc}>Clear downloaded torrent files from disk to free up space. Torrents are cached locally while streaming.</p>
+                {torrentCacheState === 'done' && (
+                  <p className={styles.connected}>Torrent cache cleared</p>
+                )}
+                {torrentCacheState === 'error' && (
+                  <p className={styles.errorText}>Failed to clear torrent cache</p>
+                )}
+                {torrentCacheStatus && (
+                  <p className={styles.settingDesc}>
+                    {torrentCacheStatus.count} torrent{torrentCacheStatus.count !== 1 ? 's' : ''} cached, {torrentCacheStatus.sizeGb}
+                  </p>
+                )}
+                <button
+                    tabIndex={0}
+                    className={styles.connectBtn}
+                    disabled={torrentCacheState === 'clearing'}
+                    onClick={async () => {
+                      setTorrentCacheState('clearing')
+                      try {
+                        await window.api.localCache.clear()
+                        setTorrentCacheState('done')
+                        const st = await window.api.localCache.status()
+                        setTorrentCacheStatus(st)
+                      } catch {
+                        setTorrentCacheState('error')
+                      }
+                    }}
+                  >
+                    {torrentCacheState === 'clearing' ? 'Clearing...' : 'Clear Torrent Cache'}
+                  </button>
               </div>
             </div>
         )

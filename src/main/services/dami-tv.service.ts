@@ -4,6 +4,13 @@ const API_BASE = 'https://dami-tv.pro/papi/api'
 const CACHE_TTL = 60000
 const CHANNELS_CACHE_TTL = 300000
 const CHANNELS_URL = 'https://dami-tv.pro/data/tv-channels.json?v=516'
+const CHANNELS_FALLBACK_URLS = [
+  'https://dami-tv.pro/data/tv-channels.json',
+  'https://dami-tv.pro/channels.json',
+  'https://dami-tv.pro/data/channels.json',
+  'https://dami-tv.pro/api/channels',
+  'https://dami-tv.pro/papi/api/channels',
+]
 
 const CC_MAP: [string, string][] = [
   ['united states', 'us'], ['usa', 'us'], ['u.s', 'us'],
@@ -165,16 +172,54 @@ export async function getChannels(): Promise<DamiTVChannel[]> {
   const cached = CacheService.getCache('dami-tv:channels')
   if (cached) return JSON.parse(cached)
 
-  const res = await fetch(CHANNELS_URL, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-  })
-  if (!res.ok) throw new Error(`DAMI-TV channels HTTP ${res.status}`)
-  const data = await res.json()
+  const urlsToTry = [CHANNELS_URL, ...CHANNELS_FALLBACK_URLS]
+  let lastErr: Error | null = null
 
-  const channels: DamiTVChannel[] = (data.channels || []).map(parseChannel)
+  for (const url of urlsToTry) {
+    console.log(`[DamiTV] Trying channels URL: ${url}`)
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      })
+      if (!res.ok) {
+        console.log(`[DamiTV] HTTP ${res.status} for ${url}`)
+        if (res.status === 404) continue
+        throw new Error(`DAMI-TV channels HTTP ${res.status}`)
+      }
+      const data = await res.json()
 
-  CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
-  return channels
+      // save the working URL for next time
+      CacheService.setSetting('damiTvChannelsUrl', url)
+
+      const channels: DamiTVChannel[] = (data.channels || []).map(parseChannel)
+
+      CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
+      console.log(`[DamiTV] Loaded ${channels.length} channels from ${url}`)
+      return channels
+    } catch (err: any) {
+      console.log(`[DamiTV] Failed for ${url}: ${err?.message || err}`)
+      lastErr = err
+    }
+  }
+
+  // try stored URL from a previous successful run
+  const storedUrl = CacheService.getSetting<string>('damiTvChannelsUrl')
+  if (storedUrl && !urlsToTry.includes(storedUrl)) {
+    console.log(`[DamiTV] Trying stored URL: ${storedUrl}`)
+    try {
+      const res = await fetch(storedUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+      if (res.ok) {
+        const data = await res.json()
+        const channels: DamiTVChannel[] = (data.channels || []).map(parseChannel)
+        CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
+        console.log(`[DamiTV] Loaded ${channels.length} channels from stored URL`)
+        return channels
+      }
+    } catch {}
+  }
+
+  if (lastErr) throw lastErr
+  throw new Error('DAMI-TV channels all URLs returned 404')
 }
 
 export async function getChannelsByCountry(countryCode: string): Promise<DamiTVChannel[]> {

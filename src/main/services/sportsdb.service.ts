@@ -9,12 +9,15 @@ const CACHE_TTL_TEAMS = 86400000
 
 let lastRequestTime = 0
 
-async function rateLimitedFetch(url: string): Promise<any> {
+async function rateLimitedFetch(url: string, timeoutMs = 10000): Promise<any> {
   const now = Date.now()
   const wait = Math.max(0, RATE_LIMIT_MS - (now - lastRequestTime))
   if (wait > 0) await new Promise(r => setTimeout(r, wait))
   lastRequestTime = Date.now()
-  const res = await fetch(url)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const res = await fetch(url, { signal: controller.signal })
+  clearTimeout(timer)
   if (!res.ok) throw new Error(`SportsDB HTTP ${res.status}`)
   return res.json()
 }

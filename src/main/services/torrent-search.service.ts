@@ -988,7 +988,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export async function searchTorrents(
   query: TorrentQuery,
   enabledIndexerIds?: string[],
-  customIndexers?: CustomIndexer[]
+  customIndexers?: CustomIndexer[],
+  onResult?: (result: TorrentResult) => void
 ): Promise<TorrentResult[]> {
   const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
   const cacheKey = `torrent:search:v2:${JSON.stringify({ q: query, e: enabledIndexerIds, c: (customIndexers || []).map(x => x.id).sort() })}`
@@ -1021,6 +1022,9 @@ export async function searchTorrents(
         fulfilledCount++
         if (s.value.length > 0) {
           console.log(`[TorrentSearch] Got ${s.value.length} results (indexer: ${s.value[0].indexer})`)
+        }
+        if (onResult) {
+          for (const r of s.value) onResult(r)
         }
         results.push(...s.value)
       } else {

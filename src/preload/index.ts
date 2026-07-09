@@ -101,6 +101,10 @@ const api = {
       ipcRenderer.on('torrent:rive-result', (_event, result) => callback(result))
       return () => { ipcRenderer.removeListener('torrent:rive-result', callback) }
     },
+    onIndexerResult: (callback: (result: any) => void) => {
+      ipcRenderer.on('torrent:indexer-result', (_event, result) => callback(result))
+      return () => { ipcRenderer.removeListener('torrent:indexer-result', callback) }
+    },
     search: (query: object) => ipcRenderer.invoke('torrent:search', query),
     refreshTrackers: () => ipcRenderer.invoke('torrent:refresh-trackers'),
     addTorrent: (magnetUri: string) =>
@@ -249,12 +253,17 @@ const api = {
     getTeamsBySport: (sportName: string) => ipcRenderer.invoke('sportsdb:get-teams-by-sport', sportName),
     searchLeagues: (query: string) => ipcRenderer.invoke('sportsdb:search-leagues', query),
   },
+  sportsapipro: {
+    getCompetitionImage: (sportId: string, leagueName: string) => ipcRenderer.invoke('sportsapipro:get-competition-image', sportId, leagueName),
+    getCompetitions: (sportId: string) => ipcRenderer.invoke('sportsapipro:get-competitions', sportId),
+  },
   damiTv: {
     getStreams: () => ipcRenderer.invoke('dami-tv:get-streams'),
     getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),
     getChannelsByCountry: (countryCode: string) => ipcRenderer.invoke('dami-tv:get-channels-by-country', countryCode),
     getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
     extractUrl: (channelId: string) => ipcRenderer.invoke('dami-tv:extract-url', channelId),
+    proxyImage: (imageUrl: string) => ipcRenderer.invoke('dami-tv:proxy-image', imageUrl),
   },
   epg: {
     getChannels: () => ipcRenderer.invoke('epg:get-channels'),

@@ -342,6 +342,27 @@ export default function App() {
     setSidebarOpen((o) => !o)
   }, [])
 
+  const checkDebridSingle = useCallback(async (result: TorrentResult): Promise<Record<string, string[]> | null> => {
+    if (!result.infoHash) return null
+    const map: Record<string, string[]> = {}
+    const services = validDebridServices
+    await Promise.all(services.map(async (svc) => {
+      try {
+        const status = await window.api.debrid.getStatus(svc)
+        if (!status.configured) return
+        const batch = await window.api.debrid.checkCachedBatch(svc, [result.infoHash], [result.magnetUri || ''])
+        for (const [hash, isCached] of Object.entries(batch)) {
+          if (isCached === true || isCached === 'true') {
+            const key = hash.toLowerCase()
+            if (!map[key]) map[key] = []
+            if (!map[key].includes(svc)) map[key].push(svc)
+          }
+        }
+      } catch { /* ignore */ }
+    }))
+    return Object.keys(map).length > 0 ? map : null
+  }, [validDebridServices])
+
   const runTorrentSearch = useCallback(async (query: {
     title: string
     year?: number
@@ -362,6 +383,34 @@ export default function App() {
     setTorrentResults([])
     setTorrentCachedMap({})
     setRivestreamResults([])
+
+    const streamedHashes = new Set<string>()
+    const streamedResults: TorrentResult[] = []
+
+    // Subscribe to streaming indexer results
+    const unsubStream = window.api.torrent.onIndexerResult((result: TorrentResult) => {
+      streamedResults.push(result)
+      setTorrentResults([...streamedResults])
+      // Start debrid check on new hash immediately
+      if (result.infoHash && !streamedHashes.has(result.infoHash.toLowerCase())) {
+        streamedHashes.add(result.infoHash.toLowerCase())
+        checkDebridSingle(result).then(map => {
+          if (map && Object.keys(map).length > 0) {
+            setTorrentCachedMap(prev => {
+              const next = { ...prev }
+              for (const [hash, svcs] of Object.entries(map)) {
+                const key = hash.toLowerCase()
+                if (!next[key]) next[key] = []
+                for (const svc of svcs) {
+                  if (!next[key].includes(svc)) next[key].push(svc)
+                }
+              }
+              return next
+            })
+          }
+        }).catch(() => {})
+      }
+    })
 
     // Provider 1: public indexers + Vyla streams
     const searchPromise = window.api.torrent.search(query)
@@ -447,6 +496,7 @@ export default function App() {
 
     const [indexerResult] = await Promise.allSettled([searchPromise, rivestreamPromise])
     const finalResults = indexerResult.status === 'fulfilled' ? indexerResult.value : []
+    unsubStream()
     searchRunningRef.current = false
     setTorrentSearching(false)
     window.api.writeDebugFile({
