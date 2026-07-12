@@ -52,7 +52,7 @@ export function isAuthenticated(): boolean {
   return !!accessToken
 }
 
-async function fetchTrakt(path: string, options: RequestInit = {}) {
+async function fetchTrakt(path: string, options: RequestInit = {}): Promise<any> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': USER_AGENT,
@@ -64,6 +64,46 @@ async function fetchTrakt(path: string, options: RequestInit = {}) {
     headers['Authorization'] = `Bearer ${accessToken}`
   }
   const res = await fetch(`${TRAKT_BASE}${path}`, { ...options, headers })
+
+  if (res.status === 401 && refreshToken) {
+    console.log(`[Trakt] 401 on ${path}, attempting token refresh... refreshToken=${!!refreshToken} clientId=${!!clientId} clientSecret=${!!clientSecret}`)
+    const refreshRes = await fetch(`${TRAKT_AUTH_BASE}/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': USER_AGENT,
+      },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'refresh_token',
+        redirect_uri: 'urn:ietf:wg:oauth:2.0:oob',
+      }),
+    })
+    console.log(`[Trakt] Token refresh response: ${refreshRes.status}`)
+    if (refreshRes.ok) {
+      const data = await refreshRes.json()
+      accessToken = data.access_token
+      refreshToken = data.refresh_token
+      setTokens(data.access_token, data.refresh_token)
+      headers['Authorization'] = `Bearer ${accessToken}`
+      console.log('[Trakt] Token refreshed successfully, retrying request')
+      const retryRes = await fetch(`${TRAKT_BASE}${path}`, { ...options, headers })
+      if (retryRes.ok) return retryRes.json()
+      const body = await retryRes.text().catch(() => '(could not read body)')
+      throw new Error(`Trakt error: ${retryRes.status} - ${body.slice(0, 500)}`)
+    } else if (refreshRes.status === 403 || refreshRes.status === 429 || refreshRes.status >= 500) {
+      const errBody = await refreshRes.text().catch(() => 'unknown')
+      console.warn(`[Trakt] Token refresh blocked (${refreshRes.status}) - likely a transient network/WAF issue, keeping existing tokens. Body: ${errBody.slice(0, 300)}`)
+    } else {
+      const errBody = await refreshRes.text().catch(() => 'unknown')
+      console.warn(`[Trakt] Token refresh failed (${refreshRes.status}): ${errBody.slice(0, 300)}, clearing auth`)
+      setTokens(null, null)
+    }
+  }
+
   if (!res.ok) {
     const body = await res.text().catch(() => '(could not read body)')
     throw new Error(`Trakt error: ${res.status} - ${body.slice(0, 500)}`)
@@ -119,17 +159,24 @@ export async function getWatchedShows() {
 }
 
 export async function scrobble(action: 'start' | 'pause' | 'stop', media: object) {
-  return fetchTrakt('/scrobble/' + action, {
+  console.log(`[Trakt] scrobble ${action} — authenticated=${!!accessToken} hasRefresh=${!!refreshToken} clientId=${clientId ? 'set' : 'MISSING!'}`)
+  console.log(`[Trakt] scrobble ${action} payload:`, JSON.stringify(media).slice(0, 500))
+  const res = await fetchTrakt('/scrobble/' + action, {
     method: 'POST',
     body: JSON.stringify(media),
   })
+  console.log(`[Trakt] scrobble ${action} success:`, JSON.stringify(res).slice(0, 300))
+  return res
 }
 
 export async function markWatched(media: object) {
-  return fetchTrakt('/sync/history', {
+  console.log('[Trakt] markWatched payload:', JSON.stringify(media).slice(0, 500))
+  const res = await fetchTrakt('/sync/history', {
     method: 'POST',
     body: JSON.stringify(media),
   })
+  console.log('[Trakt] markWatched response:', JSON.stringify(res).slice(0, 300))
+  return res
 }
 
 export async function markUnwatched(media: object) {

@@ -1,6 +1,7 @@
 import * as CacheService from './cache.service'
 
 const API_BASE = 'https://api.cdnlivetv.is/api/v1'
+const API_BASE_TV = 'https://cdnlivetv.tv/api/v1'
 const CACHE_TTL = 60000
 const CHANNELS_CACHE_TTL = 300000
 
@@ -99,20 +100,22 @@ export interface DamiTVChannel {
 }
 
 function parseChannel(item: any): DamiTVChannel {
-  const code = (typeof item.country === 'string' ? item.country.toLowerCase() : '') || detectCountryCode(item.name || '')
+  const name = item.name || item.title || ''
+  const code = (typeof item.code === 'string' ? item.code.toLowerCase() : '') || (typeof item.country === 'string' ? item.country.toLowerCase() : '') || detectCountryCode(name)
+  const id = String(item.id || item.channel_id || item.channel || `${name}_${code}`)
   let image = item.image || item.logo || item.icon || ''
   // strip full cdnlivetv URLs to relative path so proxy adds auth query params
   if (image.startsWith('https://cdnlivetv.tv/')) {
     image = image.slice('https://cdnlivetv.tv'.length)
   }
   return {
-    id: String(item.id || item.channel_id || item.channel || ''),
-    name: item.name || item.title || '',
+    id,
+    name,
     image,
     countryCode: code,
     countryName: COUNTRY_NAMES[code] || code.toUpperCase(),
     countryFlag: countryFlag(code),
-    playerUrl: item.playerUrl || item.player_url || item.embed || `https://embed.cdnlivetv.is/player.php?channel=${item.id || item.channel_id || ''}`,
+    playerUrl: item.url || item.playerUrl || item.player_url || item.embed || '',
     source: item.source || item.group || item.category || '',
     status: item.status || '',
   }
@@ -229,75 +232,74 @@ export async function getAvailableCountries(): Promise<{ code: string; name: str
     .sort((a, b) => b.count - a.count)
 }
 
-export async function extractChannelUrl(channelId: string): Promise<{ hlsUrl?: string; embedUrl?: string }> {
+function decodeObfuscatedBase64(s: string): string {
+  s = s.replace(/-/g, '+').replace(/_/g, '/')
+  while (s.length % 4) s += '='
+  try { return decodeURIComponent(escape(atob(s))) } catch { return atob(s) }
+}
+
+async function extractHlsUrlFromPlayerPage(playerUrl: string): Promise<string | null> {
+  const res = await fetch(playerUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://cdnlivetv.tv/' }
+  })
+  const html = await res.text()
+
+  const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/)
+  if (!scriptMatch) return null
+
+  const script = scriptMatch[1]
+  const fnName = script.match(/function\s+(\w+)\s*\(s\)/)?.[1]
+  if (!fnName) return null
+
+  const vars: Record<string, string> = {}
+  for (const m of script.matchAll(/var\s+(\w+)\s*=\s*'([^']*)'\s*;/g)) {
+    vars[m[1]] = m[2]
+  }
+
+  const lines = script.split(';')
+  let best = '', bestCount = 0
+  const fnEscaped = fnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  for (const line of lines) {
+    const cnt = (line.match(new RegExp(fnEscaped + '\\(', 'g')) || []).length
+    if (cnt > bestCount) { bestCount = cnt; best = line }
+  }
+
+  const refs: string[] = []
+  const refRe = new RegExp(fnEscaped + '\\((\\w+)\\)', 'g')
+  let r: RegExpExecArray | null
+  while ((r = refRe.exec(best)) !== null) refs.push(r[1])
+
+  return refs.map(r => decodeObfuscatedBase64(vars[r])).join('')
+}
+
+export async function extractChannelUrl(ch: { id: string; name: string; countryCode: string; playerUrl?: string }): Promise<{ hlsUrl?: string }> {
   try {
-    const channels = await getChannels()
-    const ch = channels.find(c => c.id === channelId)
-    if (!ch || !ch.playerUrl) {
-      console.warn(`[LiveTV] No playerUrl for channel ${channelId}`)
+    const { name: channelName, countryCode, playerUrl } = ch
+    if (!channelName) {
+      console.warn(`[LiveTV] No channel name`)
       return {}
     }
 
-    const urlController = new AbortController()
-    const urlTimeout = setTimeout(() => urlController.abort(), 10000)
-    const res = await fetch(ch.playerUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://cdnlivetv.is/',
-      },
-      signal: urlController.signal,
-    })
-    clearTimeout(urlTimeout)
-    if (!res.ok) {
-      console.warn(`[LiveTV] player page HTTP ${res.status} for ${channelId}`)
-      return {}
+    let pageUrl = playerUrl
+    if (!pageUrl) {
+      const { user, plan } = getCredentials()
+      pageUrl = `${API_BASE}/channels/player/?name=${encodeURIComponent(channelName)}&code=${encodeURIComponent(countryCode)}&user=${encodeURIComponent(user)}&plan=${encodeURIComponent(plan)}`
     }
-    const html = await res.text()
 
-    // try common HLS patterns
-    const hlsUrl = extractHlsUrl(html)
+    console.log(`[LiveTV] Fetching player page for ${channelName}: ${pageUrl}`)
+    const hlsUrl = await extractHlsUrlFromPlayerPage(pageUrl)
     if (hlsUrl) {
-      console.log(`[LiveTV] Resolved HLS URL for channel ${channelId}`)
+      console.log(`[LiveTV] Extracted HLS URL for ${channelName}: ${hlsUrl}`)
       return { hlsUrl }
     }
 
-    // try to find an iframe with a stream URL
-    const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i)
-    if (iframeMatch) {
-      console.log(`[LiveTV] Found iframe for channel ${channelId}: ${iframeMatch[1]}`)
-      return { embedUrl: iframeMatch[1] }
-    }
-
-    console.warn(`[LiveTV] Could not extract URL from player page for ${channelId}`)
-    return {}
+    console.warn(`[LiveTV] Could not extract HLS URL for ${channelName}, falling back to raw URL`)
+    return { hlsUrl: pageUrl }
   } catch (err) {
-    console.warn(`[LiveTV] extractChannelUrl failed for ${channelId}:`, err)
+    console.warn(`[LiveTV] extractChannelUrl failed for ${ch.id || ch.name}:`, err)
     return {}
   }
 }
 
-function extractHlsUrl(html: string): string | null {
-  // direct .m3u8 URLs
-  const m3u8Re = /https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/g
-  let m = m3u8Re.exec(html)
-  if (m) return m[0]
-
-  // base64-encoded m3u8 URLs
-  const b64Re = /['"]([A-Za-z0-9+/=]{40,})['"]/g
-  while ((m = b64Re.exec(html)) !== null) {
-    try {
-      const decoded = Buffer.from(m[1], 'base64').toString('utf-8')
-      if (decoded.includes('.m3u8') || decoded.includes('cdnlivetv')) return decoded
-    } catch {}
-  }
-
-  // JavaScript variables with m3u8
-  const varRe = /['"]([^"']*\.m3u8[^"']*)['"]/g
-  while ((m = varRe.exec(html)) !== null) {
-    if (m[1].startsWith('http')) return m[1]
-  }
-
-  return null
-}
 
 

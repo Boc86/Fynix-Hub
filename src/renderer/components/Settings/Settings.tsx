@@ -53,17 +53,13 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localSportsApiProKey, setLocalSportsApiProKey] = useState(store.sportsApiProKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
+  const [availableCountries, setAvailableCountries] = useState<{ code: string; name: string; flag: string; count: number }[]>([])
+  const [countriesLoading, setCountriesLoading] = useState(false)
   const [localEnableUsenet, setLocalEnableUsenet] = useState(store.usenetEnabled)
-  const [localUsenetProvider, setLocalUsenetProvider] = useState(store.usenetProvider)
-  const [localSabUrl, setLocalSabUrl] = useState(store.sabnzbdUrl)
-  const [localSabKey, setLocalSabKey] = useState(store.sabnzbdApiKey)
-  const [localNzbUrl, setLocalNzbUrl] = useState(store.nzbgetUrl)
-  const [localNzbUser, setLocalNzbUser] = useState(store.nzbgetUsername)
-  const [localNzbPass, setLocalNzbPass] = useState(store.nzbgetPassword)
-  const [localNzbDavUrl, setLocalNzbDavUrl] = useState(store.nzbdavUrl)
-  const [localNzbDavApiKey, setLocalNzbDavApiKey] = useState(store.nzbdavApiKey)
-  const [localNzbDavWebdavUser, setLocalNzbDavWebdavUser] = useState(store.nzbdavWebdavUser)
-  const [localNzbDavWebdavPass, setLocalNzbDavWebdavPass] = useState(store.nzbdavWebdavPass)
+  const [localNzbgetHost, setLocalNzbgetHost] = useState(store.nzbgetHost)
+  const [localNzbgetPort, setLocalNzbgetPort] = useState(store.nzbgetPort)
+  const [localNzbgetUsername, setLocalNzbgetUsername] = useState(store.nzbgetUsername)
+  const [localNzbgetPassword, setLocalNzbgetPassword] = useState(store.nzbgetPassword)
   const [localEnabledUsenetIndexers, setLocalEnabledUsenetIndexers] = useState<string[]>(store.enabledUsenetIndexers)
   const [localCustomUsenetIndexers, setLocalCustomUsenetIndexers] = useState<any[]>(store.customUsenetIndexers)
   const [newUsenetCustom, setNewUsenetCustom] = useState({ name: '', url: '', apiKey: '' })
@@ -147,7 +143,7 @@ export default function Settings({ onClose }: SettingsProps) {
     if (activeTab === 'usenet' && localEnableUsenet) {
       setCompletedDownloadsState('loading')
       window.api.usenet.listDownloads().then(downloads => {
-        setCompletedDownloads(downloads.filter((d: any) => d.status === 'Completed'))
+        setCompletedDownloads(downloads.filter((d: any) => d.status === 'completed'))
         setCompletedDownloadsState('idle')
       }).catch(() => {
         setCompletedDownloadsState('error')
@@ -159,6 +155,20 @@ export default function Settings({ onClose }: SettingsProps) {
   useEffect(() => {
     setLocalLiveTvCountries(store.selectedLiveTvCountries)
   }, [store.selectedLiveTvCountries])
+
+  // Fetch available countries from API when Live TV tab opens
+  useEffect(() => {
+    if (activeTab !== 'live-tv') return
+    if (!store.liveTvEnabled) return
+    setCountriesLoading(true)
+    window.api.damiTv.getAvailableCountries().then(countries => {
+      setAvailableCountries(countries || [])
+      setCountriesLoading(false)
+    }).catch(() => {
+      setAvailableCountries([])
+      setCountriesLoading(false)
+    })
+  }, [activeTab, store.liveTvUser, store.liveTvPlan, store.liveTvEnabled])
 
   const captureKey = (action: string) => {
     setCapturingKey(action)
@@ -335,16 +345,10 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
         window.api.settings.set('sportsApiProKey', localSportsApiProKey),
         window.api.settings.set('usenetEnabled', localEnableUsenet),
-        window.api.settings.set('usenetProvider', localUsenetProvider),
-        window.api.settings.set('sabnzbdUrl', localSabUrl),
-        window.api.settings.set('sabnzbdApiKey', localSabKey),
-        window.api.settings.set('nzbgetUrl', localNzbUrl),
-        window.api.settings.set('nzbgetUsername', localNzbUser),
-        window.api.settings.set('nzbgetPassword', localNzbPass),
-        window.api.settings.set('nzbdavUrl', localNzbDavUrl),
-        window.api.settings.set('nzbdavApiKey', localNzbDavApiKey),
-        window.api.settings.set('nzbdavWebdavUser', localNzbDavWebdavUser),
-        window.api.settings.set('nzbdavWebdavPass', localNzbDavWebdavPass),
+        window.api.settings.set('nzbgetHost', localNzbgetHost),
+        window.api.settings.set('nzbgetPort', String(localNzbgetPort)),
+        window.api.settings.set('nzbgetUsername', localNzbgetUsername),
+        window.api.settings.set('nzbgetPassword', localNzbgetPassword),
         window.api.settings.set('enabledUsenetIndexers', localEnabledUsenetIndexers),
         window.api.settings.set('customUsenetIndexers', localCustomUsenetIndexers),
       ])
@@ -357,16 +361,10 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
       store.setSportsApiProKey(localSportsApiProKey)
       store.setUsenetEnabled(localEnableUsenet)
-      store.setUsenetProvider(localUsenetProvider)
-      store.setSabnzbdUrl(localSabUrl)
-      store.setSabnzbdApiKey(localSabKey)
-      store.setNzbgetUrl(localNzbUrl)
-      store.setNzbgetUsername(localNzbUser)
-      store.setNzbgetPassword(localNzbPass)
-      store.setNzbDavUrl(localNzbDavUrl)
-      store.setNzbDavApiKey(localNzbDavApiKey)
-      store.setNzbDavWebdavUser(localNzbDavWebdavUser)
-      store.setNzbDavWebdavPass(localNzbDavWebdavPass)
+      store.setNzbgetHost(localNzbgetHost)
+      store.setNzbgetPort(localNzbgetPort)
+      store.setNzbgetUsername(localNzbgetUsername)
+      store.setNzbgetPassword(localNzbgetPassword)
       store.setEnabledUsenetIndexers(localEnabledUsenetIndexers)
       store.setCustomUsenetIndexers(localCustomUsenetIndexers)
       await store.saveToDisk()
@@ -606,8 +604,8 @@ export default function Settings({ onClose }: SettingsProps) {
             </div>
 
             <div className={styles.settingGroup}>
-              <h3 className={styles.settingTitle}>Max Torrent Size</h3>
-              <p className={styles.settingDesc}>Skip torrents larger than this size (0 = unlimited)</p>
+              <h3 className={styles.settingTitle}>Max Download Size</h3>
+              <p className={styles.settingDesc}>Skip downloads larger than this size (0 = unlimited, applies to both torrents and Usenet)</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
                   type="number"
@@ -615,8 +613,8 @@ export default function Settings({ onClose }: SettingsProps) {
                   style={{ width: 120, marginBottom: 0 }}
                   placeholder="GB"
                   min={0}
-                  value={store.maxTorrentSize || ''}
-                  onChange={(e) => store.setMaxTorrentSize(Math.max(0, parseInt(e.target.value) || 0))}
+                  value={store.maxDownloadSize || ''}
+                  onChange={(e) => store.setMaxDownloadSize(Math.max(0, parseInt(e.target.value) || 0))}
                 />
                 <span className={styles.settingDesc}>GB</span>
               </div>
@@ -1331,16 +1329,10 @@ export default function Settings({ onClose }: SettingsProps) {
 
         const saveUsenetSettings = async () => {
           store.setUsenetEnabled(localEnableUsenet)
-          store.setUsenetProvider(localUsenetProvider)
-          store.setSabnzbdUrl(localSabUrl)
-          store.setSabnzbdApiKey(localSabKey)
-          store.setNzbgetUrl(localNzbUrl)
-          store.setNzbgetUsername(localNzbUser)
-          store.setNzbgetPassword(localNzbPass)
-          store.setNzbDavUrl(localNzbDavUrl)
-          store.setNzbDavApiKey(localNzbDavApiKey)
-          store.setNzbDavWebdavUser(localNzbDavWebdavUser)
-          store.setNzbDavWebdavPass(localNzbDavWebdavPass)
+          store.setNzbgetHost(localNzbgetHost)
+          store.setNzbgetPort(localNzbgetPort)
+          store.setNzbgetUsername(localNzbgetUsername)
+          store.setNzbgetPassword(localNzbgetPassword)
           store.setEnabledUsenetIndexers(localEnabledUsenetIndexers)
           store.setCustomUsenetIndexers(localCustomUsenetIndexers)
           await store.saveToDisk()
@@ -1366,114 +1358,42 @@ export default function Settings({ onClose }: SettingsProps) {
             {localEnableUsenet && (
               <>
                   <div className={styles.settingGroup}>
-                    <h3 className={styles.settingTitle}>Download Client / Streamer</h3>
-                    <p className={styles.settingDesc}>Connect to SABnzbd, NZBGet or NzbDav for downloading/streaming NZB files</p>
-                    <div className={styles.toggleGrid}>
-                      <button
+                    <h3 className={styles.settingTitle}>NZBGet Daemon</h3>
+                    <p className={styles.settingDesc}>Connect to NZBGet (running on localhost or a remote server)</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <input
                         tabIndex={0}
-                        className={`${styles.toggle} ${localUsenetProvider === 'sabnzbd' ? styles.toggleActive : ''}`}
-                        onClick={() => setLocalUsenetProvider('sabnzbd')}
-                      >
-                        SABnzbd
-                      </button>
-                      <button
+                        type="text"
+                        className={styles.input}
+                        placeholder="Host (e.g. localhost)"
+                        value={localNzbgetHost}
+                        onChange={(e) => setLocalNzbgetHost(e.target.value)}
+                      />
+                      <input
                         tabIndex={0}
-                        className={`${styles.toggle} ${localUsenetProvider === 'nzbget' ? styles.toggleActive : ''}`}
-                        onClick={() => setLocalUsenetProvider('nzbget')}
-                      >
-                        NZBGet
-                      </button>
-                      <button
+                        type="number"
+                        className={styles.input}
+                        placeholder="Port (default 6789)"
+                        value={localNzbgetPort}
+                        onChange={(e) => setLocalNzbgetPort(parseInt(e.target.value) || 6789)}
+                      />
+                      <input
                         tabIndex={0}
-                        className={`${styles.toggle} ${localUsenetProvider === 'nzbdav' ? styles.toggleActive : ''}`}
-                        onClick={() => setLocalUsenetProvider('nzbdav')}
-                      >
-                        NzbDav
-                      </button>
+                        type="text"
+                        className={styles.input}
+                        placeholder="Username (default: nzbget)"
+                        value={localNzbgetUsername}
+                        onChange={(e) => setLocalNzbgetUsername(e.target.value)}
+                      />
+                      <input
+                        tabIndex={0}
+                        type="password"
+                        className={styles.input}
+                        placeholder="Password (default: tegbzn6789)"
+                        value={localNzbgetPassword}
+                        onChange={(e) => setLocalNzbgetPassword(e.target.value)}
+                      />
                     </div>
-
-                    {localUsenetProvider === 'sabnzbd' ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <input
-                          tabIndex={0}
-                          type="text"
-                          className={styles.input}
-                          placeholder="SABnzbd URL (e.g. http://localhost:8080)"
-                          value={localSabUrl}
-                          onChange={(e) => setLocalSabUrl(e.target.value)}
-                        />
-                        <input
-                          tabIndex={0}
-                          type="password"
-                          className={styles.input}
-                          placeholder="SABnzbd API Key"
-                          value={localSabKey}
-                          onChange={(e) => setLocalSabKey(e.target.value)}
-                        />
-                      </div>
-                    ) : localUsenetProvider === 'nzbget' ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <input
-                          tabIndex={0}
-                          type="text"
-                          className={styles.input}
-                          placeholder="NZBGet URL (e.g. http://localhost:6789)"
-                          value={localNzbUrl}
-                          onChange={(e) => setLocalNzbUrl(e.target.value)}
-                        />
-                        <input
-                          tabIndex={0}
-                          type="text"
-                          className={styles.input}
-                          placeholder="NZBGet Username"
-                          value={localNzbUser}
-                          onChange={(e) => setLocalNzbUser(e.target.value)}
-                        />
-                        <input
-                          tabIndex={0}
-                          type="password"
-                          className={styles.input}
-                          placeholder="NZBGet Password"
-                          value={localNzbPass}
-                          onChange={(e) => setLocalNzbPass(e.target.value)}
-                        />
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <input
-                          tabIndex={0}
-                          type="text"
-                          className={styles.input}
-                          placeholder="NzbDav URL (e.g. http://localhost:3000)"
-                          value={localNzbDavUrl}
-                          onChange={(e) => setLocalNzbDavUrl(e.target.value)}
-                        />
-                        <input
-                          tabIndex={0}
-                          type="password"
-                          className={styles.input}
-                          placeholder="NzbDav API Key (from Settings > SABnzbd)"
-                          value={localNzbDavApiKey}
-                          onChange={(e) => setLocalNzbDavApiKey(e.target.value)}
-                        />
-                        <input
-                          tabIndex={0}
-                          type="text"
-                          className={styles.input}
-                          placeholder="WebDAV Username (from Settings > WebDAV)"
-                          value={localNzbDavWebdavUser}
-                          onChange={(e) => setLocalNzbDavWebdavUser(e.target.value)}
-                        />
-                        <input
-                          tabIndex={0}
-                          type="password"
-                          className={styles.input}
-                          placeholder="WebDAV Password"
-                          value={localNzbDavWebdavPass}
-                          onChange={(e) => setLocalNzbDavWebdavPass(e.target.value)}
-                        />
-                      </div>
-                    )}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button
@@ -1580,12 +1500,23 @@ export default function Settings({ onClose }: SettingsProps) {
                         setCompletedDownloadsState('loading')
                         try {
                           const downloads = await window.api.usenet.listDownloads()
-                          setCompletedDownloads(downloads.filter((d: any) => d.status === 'Completed'))
+                          setCompletedDownloads(downloads.filter((d: any) => d.status === 'completed'))
                         } catch {}
                         setCompletedDownloadsState('idle')
                       }}
                     >
                       {completedDownloadsState === 'loading' ? 'Loading...' : 'Refresh'}
+                    </button>
+                    <button
+                      tabIndex={0}
+                      className={styles.disconnectBtn}
+                      onClick={async () => {
+                        try {
+                          await window.api.usenet.clearAll()
+                        } catch {}
+                      }}
+                    >
+                      Clear Download Cache
                     </button>
                   </div>
                   {completedDownloadsState === 'loading' && (
@@ -1728,70 +1659,7 @@ export default function Settings({ onClose }: SettingsProps) {
         )
 
       case 'live-tv': {
-        const ALL_COUNTRIES = [
-          { code: 'us', name: 'United States', flag: '\uD83C\uDDFA\uD83C\uDDF8' },
-          { code: 'gb', name: 'United Kingdom', flag: '\uD83C\uDDEC\uD83C\uDDE7' },
-          { code: 'es', name: 'Spain', flag: '\uD83C\uDDEA\uD83C\uDDF8' },
-          { code: 'fr', name: 'France', flag: '\uD83C\uDDEB\uD83C\uDDF7' },
-          { code: 'de', name: 'Germany', flag: '\uD83C\uDDE9\uD83C\uDDEA' },
-          { code: 'it', name: 'Italy', flag: '\uD83C\uDDEE\uD83C\uDDF9' },
-          { code: 'pt', name: 'Portugal', flag: '\uD83C\uDDF5\uD83C\uDDF9' },
-          { code: 'nl', name: 'Netherlands', flag: '\uD83C\uDDF3\uD83C\uDDF1' },
-          { code: 'be', name: 'Belgium', flag: '\uD83C\uDDE7\uD83C\uDDEA' },
-          { code: 'pl', name: 'Poland', flag: '\uD83C\uDDF5\uD83C\uDDF1' },
-          { code: 'se', name: 'Sweden', flag: '\uD83C\uDDF8\uD83C\uDDEA' },
-          { code: 'no', name: 'Norway', flag: '\uD83C\uDDF3\uD83C\uDDF4' },
-          { code: 'dk', name: 'Denmark', flag: '\uD83C\uDDE9\uD83C\uDDF0' },
-          { code: 'ie', name: 'Ireland', flag: '\uD83C\uDDEE\uD83C\uDDEA' },
-          { code: 'at', name: 'Austria', flag: '\uD83C\uDDE6\uD83C\uDDF9' },
-          { code: 'ch', name: 'Switzerland', flag: '\uD83C\uDDE8\uD83C\uDDED' },
-          { code: 'au', name: 'Australia', flag: '\uD83C\uDDE6\uD83C\uDDFA' },
-          { code: 'nz', name: 'New Zealand', flag: '\uD83C\uDDF3\uD83C\uDDFF' },
-          { code: 'ca', name: 'Canada', flag: '\uD83C\uDDE8\uD83C\uDDE6' },
-          { code: 'mx', name: 'Mexico', flag: '\uD83C\uDDF2\uD83C\uDDFD' },
-          { code: 'br', name: 'Brazil', flag: '\uD83C\uDDE7\uD83C\uDDF7' },
-          { code: 'ar', name: 'Argentina', flag: '\uD83C\uDDE6\uD83C\uDDF7' },
-          { code: 'cl', name: 'Chile', flag: '\uD83C\uDDE8\uD83C\uDDF1' },
-          { code: 'co', name: 'Colombia', flag: '\uD83C\uDDE8\uD83C\uDDF4' },
-          { code: 'pe', name: 'Peru', flag: '\uD83C\uDDF5\uD83C\uDDEA' },
-          { code: 'uy', name: 'Uruguay', flag: '\uD83C\uDDFA\uD83C\uDDFE' },
-          { code: 'jp', name: 'Japan', flag: '\uD83C\uDDEF\uD83C\uDDF5' },
-          { code: 'kr', name: 'South Korea', flag: '\uD83C\uDDF0\uD83C\uDDF7' },
-          { code: 'in', name: 'India', flag: '\uD83C\uDDEE\uD83C\uDDF3' },
-          { code: 'pk', name: 'Pakistan', flag: '\uD83C\uDDF5\uD83C\uDDF0' },
-          { code: 'bd', name: 'Bangladesh', flag: '\uD83C\uDDE7\uD83C\uDDE9' },
-          { code: 'th', name: 'Thailand', flag: '\uD83C\uDDF9\uD83C\uDDED' },
-          { code: 'ph', name: 'Philippines', flag: '\uD83C\uDDF5\uD83C\uDDED' },
-          { code: 'sg', name: 'Singapore', flag: '\uD83C\uDDF8\uD83C\uDDEC' },
-          { code: 'my', name: 'Malaysia', flag: '\uD83C\uDDF2\uD83C\uDDFE' },
-          { code: 'id', name: 'Indonesia', flag: '\uD83C\uDDEE\uD83C\uDDE9' },
-          { code: 'hk', name: 'Hong Kong', flag: '\uD83C\uDDED\uD83C\uDDF0' },
-          { code: 'ae', name: 'UAE', flag: '\uD83C\uDDE6\uD83C\uDDEA' },
-          { code: 'sa', name: 'Saudi Arabia', flag: '\uD83C\uDDF8\uD83C\uDDE6' },
-          { code: 'qa', name: 'Qatar', flag: '\uD83C\uDDF6\uD83C\uDDE6' },
-          { code: 'kw', name: 'Kuwait', flag: '\uD83C\uDDF0\uD83C\uDDFC' },
-          { code: 'bh', name: 'Bahrain', flag: '\uD83C\uDDE7\uD83C\uDDED' },
-          { code: 'om', name: 'Oman', flag: '\uD83C\uDDF4\uD83C\uDDF2' },
-          { code: 'jo', name: 'Jordan', flag: '\uD83C\uDDEF\uD83C\uDDF4' },
-          { code: 'il', name: 'Israel', flag: '\uD83C\uDDEE\uD83C\uDDF1' },
-          { code: 'tr', name: 'Turkey', flag: '\uD83C\uDDF9\uD83C\uDDF7' },
-          { code: 'eg', name: 'Egypt', flag: '\uD83C\uDDEA\uD83C\uDDEC' },
-          { code: 'za', name: 'South Africa', flag: '\uD83C\uDDFF\uD83C\uDDE6' },
-          { code: 'dz', name: 'Algeria', flag: '\uD83C\uDDE9\uD83C\uDDFF' },
-          { code: 'ru', name: 'Russia', flag: '\uD83C\uDDF7\uD83C\uDDFA' },
-          { code: 'ua', name: 'Ukraine', flag: '\uD83C\uDDFA\uD83C\uDDE6' },
-          { code: 'ro', name: 'Romania', flag: '\uD83C\uDDF7\uD83C\uDDF4' },
-          { code: 'bg', name: 'Bulgaria', flag: '\uD83C\uDDE7\uD83C\uDDEC' },
-          { code: 'gr', name: 'Greece', flag: '\uD83C\uDDEC\uD83C\uDDF7' },
-          { code: 'hr', name: 'Croatia', flag: '\uD83C\uDDED\uD83C\uDDF7' },
-          { code: 'rs', name: 'Serbia', flag: '\uD83C\uDDF7\uD83C\uDDF8' },
-          { code: 'si', name: 'Slovenia', flag: '\uD83C\uDDF8\uD83C\uDDEE' },
-          { code: 'cz', name: 'Czech Republic', flag: '\uD83C\uDDE8\uD83C\uDDFF' },
-          { code: 'hu', name: 'Hungary', flag: '\uD83C\uDDED\uD83C\uDDFA' },
-          { code: 'cy', name: 'Cyprus', flag: '\uD83C\uDDE8\uD83C\uDDFE' },
-          { code: 'az', name: 'Azerbaijan', flag: '\uD83C\uDDE6\uD83C\uDDFF' },
-          { code: 'intl', name: 'International', flag: '\uD83C\uDF0D' },
-        ]
+        const countries = availableCountries.length > 0 ? availableCountries : []
         return (
           <div className={styles.tabContent}>
             <div className={styles.settingGroup}>
@@ -1837,55 +1705,63 @@ export default function Settings({ onClose }: SettingsProps) {
               <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>Visible Countries</h3>
                 <p className={styles.settingDesc}>Select which countries' channels appear in Live TV. Leave empty to show all.</p>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                  <button
-                    tabIndex={0}
-                    className={styles.connectBtn}
-                    onClick={() => {
-                      setLocalLiveTvCountries(ALL_COUNTRIES.map(c => c.code))
-                      store.setSelectedLiveTvCountries(ALL_COUNTRIES.map(c => c.code))
-                    }}
-                  >
-                    Select All
-                  </button>
-                  <button
-                    tabIndex={0}
-                    className={styles.connectBtn}
-                    onClick={() => {
-                      setLocalLiveTvCountries([])
-                      store.setSelectedLiveTvCountries([])
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className={styles.toggleGrid}>
-                  {ALL_COUNTRIES.map((country) => {
-                    const selected = localLiveTvCountries.includes(country.code)
-                    return (
+                {countriesLoading ? (
+                  <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, padding: '8px 0' }}>Loading countries...</div>
+                ) : countries.length === 0 ? (
+                  <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, padding: '8px 0' }}>No countries available. Check your API credentials.</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                       <button
-                        key={country.code}
                         tabIndex={0}
-                        className={`${styles.toggle} ${selected || (localLiveTvCountries.length === 0) ? styles.toggleActive : ''}`}
+                        className={styles.connectBtn}
                         onClick={() => {
-                          if (localLiveTvCountries.length === 0) {
-                            const next = [country.code]
-                            setLocalLiveTvCountries(next)
-                            store.setSelectedLiveTvCountries(next)
-                          } else {
-                            const next = selected
-                              ? localLiveTvCountries.filter(c => c !== country.code)
-                              : [...localLiveTvCountries, country.code]
-                            setLocalLiveTvCountries(next)
-                            store.setSelectedLiveTvCountries(next)
-                          }
+                          setLocalLiveTvCountries(countries.map(c => c.code))
+                          store.setSelectedLiveTvCountries(countries.map(c => c.code))
                         }}
                       >
-                        {country.flag} {country.name}
+                        Select All
                       </button>
-                    )
-                  })}
-                </div>
+                      <button
+                        tabIndex={0}
+                        className={styles.connectBtn}
+                        onClick={() => {
+                          setLocalLiveTvCountries([])
+                          store.setSelectedLiveTvCountries([])
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className={styles.toggleGrid}>
+                      {countries.map((country) => {
+                        const selected = localLiveTvCountries.includes(country.code)
+                        return (
+                          <button
+                            key={country.code}
+                            tabIndex={0}
+                            className={`${styles.toggle} ${selected || (localLiveTvCountries.length === 0) ? styles.toggleActive : ''}`}
+                            onClick={() => {
+                              if (localLiveTvCountries.length === 0) {
+                                const next = [country.code]
+                                setLocalLiveTvCountries(next)
+                                store.setSelectedLiveTvCountries(next)
+                              } else {
+                                const next = selected
+                                  ? localLiveTvCountries.filter(c => c !== country.code)
+                                  : [...localLiveTvCountries, country.code]
+                                setLocalLiveTvCountries(next)
+                                store.setSelectedLiveTvCountries(next)
+                              }
+                            }}
+                          >
+                            {country.flag} {country.name} <span style={{ opacity: 0.5, fontSize: 11 }}>({country.count})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

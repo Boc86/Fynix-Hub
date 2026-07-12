@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { spawn, execSync, type ChildProcess } from 'child_process'
 import * as net from 'net'
 import * as fs from 'fs'
@@ -69,6 +70,11 @@ function sendCommand(command: object): Promise<any> {
     const doConnect = (retriesLeft: number) => {
       const client = new net.Socket()
       const payload = JSON.stringify(command) + '\n'
+      let settled = false
+
+      function cleanup() {
+        client.destroy()
+      }
 
       client.connect(ipcSocketPath, () => {
         client.write(payload)
@@ -77,33 +83,50 @@ function sendCommand(command: object): Promise<any> {
       let data = ''
       client.on('data', (chunk) => {
         data += chunk.toString()
+        const idx = data.indexOf('\n')
+        if (idx !== -1 && !settled) {
+          settled = true
+          const line = data.slice(0, idx)
+          try {
+            resolve(JSON.parse(line))
+          } catch {
+            resolve(line)
+          }
+          cleanup()
+        }
       })
 
       client.on('close', () => {
-        try {
-          resolve(JSON.parse(data))
-        } catch {
-          resolve(data)
+        if (!settled && data) {
+          settled = true
+          try {
+            resolve(JSON.parse(data))
+          } catch {
+            resolve(data)
+          }
         }
       })
 
       client.on('error', (err: NodeJS.ErrnoException) => {
-        client.destroy()
+        cleanup()
         if (err.code === 'ENOENT' && retriesLeft > 0) {
-          // Socket not ready yet — retry after a short delay
           setTimeout(() => doConnect(retriesLeft - 1), 500)
-        } else {
+        } else if (!settled) {
+          settled = true
           reject(err)
         }
       })
 
       setTimeout(() => {
-        client.destroy()
-        reject(new Error('IPC command timed out'))
+        if (!settled) {
+          settled = true
+          reject(new Error('IPC command timed out'))
+        }
+        cleanup()
       }, 5000)
     }
 
-    doConnect(10)  // up to ~5s retries
+    doConnect(10)
   })
 }
 
@@ -139,12 +162,14 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--no-keepaspect',
     '--no-window-dragging',
     '--hwdec=no',
-    '--vo=gpu-next',
+    '--vo=gpu',
     '--gpu-context=auto',
     '--gpu-api=opengl',
-    '--cache-pause-initial=yes',
-    '--cache=yes',
-    '--demuxer-readahead-secs=60',
+    '--cache=no',
+    '--demuxer-readahead-secs=15',
+    '--demuxer-max-bytes=200MiB',
+    '--demuxer-max-back-bytes=50MiB',
+    '--ytdl=no',
   ]
 
   if (audioLanguage) {
@@ -152,16 +177,24 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   }
 
   if (/^https?:\/\//.test(playUrl)) {
+    const isLocalCache = /^http:\/\/127\.0\.0\.1/.test(playUrl)
     const isOkCdn = /okcdn\.ru/i.test(playUrl)
     const isVk = /vk\.com|vkvideo/i.test(playUrl)
+
+    if (!isLocalCache) {
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+    }
+
     if (isOkCdn) {
       mpvArgs.push('--referrer=https://ok.ru/')
-      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
       mpvArgs.push('--http-header-fields=Origin: https://ok.ru')
     } else if (isVk) {
       mpvArgs.push('--referrer=https://vk.com/')
-      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
       mpvArgs.push('--http-header-fields=Origin: https://vk.com')
+    }
+
+    if (_referer && !isLocalCache && !isOkCdn && !isVk) {
+      mpvArgs.push(`--referrer=${_referer}`)
     }
   }
 
@@ -251,27 +284,30 @@ export async function startPlayback(url: string, resumePosition?: number, accent
       }
     })
 
-    // Resolve immediately after spawn — don't block on IPC socket.
-    // The renderer's poll loop handles IPC errors via try/catch.
-    settled = true
-    resolve()
-
-    // Do resume-seek asynchronously in the background once socket is ready
-    if (resumePos) {
-      waitForSocket(ipcSocketPath, 10000)
-        .then(async () => {
-          console.log('[MPV] Socket ready, seeking to resume position:', resumePos)
-          try {
-            await sendCommand({ command: ['set', 'time-pos', resumePos] })
-            console.log('[MPV] Resume seek completed')
-          } catch (e) {
-            console.warn('[MPV] Resume seek failed:', e)
-          }
-        })
-        .catch((err) => {
-          console.warn('[MPV] Socket wait timeout for resume seek:', err)
-        })
-    }
+    // Wait up to 3 seconds for IPC socket to confirm mpv started successfully.
+    // If mpv exits before that, the exit handler above will reject immediately.
+    const startTimeout = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        resolve()
+        // Do resume-seek asynchronously in the background once socket is ready
+        if (resumePos) {
+          waitForSocket(ipcSocketPath, 10000)
+            .then(async () => {
+              console.log('[MPV] Socket ready, seeking to resume position:', resumePos)
+              try {
+                await sendCommand({ command: ['set', 'time-pos', resumePos] })
+                console.log('[MPV] Resume seek completed')
+              } catch (e) {
+                console.warn('[MPV] Resume seek failed:', e)
+              }
+            })
+            .catch((err) => {
+              console.warn('[MPV] Socket wait timeout for resume seek:', err)
+            })
+        }
+      }
+    }, 3000)
   })
 
   return promise

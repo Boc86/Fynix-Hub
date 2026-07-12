@@ -605,6 +605,10 @@ export default function App() {
   }, [])
 
   const playUsenet = useCallback(async (result: UsenetResult) => {
+    const maxSize = useSettingsStore.getState().maxDownloadSize
+    if (maxSize > 0 && result.size > maxSize * 1073741824) {
+      throw new Error(`Usenet result exceeds ${maxSize}GB download size limit`)
+    }
     window.api.log('[App] playUsenet', result.title)
     setTorrentSearchOpen(false)
     setFreeSearchOpen(false)
@@ -630,15 +634,68 @@ export default function App() {
     }
 
     try {
-      const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title)
-      if (status) {
+      // Try WebDAV cache search first (handles already-downloaded files)
+      const pi = playerInfoRef.current
+      const cacheResults = await window.api.usenet.searchWebdavCache(
+        result.title,
+        pi ? { title: result.title, type: pi.mediaType, season: pi.season, episode: pi.episode } : undefined,
+      )
+      if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
+        window.api.log(`[App] playUsenet: found in WebDAV cache: ${cacheResults[0].name}`)
+        navigate('player')
+        const audioLang = getAudioLang()
+        try {
+          await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+          setPlayerLoading(false)
+          return
+        } catch (mpvErr: any) {
+          window.api.log('[App] mpv.start failed:', mpvErr?.message)
+          setStreamError(mpvErr?.message || 'Failed to start player')
+          setPlayerLoading(false)
+          return
+        }
+      }
+
+      const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title, result.size)
+      if (status && status.status !== 'failed') {
         window.api.log('[App] Usenet download started:', status.id, status.name)
         currentUsenetIdRef.current = status.id
         navigate('player')
+        let streamed = false
+        // Immediate check — play as soon as the file appears in DestDir
+        ;(async () => {
+          const stream = await window.api.usenet.getStreamUrl(status.id)
+          if (stream?.url) {
+            streamed = true
+            const audioLang = getAudioLang()
+            try {
+              await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              setPlayerLoading(false)
+              window.api.log('[App] Early stream started')
+            } catch (mpvErr: any) {
+              window.api.log('[App] Early stream failed:', mpvErr?.message)
+            }
+          }
+        })()
         // Poll for completion or failure
         const poll = setInterval(async () => {
           const s = await window.api.usenet.getDownloadStatus(status.id)
-          if (!s) return
+          if (!s) { clearInterval(poll); currentUsenetIdRef.current = null; setStreamError('Download removed'); setPlayerLoading(false); return }
+          window.api.log('[UDB] Poll status:', s.status, `progress=${s.progress}`, `downloaded=${s.downloaded}/${s.size}`, s.error || '')
+          if (!streamed && s.status === 'downloading') {
+            const stream = await window.api.usenet.getStreamUrl(status.id)
+            if (stream?.url) {
+              streamed = true
+              const audioLang = getAudioLang()
+              try {
+                await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+                setPlayerLoading(false)
+                window.api.log('[App] Early stream started')
+              } catch (mpvErr: any) {
+                window.api.log('[App] Early stream failed:', mpvErr?.message)
+              }
+            }
+          }
           if (s.progress >= 100) {
             clearInterval(poll)
             currentUsenetIdRef.current = null
@@ -655,13 +712,16 @@ export default function App() {
               setStreamError('Could not get stream URL for completed download')
             }
             setPlayerLoading(false)
-          } else if (s.status === 'Failed' || s.status === 'Error') {
+          } else if (s.status === 'failed') {
             clearInterval(poll)
             currentUsenetIdRef.current = null
-            window.api.log('[App] Usenet download failed:', s.status)
-            // If NzbDav refused due to duplicate, try WebDAV cache search for immediate stream
-            window.api.log('[App] Trying WebDAV cache search for failed download')
-            const cacheResults = await window.api.usenet.searchWebdavCache(result.title)
+            window.api.log('[App] Usenet download failed:', s.error || s.status)
+            window.api.log('[App] Trying download cache search for failed download')
+            const pi = playerInfoRef.current
+            const cacheResults = await window.api.usenet.searchWebdavCache(
+              result.title,
+              pi ? { title: result.title, type: pi.mediaType, season: pi.season, episode: pi.episode } : undefined,
+            )
             if (cacheResults.length > 0) {
               const cached = cacheResults[0]
               if (cached.streamUrl) {
@@ -772,16 +832,14 @@ export default function App() {
   }, [playTorrent, accentColor, playerInfo?.mediaType, preferredAudioLang, preferredLangs])
 
   const tryAutoPlayUsenet = useCallback(async (usenetResults: UsenetResult[], session?: number) => {
+    const maxSize = useSettingsStore.getState().maxDownloadSize
     for (const result of usenetResults) {
+      if (maxSize > 0 && result.size > 0 && result.size > maxSize * 1073741824) continue
       if (session !== undefined && session !== searchSessionRef.current) {
         window.api.log('[App] Auto-play Usenet: session changed, aborting')
         return
       }
-      window.api.log(`[App] Auto-play Usenet trying: ${result.title}`)
-
-      // Direct stream if already cached (WebDAV cache result)
       if (result.streamUrl) {
-        window.api.log('[App] Auto-play Usenet: streaming directly from WebDAV cache')
         const audioLang = getAudioLang()
         try {
           await window.api.mpv.start(result.streamUrl, undefined, accentColor, false, audioLang)
@@ -794,17 +852,67 @@ export default function App() {
       }
 
       try {
-        const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title)
-        if (!status) {
-          window.api.log(`[App] Auto-play Usenet sendNzb returned no status for ${result.title}`)
+        // Try WebDAV cache search first (handles already-downloaded files)
+        const pi = playerInfoRef.current
+        const cacheResults = await window.api.usenet.searchWebdavCache(
+          result.title,
+          pi ? { title: result.title, type: pi.mediaType, season: pi.season, episode: pi.episode } : undefined,
+        )
+        if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
+          window.api.log(`[App] Auto-play Usenet: found in WebDAV cache: ${cacheResults[0].name}`)
+          const audioLang = getAudioLang()
+          try {
+            await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+            setPlayerLoading(false)
+            return
+          } catch (mpvErr: any) {
+            window.api.log('[App] Auto-play Usenet mpv.start failed:', mpvErr?.message)
+            continue
+          }
+        }
+
+        const status = await window.api.usenet.sendNzb(result.nzbUrl, result.title, result.size)
+        if (!status || status.status === 'failed') {
+          if (status?.status === 'failed') window.api.log('[App] Usenet download skipped:', status.error || status.status)
           continue
         }
-        window.api.log('[App] Auto-play Usenet download started:', status.id, status.name)
+        window.api.log('[App] Usenet download:', status.name?.slice(0, 80))
         currentUsenetIdRef.current = status.id
+        let streamed = false
+        // Immediate check — play as soon as the file appears in DestDir
+        ;(async () => {
+          const stream = await window.api.usenet.getStreamUrl(status.id)
+          if (stream?.url) {
+            streamed = true
+            const audioLang = getAudioLang()
+            try {
+              await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              setPlayerLoading(false)
+              window.api.log('[App] Auto-play early stream started')
+            } catch (mpvErr: any) {
+              window.api.log('[App] Auto-play early stream failed:', mpvErr?.message)
+            }
+          }
+        })()
         // Poll for completion or failure
         const poll = setInterval(async () => {
           const s = await window.api.usenet.getDownloadStatus(status.id)
-          if (!s) return
+          if (!s) { clearInterval(poll); currentUsenetIdRef.current = null; window.api.log('[App] Usenet download removed'); return }
+          window.api.log('[UDB] Auto-play poll:', s.status, `progress=${s.progress}`, `downloaded=${s.downloaded}/${s.size}`, s.error || '')
+          if (!streamed && s.status === 'downloading') {
+            const stream = await window.api.usenet.getStreamUrl(status.id)
+            if (stream?.url) {
+              streamed = true
+              const audioLang = getAudioLang()
+              try {
+                await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+                setPlayerLoading(false)
+                window.api.log('[App] Auto-play early stream started')
+              } catch (mpvErr: any) {
+                window.api.log('[App] Auto-play early stream failed:', mpvErr?.message)
+              }
+            }
+          }
           if (s.progress >= 100) {
             clearInterval(poll)
             currentUsenetIdRef.current = null
@@ -815,12 +923,16 @@ export default function App() {
               setPlayerLoading(false)
               return
             }
-          } else if (s.status === 'Failed' || s.status === 'Error') {
+          } else if (s.status === 'failed') {
             clearInterval(poll)
             currentUsenetIdRef.current = null
-            window.api.log('[App] Auto-play Usenet download failed:', s.status)
-            // WebDAV cache fallback on failure
-            const cacheResults = await window.api.usenet.searchWebdavCache(result.title)
+            window.api.log('[App] Auto-play Usenet download failed:', s.error || s.status)
+            // Download cache fallback on failure
+            const pi = playerInfoRef.current
+            const cacheResults = await window.api.usenet.searchWebdavCache(
+              result.title,
+              pi ? { title: result.title, type: pi.mediaType, season: pi.season, episode: pi.episode } : undefined,
+            )
             if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
               const audioLang = getAudioLang()
               try {
@@ -897,7 +1009,7 @@ export default function App() {
       resumePosition,
     })
 
-    const { autoPlayTorrent, maxTorrentSize, torrentSearchEnabled, vylaSearchEnabled, usenetSearchEnabled, usenetEnabled } = useSettingsStore.getState()
+    const { autoPlayTorrent, maxDownloadSize, torrentSearchEnabled, vylaSearchEnabled, usenetSearchEnabled, usenetEnabled } = useSettingsStore.getState()
     if (!autoPlayTorrent) {
       window.api.log(`[App] handlePlay manual path, opening modal`)
       const isEpisode = selected.mediaType === 'tv' && episode !== null
@@ -932,8 +1044,12 @@ export default function App() {
       // Fire Usenet search in parallel
       if (usenetSearchEnabled && usenetEnabled) {
         autoPlayUsenetPromiseRef.current = window.api.usenet.search(searchParams).then((results: UsenetResult[]) => {
-          autoPlayUsenetRef.current = results || []
-          window.api.log(`[App] Auto-play Usenet got ${(results || []).length} results`)
+          const maxSize = useSettingsStore.getState().maxDownloadSize
+          const filtered = maxSize > 0
+            ? (results || []).filter(r => r.size === 0 || r.size <= maxSize * 1073741824)
+            : (results || [])
+          autoPlayUsenetRef.current = filtered
+          window.api.log(`[App] Auto-play Usenet got ${(results || []).length} results, ${filtered.length} after size filter`)
         }).catch(() => {
           autoPlayUsenetRef.current = []
         })
@@ -949,8 +1065,8 @@ export default function App() {
         results = res.torrents || []
       }
 
-      const filtered = maxTorrentSize > 0
-        ? results.filter((r: TorrentResult) => r.size <= maxTorrentSize * 1073741824)
+      const filtered = maxDownloadSize > 0
+        ? results.filter((r: TorrentResult) => r.size <= maxDownloadSize * 1073741824)
         : results
 
       // Track which infoHashes are valid for this search (for playTorrent guard)
@@ -1371,6 +1487,7 @@ export default function App() {
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
       />
+      <ErrorBoundary>
       {(view === 'browser' || view === 'movies' || view === 'tv-shows') && (
         <Browser
           key={view}
@@ -1470,6 +1587,7 @@ export default function App() {
       {view === 'youtube' && (
         <div className="animate-fade" style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
       )}
+      </ErrorBoundary>
         {searchOpen && (
           <SearchModal
             onClose={() => setSearchOpen(false)}

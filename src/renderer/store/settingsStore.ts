@@ -38,7 +38,7 @@ interface SettingsState {
   downloadPath: string
   autoPlayNext: boolean
   autoPlayTorrent: boolean
-  maxTorrentSize: number
+  maxDownloadSize: number
   keyboardNavEnabled: boolean
   preferredLanguages: string[]
   preferredResolutions: string[]
@@ -62,14 +62,8 @@ interface SettingsState {
   liveTvEnabled: boolean
   selectedLiveTvCountries: string[]
   usenetEnabled: boolean
-  usenetProvider: 'sabnzbd' | 'nzbget' | 'nzbdav'
-  nzbdavUrl: string
-  nzbdavApiKey: string
-  nzbdavWebdavUser: string
-  nzbdavWebdavPass: string
-  sabnzbdUrl: string
-  sabnzbdApiKey: string
-  nzbgetUrl: string
+  nzbgetHost: string
+  nzbgetPort: number
   nzbgetUsername: string
   nzbgetPassword: string
   enabledUsenetIndexers: string[]
@@ -98,7 +92,7 @@ interface SettingsState {
   setDownloadPath: (path: string) => void
   setAutoPlayNext: (enabled: boolean) => void
   setAutoPlayTorrent: (enabled: boolean) => void
-  setMaxTorrentSize: (size: number) => void
+  setMaxDownloadSize: (size: number) => void
   setKeyboardNavEnabled: (enabled: boolean) => void
   setPreferredLanguages: (languages: string[]) => void
   setPreferredResolutions: (resolutions: string[]) => void
@@ -122,14 +116,8 @@ interface SettingsState {
   setLiveTvEnabled: (enabled: boolean) => void
   setSelectedLiveTvCountries: (codes: string[]) => void
   setUsenetEnabled: (enabled: boolean) => void
-  setUsenetProvider: (provider: 'sabnzbd' | 'nzbget' | 'nzbdav') => void
-  setNzbDavUrl: (url: string) => void
-  setNzbDavApiKey: (key: string) => void
-  setNzbDavWebdavUser: (user: string) => void
-  setNzbDavWebdavPass: (pass: string) => void
-  setSabnzbdUrl: (url: string) => void
-  setSabnzbdApiKey: (key: string) => void
-  setNzbgetUrl: (url: string) => void
+  setNzbgetHost: (host: string) => void
+  setNzbgetPort: (port: number) => void
   setNzbgetUsername: (username: string) => void
   setNzbgetPassword: (password: string) => void
   setEnabledUsenetIndexers: (ids: string[]) => void
@@ -167,7 +155,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   downloadPath: '',
   autoPlayNext: true,
   autoPlayTorrent: false,
-  maxTorrentSize: 0,
+  maxDownloadSize: 0,
   keyboardNavEnabled: true,
   preferredLanguages: DEFAULT_LANGUAGES,
   preferredResolutions: DEFAULT_RESOLUTIONS,
@@ -191,14 +179,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   liveTvEnabled: false,
   selectedLiveTvCountries: [],
   usenetEnabled: false,
-  usenetProvider: 'sabnzbd',
-  nzbdavUrl: '',
-  nzbdavApiKey: '',
-  nzbdavWebdavUser: 'admin',
-  nzbdavWebdavPass: '',
-  sabnzbdUrl: '',
-  sabnzbdApiKey: '',
-  nzbgetUrl: '',
+  nzbgetHost: '',
+  nzbgetPort: 6789,
   nzbgetUsername: '',
   nzbgetPassword: '',
   enabledUsenetIndexers: [],
@@ -227,7 +209,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setDownloadPath: (path) => set({ downloadPath: path }),
   setAutoPlayNext: (enabled) => { set({ autoPlayNext: enabled }); get().saveToDisk() },
   setAutoPlayTorrent: (enabled) => { set({ autoPlayTorrent: enabled }); get().saveToDisk() },
-  setMaxTorrentSize: (size) => { set({ maxTorrentSize: size }); get().saveToDisk() },
+  setMaxDownloadSize: (size) => { set({ maxDownloadSize: size }); get().saveToDisk() },
   setKeyboardNavEnabled: (enabled) => set({ keyboardNavEnabled: enabled }),
   setPreferredLanguages: (languages) => set({ preferredLanguages: languages }),
   setPreferredResolutions: (resolutions) => set({ preferredResolutions: resolutions }),
@@ -251,14 +233,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
   setUsenetEnabled: (enabled) => { set({ usenetEnabled: enabled }); get().saveToDisk() },
-  setUsenetProvider: (provider) => { set({ usenetProvider: provider }); get().saveToDisk() },
-  setNzbDavUrl: (url) => { set({ nzbdavUrl: url }); get().saveToDisk() },
-  setNzbDavApiKey: (key) => { set({ nzbdavApiKey: key }); get().saveToDisk() },
-  setNzbDavWebdavUser: (user) => { set({ nzbdavWebdavUser: user }); get().saveToDisk() },
-  setNzbDavWebdavPass: (pass) => { set({ nzbdavWebdavPass: pass }); get().saveToDisk() },
-  setSabnzbdUrl: (url) => { set({ sabnzbdUrl: url }); get().saveToDisk() },
-  setSabnzbdApiKey: (key) => { set({ sabnzbdApiKey: key }); get().saveToDisk() },
-  setNzbgetUrl: (url) => { set({ nzbgetUrl: url }); get().saveToDisk() },
+  setNzbgetHost: (host) => { set({ nzbgetHost: host }); get().saveToDisk() },
+  setNzbgetPort: (port) => { set({ nzbgetPort: port }); get().saveToDisk() },
   setNzbgetUsername: (username) => { set({ nzbgetUsername: username }); get().saveToDisk() },
   setNzbgetPassword: (password) => { set({ nzbgetPassword: password }); get().saveToDisk() },
   setEnabledUsenetIndexers: (ids) => { set({ enabledUsenetIndexers: ids }); get().saveToDisk() },
@@ -381,6 +357,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
               sportsSelected: p.sportsSelected || settings.sportsSelected || []
             }))
           }
+          // Migrate old maxTorrentSize → maxDownloadSize
+          if (!(settings as any).maxDownloadSize && (settings as any).maxTorrentSize) {
+            (settings as any).maxDownloadSize = (settings as any).maxTorrentSize
+          }
           set(settings as Partial<SettingsState>);
         }
       }
@@ -436,7 +416,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('downloadPath', state.downloadPath),
         window.api.settings.set('autoPlayNext', state.autoPlayNext),
         window.api.settings.set('autoPlayTorrent', state.autoPlayTorrent),
-        window.api.settings.set('maxTorrentSize', state.maxTorrentSize),
+        window.api.settings.set('maxDownloadSize', state.maxDownloadSize),
+        window.api.settings.set('maxTorrentSize', state.maxDownloadSize),
         window.api.settings.set('keyboardNavEnabled', state.keyboardNavEnabled),
         window.api.settings.set('preferredLanguages', state.preferredLanguages),
         window.api.settings.set('preferredResolutions', state.preferredResolutions),
@@ -461,14 +442,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
         window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
         window.api.settings.set('usenetEnabled', state.usenetEnabled),
-        window.api.settings.set('usenetProvider', state.usenetProvider),
-        window.api.settings.set('nzbdavUrl', state.nzbdavUrl),
-        window.api.settings.set('nzbdavApiKey', state.nzbdavApiKey),
-        window.api.settings.set('nzbdavWebdavUser', state.nzbdavWebdavUser),
-        window.api.settings.set('nzbdavWebdavPass', state.nzbdavWebdavPass),
-        window.api.settings.set('sabnzbdUrl', state.sabnzbdUrl),
-        window.api.settings.set('sabnzbdApiKey', state.sabnzbdApiKey),
-        window.api.settings.set('nzbgetUrl', state.nzbgetUrl),
+        window.api.settings.set('nzbgetHost', state.nzbgetHost),
+        window.api.settings.set('nzbgetPort', String(state.nzbgetPort)),
         window.api.settings.set('nzbgetUsername', state.nzbgetUsername),
         window.api.settings.set('nzbgetPassword', state.nzbgetPassword),
         window.api.settings.set('enabledUsenetIndexers', state.enabledUsenetIndexers),
