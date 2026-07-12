@@ -91,7 +91,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   const [localRiveResults, setLocalRiveResults] = useState<RivestreamResult[]>([])
   const prefLangs = useSettingsStore(s => s.preferredLanguages)
   const prefRes = useSettingsStore(s => s.preferredResolutions)
-  const maxTorrentSize = useSettingsStore(s => s.maxTorrentSize)
+  const maxDownloadSize = useSettingsStore(s => s.maxDownloadSize)
 
   useEffect(() => {
     const unsubscribe = window.api.torrent.onRiveResult((result) => {
@@ -101,7 +101,9 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   }, [])
 
   const combinedRiveResults = [...(rivestreamResults || []), ...localRiveResults]
-  const combinedUsenetResults = usenetResults || []
+  const combinedUsenetResults = maxDownloadSize > 0
+    ? (usenetResults || []).filter(r => r.size <= maxDownloadSize * 1073741824)
+    : (usenetResults || [])
   const overlayRef = useRef<HTMLDivElement>(null)
   const rivestreamCount = combinedRiveResults.length
   const usenetCount = combinedUsenetResults.length
@@ -115,13 +117,22 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
 
   useEffect(() => {
     const el = itemRefs.current[selectedIdx]
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    if (el && listRef.current) {
+      const container = listRef.current
+      const itemTop = el.offsetTop - container.offsetTop
+      const itemBottom = itemTop + el.offsetHeight
+      if (itemTop < container.scrollTop) {
+        container.scrollTop = itemTop
+      } else if (itemBottom > container.scrollTop + container.clientHeight) {
+        container.scrollTop = itemBottom - container.clientHeight
+      }
+    }
   }, [selectedIdx])
 
   const scoredResults = useMemo(() => {
     // Only hard-filter by max size (user's explicit limit)
     let r = results
-    if (maxTorrentSize > 0) r = r.filter(x => x.size <= maxTorrentSize * 1073741824)
+    if (maxDownloadSize > 0) r = r.filter(x => x.size <= maxDownloadSize * 1073741824)
 
     return [...r].sort((a, b) => score(b) - score(a))
 
@@ -138,8 +149,8 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
       // Tier 4: Preferred language
       if (matchesLanguage(t.title, prefLangs)) s += 10000
       // Tier 5: Size
-      if (maxTorrentSize > 0 && t.size > 0) {
-        const ratio = t.size / (maxTorrentSize * 1073741824)
+      if (maxDownloadSize > 0 && t.size > 0) {
+        const ratio = t.size / (maxDownloadSize * 1073741824)
         s += Math.round((1 - ratio) * 1000)
       } else if (t.size > 0) {
         if (t.size >= 524288000 && t.size <= 53687091200) s += 500
@@ -148,36 +159,40 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
       s += Math.min(t.seeders, 999)
       return s
     }
-  }, [results, prefLangs, prefRes, maxTorrentSize, cachedMap])
+  }, [results, prefLangs, prefRes, maxDownloadSize, cachedMap])
 
   const totalItems = rivestreamCount + usenetCount + scoredResults.length
 
   const cachedCountInList = scoredResults.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).length
 
-  const handleOverlayKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
-    if (e.key === 'Home') { e.preventDefault(); setSelectedIdx(0); return }
-    if (e.key === 'End') { e.preventDefault(); setSelectedIdx(totalItems - 1); return }
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      if (selectedIdx < rivestreamCount && onSelectRivestream && combinedRiveResults) {
-        onSelectRivestream(combinedRiveResults[selectedIdx])
-      } else if (selectedIdx >= rivestreamCount && selectedIdx < rivestreamCount + usenetCount && onSelectUsenet) {
-        onSelectUsenet(combinedUsenetResults[selectedIdx - rivestreamCount])
-      } else {
-        const torrentIdx = selectedIdx - rivestreamCount - usenetCount
-        if (scoredResults[torrentIdx]) {
-          onSelect(scoredResults[torrentIdx])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
+      if (e.key === 'Home') { e.preventDefault(); setSelectedIdx(0); return }
+      if (e.key === 'End') { e.preventDefault(); setSelectedIdx(totalItems - 1); return }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (selectedIdx < rivestreamCount && onSelectRivestream && combinedRiveResults) {
+          onSelectRivestream(combinedRiveResults[selectedIdx])
+        } else if (selectedIdx >= rivestreamCount && selectedIdx < rivestreamCount + usenetCount && onSelectUsenet) {
+          onSelectUsenet(combinedUsenetResults[selectedIdx - rivestreamCount])
+        } else {
+          const torrentIdx = selectedIdx - rivestreamCount - usenetCount
+          if (scoredResults[torrentIdx]) {
+            onSelect(scoredResults[torrentIdx])
+          }
         }
       }
     }
-    e.stopPropagation()
-  }, [scoredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream, usenetCount, combinedUsenetResults, onSelectUsenet])
+    window.addEventListener('keydown', onKey, true)
+    overlayRef.current?.focus()
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [scoredResults, selectedIdx, onSelect, onClose, rivestreamCount, combinedRiveResults, onSelectRivestream, usenetCount, combinedUsenetResults, onSelectUsenet, totalItems])
 
   return (
-    <div className={styles.overlay} tabIndex={-1} ref={overlayRef} onKeyDown={handleOverlayKeyDown} onClick={onClose}>
+    <div className={styles.overlay} tabIndex={-1} ref={overlayRef} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2 className={styles.title}>Select Torrent</h2>
