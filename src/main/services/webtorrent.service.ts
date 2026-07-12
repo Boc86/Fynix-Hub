@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { app } from 'electron'
 import * as LocalCacheService from './local-cache.service'
+import * as CacheService from './cache.service'
 import path from 'path'
 import { initWebTorrent } from './webtorrent-loader'
 
@@ -73,7 +74,15 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
     })
 
     torrent.on('metadata', () => {
-      debug(`Got metadata for ${torrent.infoHash} (${torrent.files.length} files)`)
+      const maxSizeGb = CacheService.getSetting<number>('maxDownloadSize') || 0
+      if (maxSizeGb > 0 && torrent.length > maxSizeGb * 1073741824) {
+        debug(`Torrent ${torrent.infoHash} too large: ${(torrent.length / 1073741824).toFixed(1)}GB exceeds ${maxSizeGb}GB limit`)
+        c.remove(torrent.infoHash)
+        reject(new Error(`Torrent too large: ${(torrent.length / 1073741824).toFixed(1)}GB exceeds ${maxSizeGb}GB limit`))
+        return
+      }
+
+      debug(`Got metadata for ${torrent.infoHash} (${torrent.files.length} files, ${(torrent.length / 1073741824).toFixed(1)}GB)`)
       torrentMap.set(torrent.infoHash, torrent)
       resolve({
         infoHash: torrent.infoHash,
@@ -82,6 +91,7 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
         get downloadSpeed() { return torrent.downloadSpeed },
         get files() { return torrent.files },
         ready: true,
+        length: torrent.length,
         destroy: () => removeTorrent(torrent.infoHash),
       })
     })

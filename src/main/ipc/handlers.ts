@@ -223,6 +223,7 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('trakt:scrobble', async (_event, action, media) => {
+    console.log('[Trakt] IPC scrobble called:', action)
     return TraktService.scrobble(action, media)
   })
 
@@ -273,6 +274,22 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
     TraktService.setTokens(accessToken, refreshToken)
+  })
+
+  // Test handler: simulates scrobble for a movie/show with fake progress
+  handle('trakt:test-scrobble', async (_event, opts: {
+    tmdbId: number; mediaType: 'movie' | 'tv'; progress: number; season?: number; episode?: number
+  }) => {
+    const { tmdbId, mediaType, progress, season, episode } = opts
+    console.log('[Trakt] test-scrobble called with:', JSON.stringify(opts))
+    const payload = TraktService.buildScrobblePayload(tmdbId, mediaType, progress, season, episode)
+    const start = await TraktService.scrobble('start', payload)
+    console.log('[Trakt] test-scrobble start result:', JSON.stringify(start).slice(0, 300))
+    const pause = await TraktService.scrobble('pause', payload)
+    console.log('[Trakt] test-scrobble pause result:', JSON.stringify(pause).slice(0, 300))
+    const stop = await TraktService.scrobble('stop', payload)
+    console.log('[Trakt] test-scrobble stop result:', JSON.stringify(stop).slice(0, 300))
+    return { start, pause, stop }
   })
 
 
@@ -934,8 +951,8 @@ export async function registerIpcHandlers(): Promise<void> {
     return DamiTVService.getAvailableCountries()
   })
 
-  handle('dami-tv:extract-url', async (_event, channelId: string) => {
-    return DamiTVService.extractChannelUrl(channelId)
+  handle('dami-tv:extract-url', async (_event, ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => {
+    return DamiTVService.extractChannelUrl(ch)
   })
 
   handle('epg:get-channels', async () => {
@@ -955,7 +972,6 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('usenet:search', async (event, query) => {
-    console.log('[Handler] usenet:search', JSON.stringify(query).slice(0, 200))
     const enabledIds = CacheService.getSetting<string[]>('enabledUsenetIndexers') || UsenetSearchService.getDefaultEnabledIndexerIds()
     const customIndexers = CacheService.getSetting<UsenetSearchService.UsenetIndexerConfig[]>('customUsenetIndexers') || []
     try {
@@ -963,9 +979,8 @@ export async function registerIpcHandlers(): Promise<void> {
         UsenetSearchService.searchUsenet(query, enabledIds, customIndexers, (result) => {
           event.sender.send('usenet:result', result)
         }),
-        UsenetService.searchWebdavCache(query.query || query.title || ''),
+        UsenetService.searchWebdavCache(query.query || query.title || '', { title: query.title, year: query.year, type: query.type, season: query.season, episode: query.episode }),
       ])
-      console.log('[Handler] usenet:search returned', results.length, 'results, webdav cache:', cacheResults.length)
       // Merge WebDAV cache results (already downloaded — streamable immediately)
       for (const cr of cacheResults) {
         results.push({
@@ -992,9 +1007,9 @@ export async function registerIpcHandlers(): Promise<void> {
     return UsenetService.checkConnection()
   })
 
-  handle('usenet:send-nzb', async (_event, nzbUrl, title) => {
-    console.log('[Handler] usenet:send-nzb', title)
-    return UsenetService.sendNzb(nzbUrl, title)
+  handle('usenet:send-nzb', async (_event, nzbUrl, title, sizeBytes) => {
+    console.log('[Handler] usenet:send-nzb', title, sizeBytes ? `(${(sizeBytes / 1073741824).toFixed(1)}GB)` : '')
+    return UsenetService.sendNzb(nzbUrl, title, sizeBytes)
   })
 
   handle('usenet:get-download-status', async (_event, id) => {
@@ -1022,8 +1037,15 @@ export async function registerIpcHandlers(): Promise<void> {
     return UsenetService.removeDownload(id)
   })
 
-  handle('usenet:search-webdav-cache', async (_event, query) => {
-    return UsenetService.searchWebdavCache(query)
+  handle('usenet:clear-all', async () => {
+    return UsenetService.clearAll()
+  })
+
+  handle('usenet:search-webdav-cache', async (_event, query: string | { query: string; title?: string; year?: number; type?: string; season?: number; episode?: number }) => {
+    if (typeof query === 'string') {
+      return UsenetService.searchWebdavCache(query)
+    }
+    return UsenetService.searchWebdavCache(query.query, { title: query.title, year: query.year, type: query.type as 'movie' | 'tv' | undefined, season: query.season, episode: query.episode })
   })
 
   handle('mpv:get-sub-action', async () => {

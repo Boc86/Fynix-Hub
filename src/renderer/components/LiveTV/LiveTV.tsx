@@ -13,7 +13,7 @@ interface Channel {
   status: string
 }
 
-const MAX_CONCURRENT = 5
+
 
 export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string) => Promise<void>; onBack: () => void }) {
   const settingsStore = useSettingsStore()
@@ -22,10 +22,7 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [playing, setPlaying] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
-  const [imgErrors, setImgErrors] = useState<Set<string>>(new Set())
-  const [imgCache, setImgCache] = useState<Record<string, string>>({})
   const containerRef = useRef<HTMLDivElement>(null)
-  const proxiedRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     setLoading(true)
@@ -35,6 +32,13 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
+
+  // Auto-focus container when loading completes
+  useEffect(() => {
+    if (!loading && containerRef.current) {
+      containerRef.current.focus()
+    }
+  }, [loading])
 
   const filteredChannels = useMemo(() => {
     let result = channels
@@ -46,33 +50,6 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       return a.name.localeCompare(b.name)
     })
   }, [channels, settingsStore.selectedLiveTvCountries])
-
-  // proxy only visible (filtered) channels, in batches, async
-  useEffect(() => {
-    const toProxy = filteredChannels.filter(c => c.image && !imgCache[c.id] && !proxiedRef.current.has(c.id))
-    if (toProxy.length === 0) return
-    window.api.log(`[LiveTV] Proxying ${toProxy.length}/${filteredChannels.length} visible channel images`)
-    let idx = 0
-    let running = 0
-    function next() {
-      while (running < MAX_CONCURRENT && idx < toProxy.length) {
-        const ch = toProxy[idx++]
-        running++
-        proxiedRef.current.add(ch.id)
-        window.api.damiTv.proxyImage(ch.image).then(dataUrl => {
-          window.api.log(`[LiveTV] Proxy ${dataUrl ? 'OK' : 'FAIL'} for ${ch.name}`)
-          if (dataUrl) setImgCache(prev => ({ ...prev, [ch.id]: dataUrl }))
-          else setImgErrors(prev => { const n = new Set(prev); n.add(ch.id); return n })
-        }).catch(() => {
-          setImgErrors(prev => { const n = new Set(prev); n.add(ch.id); return n })
-        }).finally(() => {
-          running--
-          next()
-        })
-      }
-    }
-    next()
-  }, [filteredChannels, imgCache])
 
   const flatItems = useMemo(() => {
     const map = new Map<string, Channel[]>()
@@ -144,11 +121,11 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
     setPlaying(ch.id)
     setPlayError(null)
     try {
-      const result = await window.api.damiTv.extractUrl(ch.id)
+      const result = await window.api.damiTv.extractUrl({ id: ch.id, name: ch.name, countryCode: ch.countryCode, playerUrl: ch.playerUrl })
       if (result?.hlsUrl) {
         await onPlayUrl(result.hlsUrl)
       } else {
-        setPlayError(`No playable source for ${ch.name}. The channel's stream URL could not be extracted.`)
+        setPlayError(`No playable source for ${ch.name}.`)
       }
     } catch (err: any) {
       setPlayError(`Failed to play ${ch.name}: ${err?.message || 'Unknown error'}`)
@@ -280,7 +257,8 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
               return (
                 <div key={ch.id}
                   ref={el => { if (el) channelRefs.current.set(item.flatIdx, el) }}
-                  data-channel-idx={item.flatIdx}
+                  data-focus-index={item.flatIdx}
+                  tabIndex={0}
                   onClick={() => playChannel(ch)}
                   onMouseEnter={() => setFocusedChannelIdx(item.flatIdx)}
                   style={{
@@ -296,16 +274,9 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
                     aspectRatio: '16/9', background: '#111', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', position: 'relative',
                   }}>
-                    {!imgErrors.has(ch.id) && (imgCache[ch.id] || ch.image?.startsWith('http')) ? (
-                      <img src={imgCache[ch.id] || ch.image} alt={ch.name}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        onError={() => setImgErrors(prev => { const n = new Set(prev); n.add(ch.id); return n })}
-                      />
-                    ) : (
-                      <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
-                        {ch.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
+                    <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
+                      {ch.name.charAt(0).toUpperCase()}
+                    </div>
                     {playing === ch.id && (
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
                         <div style={{ width: 20, height: 20, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />

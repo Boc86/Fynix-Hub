@@ -63,18 +63,23 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   const [activeSkip, setActiveSkip] = useState<IntroSegment | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const currentTimeRef = useRef(0)
+  const durationRef = useRef(0)
   const [fallbackDuration, setFallbackDuration] = useState(0)
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
   const preferredLanguagesRef = useRef<string[]>([])
   preferredLanguagesRef.current = preferredLanguages
   const isPlayingRef = useRef(false)
-  const prevPlayStateRef = useRef<boolean | null>(null)
+  const prevPlayStateRef = useRef(false)
+  const startScrobbledRef = useRef(false)
 
   const saveProgress = useCallback(() => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    if (!isFinite(duration) || duration <= 0 || !isFinite(currentTime)) return
-    const progress = currentTime / duration
+    const t = currentTimeRef.current
+    const d = durationRef.current
+    if (!isFinite(d) || d <= 0 || !isFinite(t)) return
+    const progress = t / d
     if (isFinite(progress) && progress > 0) {
       window.api.watch.updateProgress(
         mediaInfo.tmdbId,
@@ -84,7 +89,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         mediaInfo.episode,
       )
     }
-  }, [mediaInfo, duration, currentTime])
+  }, [mediaInfo])
 
   const splashHiddenRef = useRef(false)
   const [showSubNotFound, setShowSubNotFound] = useState(false)
@@ -93,20 +98,25 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
 
   const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    if (!isFinite(duration) || duration <= 0) return
-    const progress = currentTime / duration
-    if (!isFinite(progress) || progress <= 0) return
+    const d = durationRef.current
+    if (!isFinite(d) || d <= 0) return
+    const progress = currentTimeRef.current / d
+    if (!isFinite(progress)) return
     try {
       const now = Date.now()
-      if (action === 'start' && now - scrobbleThrottle.current < 60000) return
+      const elapsed = now - scrobbleThrottle.current
+      if (action === 'start' && elapsed < 60000) return
       scrobbleThrottle.current = now
       const payload = buildScrobblePayload(
         mediaInfo.tmdbId, mediaInfo.mediaType, progress,
         mediaInfo.season, mediaInfo.episode,
       )
       await window.api.trakt.scrobble(action, payload)
-    } catch { /* non-critical */ }
-  }, [mediaInfo, duration, currentTime])
+      window.api.log(`[Trakt] scrobble ${action} ${Math.round(progress * 100)}%`)
+    } catch (e: any) {
+      window.api.log(`[Trakt] scrobble ${action} failed: ${e?.message || e}`)
+    }
+  }, [mediaInfo])
 
   const markAsWatched = useCallback(async () => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -116,7 +126,10 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         mediaInfo.season, mediaInfo.episode,
       )
       await window.api.trakt.markWatched(payload)
-    } catch { /* non-critical */ }
+      console.log('[Trakt] markWatched ok', payload)
+    } catch (e: any) {
+      window.api.log(`[Trakt] markWatched failed: ${e?.message || e}`)
+    }
   }, [mediaInfo])
 
   const handleSearchSubs = useCallback(async () => {
@@ -214,9 +227,14 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   useEffect(() => {
     if (playerLoading) return
 
+    prevPlayStateRef.current = false
+    startScrobbledRef.current = false
+
     let wasEnded = false
+    let pollCount = 0
 
     pollIntervalRef.current = setInterval(async () => {
+      pollCount++
       let pos = 0
       let dur = 0
       let paused = true
@@ -236,16 +254,23 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           window.api.mpv.hideSplash().catch(() => {})
         }
 
-        // Check for subtitle-not-found signal from mpv OSD
+        // Check for subtitle-not-found signal from mpv OSD (max 15 attempts)
         if (!showSubNotFoundRef.current) {
-          const subAction = await window.api.mpv.getSubAction().catch(() => null)
-          if (subAction === 'no-subs') {
-            await window.api.mpv.clearSubAction().catch(() => {})
-            setShowSubNotFound(true)
+          const subCheckCount = pollCount
+          if (subCheckCount < 15) {
+            const subAction = await window.api.mpv.getSubAction().catch(() => null)
+            if (subAction === 'no-subs') {
+              await window.api.mpv.clearSubAction().catch(() => {})
+              setShowSubNotFound(true)
+              showSubNotFoundRef.current = true
+            }
+          } else {
             showSubNotFoundRef.current = true
           }
         }
 
+        currentTimeRef.current = pos
+        durationRef.current = dur
         setCurrentTime(pos)
         if (dur > 0) setDuration(dur)
 
@@ -253,8 +278,13 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         isPlayingRef.current = playing
 
         const prev = prevPlayStateRef.current
-        if (prev === false && playing) {
-          scrobble('start')
+
+        if (playing && !startScrobbledRef.current) {
+          const d = durationRef.current
+          if (isFinite(d) && d > 0) {
+            scrobble('start')
+            startScrobbledRef.current = true
+          }
         }
         if (prev === true && !playing) {
           scrobble('pause')
@@ -273,7 +303,8 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
             onNextEpisode()
           }
         }
-      } catch {
+      } catch (e: any) {
+        window.api.log('[VP] poll error:', e?.message || e)
         const running = await window.api.mpv.isRunning().catch(() => false)
         if (!running && !wasEnded && !playerLoading) {
           wasEnded = true
@@ -289,7 +320,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           }
         }
       }
-    }, 1000)
+    }, 2500)
 
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
@@ -303,7 +334,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
 
     let lastSignalTime = 0
     skipCheckRef.current = setInterval(() => {
-      const currentMs = currentTime * 1000
+      const currentMs = currentTimeRef.current * 1000
       const active = segments.find((seg) => {
         if (seg.type !== 'intro' && seg.type !== 'recap') return false
         if (seg.startMs === null || seg.endMs === null) return false
@@ -328,7 +359,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
       if (skipCheckRef.current) clearInterval(skipCheckRef.current)
       window.api.mpv.hideSkipIntro().catch(() => {})
     }
-  }, [segments, currentTime])
+  }, [segments])
 
   // Fallback duration for progress calc
   useEffect(() => {
@@ -396,14 +427,12 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     } else if (mediaInfo.mediaType === 'movie' && movie.productionCompanies && movie.productionCompanies.length > 0) {
       clearlogoText = movie.productionCompanies[0].name
     }
-    window.api.log('[VideoPlayer] clearlogo text:', JSON.stringify(clearlogoText))
     if (clearlogoText) {
       window.api.mpv.setClearlogo(clearlogoText).catch(() => {})
     }
 
     // Plot: movie overview or fetch episode overview
     const sendPlot = (text: string) => {
-      window.api.log('[VideoPlayer] plot text:', JSON.stringify(text?.slice(0, 100)))
       if (text) window.api.mpv.setPlot(text).catch(() => {})
     }
     if (mediaInfo.mediaType === 'movie') {

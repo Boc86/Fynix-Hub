@@ -49,6 +49,10 @@ function rankAndFilter(results: UsenetResult[], limit: number = 200): UsenetResu
       const aScore = qScore(a.quality)
       const bScore = qScore(b.quality)
       if (aScore !== bScore) return bScore - aScore
+      if (a.size && b.size) {
+        const sizeDiff = Math.abs(a.size - b.size)
+        if (sizeDiff > 1073741824) return a.size - b.size
+      }
       return b.poster - a.poster
     })
     .slice(0, limit)
@@ -69,56 +73,31 @@ export async function searchUsenet(
   onResult?: (result: UsenetResult) => void
 ): Promise<UsenetResult[]> {
   const searchTerm = query.query || query.title || ''
-  if (!searchTerm) {
-    console.log('[UsenetSearch] No search term provided (query=%s title=%s)', query.query, query.title)
-    return []
-  }
-
-  console.log('[UsenetSearch] Searching for "%s" (type=%s year=%s)', searchTerm, query.type, query.year)
+  if (!searchTerm) return []
 
   const allCustom = customIndexers.filter(i => i.enabled && enabledIndexerIds.includes(i.id))
-  const builtInPromise: Promise<UsenetResult[]>[] = []
 
-  console.log('[UsenetSearch] Enabled custom Newznab indexers: %d (%s)', allCustom.length, allCustom.length ? allCustom.map(i => i.id).join(', ') : 'NONE')
-  if (builtInPromise.length === 0 && allCustom.length === 0) {
-    console.log('[UsenetSearch] No Newznab indexers configured — 0 results expected.')
-    console.log('[UsenetSearch] To get Usenet search results, add a Newznab-compatible custom indexer in Settings → Usenet.')
-  }
-
-  const promises = [...builtInPromise, ...allCustom.map(idx => searchNewznabIndexer(idx, searchTerm))]
+  const promises = allCustom.map(idx => searchNewznabIndexer(idx, searchTerm))
 
   const resultsArrays = await Promise.all(promises)
   const allResults = resultsArrays.flat()
-
-  console.log('[UsenetSearch] Total raw results: %d across %d Newznab indexer(s)', allResults.length, promises.length)
 
   for (const r of allResults) {
     onResult?.(r)
   }
 
-  const ranked = rankAndFilter(allResults)
-  console.log('[UsenetSearch] Returning %d ranked results', ranked.length)
-  return ranked
+  return rankAndFilter(allResults)
 }
 
 async function searchNewznabIndexer(
   indexer: UsenetIndexerConfig,
   query: string
 ): Promise<UsenetResult[]> {
-  if (!indexer.enabled) {
-    console.log('[UsenetSearch] Newznab indexer %s is disabled, skipping', indexer.id)
-    return []
-  }
-  if (!indexer.url || !indexer.apiKey) {
-    console.log('[UsenetSearch] Newznab indexer %s missing url or apiKey, skipping', indexer.id)
-    return []
-  }
+  if (!indexer.enabled || !indexer.url || !indexer.apiKey) return []
 
   const base = indexer.url.replace(/\/+$/, '')
   const apiBase = base.endsWith('/api') ? base : `${base}/api`
   const searchUrl = `${apiBase}?t=search&q=${encodeURIComponent(query)}&limit=100&apikey=${indexer.apiKey}&o=json`
-  const logUrl = `${apiBase}?t=search&q=${encodeURIComponent(query)}&limit=100&apikey=${indexer.apiKey.slice(0, 8)}...&o=json`
-  console.log('[UsenetSearch] Fetching Newznab indexer %s: %s', indexer.id, logUrl)
 
   try {
     const controller = new AbortController()
@@ -129,29 +108,12 @@ async function searchNewznabIndexer(
     })
     clearTimeout(timeout)
 
-    console.log('[UsenetSearch] %s responded with status %d', indexer.id, response.status)
-    if (!response.ok) {
-      console.log('[UsenetSearch] %s returned non-OK status, skipping', indexer.id)
-      return []
-    }
+    if (!response.ok) return []
 
     const data = await response.json()
-    if (!data?.channel?.item) {
-      console.log('[UsenetSearch] %s returned 0 items (no channel.item in response)', indexer.id)
-      return []
-    }
+    if (!data?.channel?.item) return []
 
     const items = Array.isArray(data.channel.item) ? data.channel.item : [data.channel.item]
-    console.log('[UsenetSearch] %s returned %d items', indexer.id, items.length)
-
-    if (items.length > 0) {
-      const sample = items[0]
-      console.log('[UsenetSearch] First item keys: %s', Object.keys(sample).join(', '))
-      console.log('[UsenetSearch] First item enclosure: %s, link: %s, guid: %s',
-        JSON.stringify(sample.enclosure).slice(0, 200),
-        (sample.link || '').slice(0, 80),
-        (sample.guid || '').slice(0, 80))
-    }
 
     return items.map((item: any) => {
       const title = item.title || ''
@@ -170,7 +132,7 @@ async function searchNewznabIndexer(
 
       return {
         title,
-        size: parseInt(enclosure.length || item.attr_size || '0', 10),
+        size: parseInt(enclosure['@attributes']?.length || enclosure.length || attrMap['size'] || '0', 10),
         indexer: indexer.name,
         quality: qualityFromTitle(title),
         nzbUrl,
@@ -181,7 +143,6 @@ async function searchNewznabIndexer(
       }
     })
   } catch (err: any) {
-    console.log('[UsenetSearch] %s fetch failed: %s', indexer.id, err?.message || err)
     return []
   }
 }

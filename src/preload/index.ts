@@ -95,6 +95,8 @@ const api = {
     getPlaybackMovies: () => ipcRenderer.invoke('trakt:get-playback-movies'),
     getPlaybackEpisodes: () => ipcRenderer.invoke('trakt:get-playback-episodes'),
     getWatchedProgress: () => ipcRenderer.invoke('trakt:get-watched-progress'),
+    testScrobble: (opts: { tmdbId: number; mediaType: 'movie' | 'tv'; progress: number; season?: number; episode?: number }) =>
+      ipcRenderer.invoke('trakt:test-scrobble', opts),
   },
   torrent: {
     onRiveResult: (callback: (result: any) => void) => {
@@ -262,7 +264,7 @@ const api = {
     getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),
     getChannelsByCountry: (countryCode: string) => ipcRenderer.invoke('dami-tv:get-channels-by-country', countryCode),
     getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
-    extractUrl: (channelId: string) => ipcRenderer.invoke('dami-tv:extract-url', channelId),
+    extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => ipcRenderer.invoke('dami-tv:extract-url', ch),
     proxyImage: (imageUrl: string) => ipcRenderer.invoke('dami-tv:proxy-image', imageUrl),
   },
   epg: {
@@ -275,13 +277,14 @@ const api = {
     search: (query: any) => ipcRenderer.invoke('usenet:search', query),
     getFreeIndexers: () => ipcRenderer.invoke('usenet:get-free-indexers'),
     checkConnection: () => ipcRenderer.invoke('usenet:check-connection'),
-    sendNzb: (nzbUrl: string, title: string) => ipcRenderer.invoke('usenet:send-nzb', nzbUrl, title),
+    sendNzb: (nzbUrl: string, title: string, sizeBytes?: number) => ipcRenderer.invoke('usenet:send-nzb', nzbUrl, title, sizeBytes),
     getDownloadStatus: (id: string) => ipcRenderer.invoke('usenet:get-download-status', id),
     getStreamUrl: (id: string) => ipcRenderer.invoke('usenet:get-stream-url', id),
     reloadConfig: () => ipcRenderer.invoke('usenet:reload-config'),
     listDownloads: () => ipcRenderer.invoke('usenet:list-downloads'),
     removeDownload: (id: string) => ipcRenderer.invoke('usenet:remove-download', id),
-    searchWebdavCache: (query: string) => ipcRenderer.invoke('usenet:search-webdav-cache', query),
+    clearAll: () => ipcRenderer.invoke('usenet:clear-all'),
+    searchWebdavCache: (query: string, opts?: { title?: string; year?: number; type?: string; season?: number; episode?: number }) => ipcRenderer.invoke('usenet:search-webdav-cache', opts ? { query, ...opts } : query),
     onResult: (callback: (result: any) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, result: any) => callback(result)
       ipcRenderer.on('usenet:result', handler)

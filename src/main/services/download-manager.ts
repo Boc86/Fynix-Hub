@@ -26,8 +26,12 @@ async function startPreload(infoHash: string) {
     torrent.on('done', () => {
       preloadQueue.delete(infoHash)
     })
-  } catch (err) {
-    console.error('Preload failed:', err)
+  } catch (err: any) {
+    if (err?.message?.includes('too large')) {
+      console.log(`[Preload] Skipped ${infoHash}: ${err.message}`)
+    } else {
+      console.error('Preload failed:', err)
+    }
     preloadQueue.delete(infoHash)
   }
 }

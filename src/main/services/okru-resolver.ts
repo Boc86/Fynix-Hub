@@ -1,6 +1,24 @@
 import * as http from 'http'
 import * as https from 'https'
+import * as dns from 'dns'
 import { URL } from 'url'
+
+function resolveHostname(hostname: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    dns.lookup(hostname, 4, (err, address) => {
+      if (err || !address || address === '0.0.0.0') {
+        const fallback = new dns.Resolver()
+        fallback.setServers(['1.1.1.1', '8.8.8.8'])
+        fallback.resolve4(hostname, (err2, addrs) => {
+          if (addrs && addrs[0]) resolve(addrs[0])
+          else reject(err2 || new Error('DNS resolution failed'))
+        })
+      } else {
+        resolve(address)
+      }
+    })
+  })
+}
 
 const OKRU_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -35,12 +53,16 @@ function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5
       const isHttps = u.protocol === 'https:'
       const client = isHttps ? https : http
 
+      const lookup = (hostname: string, opts: dns.LookupOptions, cb: (err: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void) => {
+        resolveHostname(hostname).then(addr => cb(null, addr, 4)).catch(err => dns.lookup(hostname, opts, cb))
+      }
       const req = client.request({
         hostname: u.hostname,
         port: u.port || (isHttps ? 443 : 80),
         path: u.pathname + u.search,
         method: 'GET',
         headers: { ...headers },
+        lookup,
       }, (res) => {
         const status = res.statusCode || 0
         if (status >= 300 && status < 400 && res.headers.location) {
