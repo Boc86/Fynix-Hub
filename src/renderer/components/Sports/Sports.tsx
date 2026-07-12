@@ -111,7 +111,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [teamImgErrors, setTeamImgErrors] = useState<Set<string>>(new Set())
   const [leagueDbImages, setLeagueDbImages] = useState<Record<string, string>>({})
   const [leaguesPage, setLeaguesPage] = useState(1)
-  const LEAGUES_PER_PAGE = 50
+  const LEAGUES_PER_PAGE = 24
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
@@ -129,6 +129,26 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     if (!selectedCountry) return store.leagues
     return store.leagues.filter((l: any) => l.country === selectedCountry)
   }, [store.leagues, selectedCountry])
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredLeagues.length / LEAGUES_PER_PAGE)), [filteredLeagues])
+  const paginatedLeagues = useMemo(() => {
+    const startIdx = (leaguesPage - 1) * LEAGUES_PER_PAGE
+    return filteredLeagues.slice(startIdx, startIdx + LEAGUES_PER_PAGE)
+  }, [filteredLeagues, leaguesPage])
+
+  const paginationButtons = useMemo(() => {
+    const btns: { type: 'prev' | 'page' | 'next'; page?: number; focusIndex: number }[] = []
+    if (totalPages <= 1) return btns
+    let fi = paginatedLeagues.length
+    btns.push({ type: 'prev', focusIndex: fi++ })
+    for (let page = 1; page <= totalPages; page++) {
+      const isNearby = Math.abs(page - leaguesPage) <= 2 || page === 1 || page === totalPages
+      if (!isNearby) continue
+      btns.push({ type: 'page', page, focusIndex: fi++ })
+    }
+    btns.push({ type: 'next', focusIndex: fi++ })
+    return btns
+  }, [totalPages, leaguesPage, paginatedLeagues.length])
 
   useEffect(() => {
     const { view } = useSportsStore.getState()
@@ -496,12 +516,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const getItems = useCallback((): any[] => {
     switch (store.view) {
       case 'sports': return visibleSports
-      case 'leagues': return store.leagues
+      case 'leagues': return paginatedLeagues
       case 'seasons': return store.seasons
       case 'events': return [...store.upcomingEvents, ...store.pastEvents]
       case 'detail': return []
     }
-  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents])
+  }, [store.view, visibleSports, paginatedLeagues, store.seasons, store.upcomingEvents, store.pastEvents])
 
   const getGridCols = useCallback(() => {
     const el = contentRef.current
@@ -549,16 +569,24 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       if (items.length === 0) return
       const cols = getGridCols()
       const isGridView = store.view === 'sports' || store.view === 'leagues' || store.view === 'seasons'
-      const maxIndex = store.view === 'sports' ? items.length : items.length - 1
-      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + cols, maxIndex)) }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - cols, 0)) }
-      else if (e.key === 'ArrowRight' && isGridView) { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, maxIndex)) }
-      else if (e.key === 'ArrowLeft' && isGridView) { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
+      const hasPagination = store.view === 'leagues' && totalPages > 1
+      const pagEnd = hasPagination ? (paginationButtons.length > 0 ? paginationButtons[paginationButtons.length - 1].focusIndex : items.length - 1) : items.length - 1
+      const totalFocusable = store.view === 'sports' ? items.length : pagEnd + 1
+      const maxIndex = store.view === 'sports' ? items.length : totalFocusable - 1
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + (isGridView ? cols : 1), maxIndex)) }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - (isGridView ? cols : 1), 0)) }
+      else if (e.key === 'ArrowRight' && (isGridView || (hasPagination && focusedIndex >= items.length))) { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, maxIndex)) }
+      else if (e.key === 'ArrowLeft' && (isGridView || (hasPagination && focusedIndex >= items.length))) { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
       else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault(); e.stopPropagation()
         if (store.view === 'sports') {
           if (focusedIndex === 0) loadSchedule()
           else { const item = items[focusedIndex - 1]; if (item) loadLeagues(item) }
+        } else if (hasPagination && focusedIndex >= items.length) {
+          const btn = paginationButtons.find(b => b.focusIndex === focusedIndex)
+          if (btn?.type === 'prev' && leaguesPage > 1) setLeaguesPage(p => Math.max(1, p - 1))
+          else if (btn?.type === 'page' && btn.page) setLeaguesPage(btn.page)
+          else if (btn?.type === 'next' && leaguesPage < totalPages) setLeaguesPage(p => Math.min(totalPages, p + 1))
         } else {
           const item = items[focusedIndex]
           if (!item) return
@@ -570,7 +598,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     }
     el.addEventListener('keydown', handleKeyDown)
     return () => el.removeEventListener('keydown', handleKeyDown)
-  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, showSchedule, scheduleMatches, scheduleStreams, loadSchedule, loadScheduleStreams, onPlayUrl])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, showSchedule, scheduleMatches, scheduleStreams, loadSchedule, loadScheduleStreams, onPlayUrl, totalPages, paginatedLeagues, paginationButtons, setLeaguesPage])
 
   useEffect(() => { setFocusedIndex(0) }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents])
 
@@ -750,9 +778,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           </div>
         )
 
-      case 'leagues': {
-        const paginated = filteredLeagues.slice(0, leaguesPage * LEAGUES_PER_PAGE)
-        const hasMore = paginated.length < filteredLeagues.length
+      case 'leagues':
         return (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>{store.selectedSport?.name} Leagues</h2>
@@ -782,7 +808,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }} data-grid>
-              {paginated.map((league: any, i: number) => (
+              {paginatedLeagues.map((league: any, i: number) => (
                 <div key={league.id} data-focus-index={i} tabIndex={0}
                   style={cardStyle(isFocused(i, focusedIndex))}
                   onClick={() => loadSeasons(league)}
@@ -807,22 +833,74 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 </div>
               ))}
             </div>
-            {hasMore && (
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
-                <button
-                  tabIndex={0}
-                  onClick={() => setLeaguesPage(p => p + 1)}
-                  style={{
-                    padding: '10px 28px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 600,
-                  }}
-                >Show More ({filteredLeagues.length - paginated.length} remaining)</button>
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 20, flexWrap: 'wrap' }}>
+                {paginationButtons.map(btn => {
+                  if (btn.type === 'prev') {
+                    return (
+                      <button key="prev" tabIndex={0} data-focus-index={btn.focusIndex}
+                        disabled={leaguesPage <= 1}
+                        aria-label="Previous page"
+                        aria-disabled={leaguesPage <= 1}
+                        onClick={() => setLeaguesPage(p => Math.max(1, p - 1))}
+                        style={{
+                          padding: '6px 14px', borderRadius: 6, border: 'none', cursor: leaguesPage <= 1 ? 'default' : 'pointer',
+                          background: leaguesPage <= 1 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
+                          color: leaguesPage <= 1 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                          fontSize: 13, fontWeight: 600,
+                          boxShadow: leaguesPage <= 1 ? 'none' : undefined,
+                        }}
+                        onFocus={(e) => { if (leaguesPage > 1) e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)' }}
+                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
+                      >Prev</button>
+                    )
+                  }
+                  if (btn.type === 'next') {
+                    return (
+                      <button key="next" tabIndex={0} data-focus-index={btn.focusIndex}
+                        disabled={leaguesPage >= totalPages}
+                        aria-label="Next page"
+                        aria-disabled={leaguesPage >= totalPages}
+                        onClick={() => setLeaguesPage(p => Math.min(totalPages, p + 1))}
+                        style={{
+                          padding: '6px 14px', borderRadius: 6, border: 'none', cursor: leaguesPage >= totalPages ? 'default' : 'pointer',
+                          background: leaguesPage >= totalPages ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
+                          color: leaguesPage >= totalPages ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                          fontSize: 13, fontWeight: 600,
+                          boxShadow: leaguesPage >= totalPages ? 'none' : undefined,
+                        }}
+                        onFocus={(e) => { if (leaguesPage < totalPages) e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)' }}
+                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
+                      >Next</button>
+                    )
+                  }
+                  if (btn.type === 'page' && btn.page) {
+                    const isActive = btn.page === leaguesPage
+                    return (
+                      <button key={btn.page} tabIndex={0} data-focus-index={btn.focusIndex}
+                        onClick={() => setLeaguesPage(btn.page!)}
+                        aria-label={`Page ${btn.page}`}
+                        aria-current={isActive ? 'page' : undefined}
+                        style={{
+                          padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                          background: isActive ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
+                          color: isActive ? '#fff' : 'rgba(255,255,255,0.7)',
+                          fontSize: 13, fontWeight: isActive ? 700 : 500,
+                          minWidth: 32, textAlign: 'center',
+                        }}
+                        onFocus={(e) => e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'}
+                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
+                      >{btn.page}</button>
+                    )
+                  }
+                  return null
+                })}
+                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginLeft: 4 }}>{filteredLeagues.length} leagues</span>
               </div>
             )}
             {filteredLeagues.length === 0 && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No leagues found{selectedCountry ? ` for ${selectedCountry}` : ` for ${store.selectedSport?.name}`}</div>}
           </div>
         )
-      }
 
       case 'seasons':
         return (

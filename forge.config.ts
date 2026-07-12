@@ -14,6 +14,7 @@ const config: ForgeConfig = {
     ignore: [
       '.git',
       '.flatpak-builder',
+      'flatpak-build',
       'node_modules/electron',
       '.vscode',
       'out',
@@ -44,6 +45,7 @@ const config: ForgeConfig = {
           '--socket=pulseaudio',
           '--device=dri',
           '--filesystem=~/.config/fynix-hub:create',
+          '--filesystem=home:ro',
           '--talk-name=org.freedesktop.DBus',
           '--talk-name=org.freedesktop.Notifications',
           '--talk-name=org.freedesktop.ScreenSaver',
