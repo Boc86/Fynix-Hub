@@ -50,7 +50,7 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
 
   try {
     const payload = nzbContent || nzbUrl
-    console.log(`[UDB] sendNzb: appending to nzbget, url=${nzbUrl}, hasContent=${!!nzbContent}, payloadType=${nzbContent ? 'content' : 'url'}, payloadLength=${payload.length}`)
+    console.log(`[UDB] sendNzb: appending to nzbget, url=${nzbUrl}, payloadType=${nzbContent ? 'content' : 'url'}, payloadLength=${payload.length}`)
     const nzbId = await NzbgetService.appendNzb(payload, title)
     console.log(`[UDB] sendNzb: appended "${title}" to nzbget, NZBID=${nzbId}`)
 
@@ -59,6 +59,18 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
     return { id, name: title, status: 'downloading', progress: 0, nzbUrl }
   } catch (err: any) {
     console.error(`[UDB] sendNzb: exception: ${err?.message}`)
+    // If content was rejected and we haven't tried URL, retry with URL
+    if (nzbContent && err?.message?.includes('rejected append')) {
+      console.log(`[UDB] sendNzb: retrying with URL instead of content`)
+      try {
+        const nzbId = await NzbgetService.appendNzb(nzbUrl, title)
+        console.log(`[UDB] sendNzb: URL fallback succeeded, NZBID=${nzbId}`)
+        activeDownloads.set(id, { nzbId, title, nzbUrl })
+        return { id, name: title, status: 'downloading', progress: 0, nzbUrl }
+      } catch (urlErr: any) {
+        console.error(`[UDB] sendNzb: URL fallback also failed: ${urlErr?.message}`)
+      }
+    }
     activeDownloads.delete(id)
     return null
   }
