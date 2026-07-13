@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { CustomIndexer } from '../../main/services/torrent-search.service'
 import type { UsenetIndexerConfig } from '../../main/services/usenet-search.service'
+import { useMediaStore } from './mediaStore'
 
 export interface UserProfile {
   id: string
@@ -316,6 +317,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           } catch { /* ignore */ }
           set({ traktConnected: false })
         }
+        // Force homescreen refresh (up next, continue watching, etc)
+        useMediaStore.getState().triggerRefresh()
       }
     }
     get().saveToDisk()
