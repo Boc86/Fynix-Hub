@@ -31,8 +31,10 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
   const maxSizeGb = CacheService.getSetting<number>('maxDownloadSize') || 0
   if (maxSizeGb > 0 || true) { // Always fetch the NZB to pass content directly to nzbget
     try {
+      console.log(`[UDB] sendNzb: fetching NZB from ${nzbUrl}`)
       const fetched = await fetchNzbContent(nzbUrl)
       nzbContent = fetched.content
+      console.log(`[UDB] sendNzb: fetched NZB content ${nzbContent.length} bytes, ${fetched.size} bytes estimated`)
       const effectiveSize = fetched.size || sizeBytes || 0
       if (maxSizeGb > 0 && effectiveSize > 0) {
         const sizeGb = effectiveSize / 1073741824
@@ -47,7 +49,9 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
   }
 
   try {
-    const nzbId = await NzbgetService.appendNzb(nzbContent || nzbUrl, title)
+    const payload = nzbContent || nzbUrl
+    console.log(`[UDB] sendNzb: appending to nzbget, url=${nzbUrl}, payloadType=${nzbContent ? 'content' : 'url'}, payloadLength=${payload.length}`)
+    const nzbId = await NzbgetService.appendNzb(payload, title)
     console.log(`[UDB] sendNzb: appended "${title}" to nzbget, NZBID=${nzbId}`)
 
     activeDownloads.set(id, { nzbId, title, nzbUrl })
@@ -55,6 +59,18 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
     return { id, name: title, status: 'downloading', progress: 0, nzbUrl }
   } catch (err: any) {
     console.error(`[UDB] sendNzb: exception: ${err?.message}`)
+    // If content was rejected and we haven't tried URL, retry with URL
+    if (nzbContent && err?.message?.includes('rejected append')) {
+      console.log(`[UDB] sendNzb: retrying with URL instead of content`)
+      try {
+        const nzbId = await NzbgetService.appendNzb(nzbUrl, title)
+        console.log(`[UDB] sendNzb: URL fallback succeeded, NZBID=${nzbId}`)
+        activeDownloads.set(id, { nzbId, title, nzbUrl })
+        return { id, name: title, status: 'downloading', progress: 0, nzbUrl }
+      } catch (urlErr: any) {
+        console.error(`[UDB] sendNzb: URL fallback also failed: ${urlErr?.message}`)
+      }
+    }
     activeDownloads.delete(id)
     return null
   }
@@ -224,6 +240,19 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     }
     if (configInterDir) {
       searchDirs.push(path.join(configInterDir, nzbSafeName))
+    }
+
+    // User-configured download directory (overrides RPC-reported paths)
+    const customDir = CacheService.getSetting<string>('nzbgetDownloadDir') || ''
+    console.log(`[UDB] getStreamUrl customDir="${customDir}"`)
+    if (customDir) {
+      const customDirClean = customDir.replace(/\/+$/, '')
+      searchDirs.push(path.join(customDirClean, nzbSafeName))
+      searchDirs.push(customDirClean)
+      const customInterDir = customDirClean.replace(/\/completed\/?$/i, '/intermediate')
+      if (customInterDir !== customDirClean) {
+        searchDirs.push(path.join(customInterDir, nzbSafeName))
+      }
     }
 
     // Also use per-file DestDir from listFiles if available

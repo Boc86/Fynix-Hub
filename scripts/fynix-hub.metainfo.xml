@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>fynix-hub</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Fynix Hub</name>
+  <summary>All-in-one Linux entertainment hub</summary>
+  <description>
+    <p>
+      Fynix Hub provides access to movies, TV shows, YouTube, sports replays,
+      and other user-configured media sources through a beautiful unified
+      interface. Browse trending and popular content, search across torrent
+      indexers and Usenet providers, and stream with high-quality mpv playback.
+    </p>
+  </description>
+  <launchable type="desktop-id">fynix-hub.desktop</launchable>
+  <url type="homepage">https://github.com/Boc86/Fynix-Hub</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Boc86/Fynix-Hub/master/docs/assets/screenshots/Splash.png</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <releases>
+    <release version="1.2.2" date="2026-07-13"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+  <update_contact>nobody@example.com</update_contact>
+</component>

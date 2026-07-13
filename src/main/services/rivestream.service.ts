@@ -1,17 +1,20 @@
 import { RivestreamResult } from '../../renderer/types.d'
 import { getSetting } from './cache.service'
 
-const BASE = 'https://missourimonster-x.hf.space'
+const BASE = 'https://api.vyla.cc'
 const SSE_TIMEOUT = 60000
 
 // Obfuscated default key to prevent casual scraping
 const _vk = [38, 62, 10, 51, 44, 59, 60, 45, 120, 61, 32, 55, 10, 55, 96, 101, 109, 101, 55, 108, 100, 109, 54, 99, 100, 49, 102, 101, 48, 51, 51, 48, 101, 100, 48, 98, 99, 55, 51, 100, 51, 48, 109, 103, 98]
 const getDeobfuscatedKey = () => String.fromCharCode(..._vk.map(c => c ^ 0x55))
 
+const _bk = 'c2tfZnluaXgtaHViX2I1MDgwYjkxOGM2MWQzMGVmZmUwMWU3NmJmMWZlODI3'
+const getBase64Key = () => Buffer.from(_bk, 'base64').toString('utf-8')
+
 function getVylaApiKey(): string {
   const env = process.env.VYLA_API_KEY
   if (env && env !== 'VYLA_API_KEY' && env.length > 20) return env
-  return getDeobfuscatedKey()
+  return getBase64Key()
 }
 
 interface SourceMeta {

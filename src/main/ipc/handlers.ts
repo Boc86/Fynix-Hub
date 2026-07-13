@@ -834,8 +834,8 @@ export async function registerIpcHandlers(): Promise<void> {
     return ReplayZoneService.searchReplays(query)
   })
 
-  handle('streamedpk:get-today', async () => {
-    return StreamedPkService.getTodayMatches()
+  handle('streamedpk:get-matches-for-sports', async (_event, sports: string[]) => {
+    return StreamedPkService.getMatchesForSports(sports)
   })
 
   handle('streamedpk:get-streams', async (_event, source: string, id: string) => {

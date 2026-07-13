@@ -249,7 +249,7 @@ const api = {
     searchReplays: (query: string) => ipcRenderer.invoke('replayzone:search', query),
   },
   streamedpk: {
-    getToday: () => ipcRenderer.invoke('streamedpk:get-today'),
+    getMatchesForSports: (sports: string[]) => ipcRenderer.invoke('streamedpk:get-matches-for-sports', sports),
     getStreams: (source: string, id: string) => ipcRenderer.invoke('streamedpk:get-streams', source, id),
   },
   rivestream: {

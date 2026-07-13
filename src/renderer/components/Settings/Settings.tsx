@@ -60,6 +60,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localNzbgetPort, setLocalNzbgetPort] = useState(store.nzbgetPort)
   const [localNzbgetUsername, setLocalNzbgetUsername] = useState(store.nzbgetUsername)
   const [localNzbgetPassword, setLocalNzbgetPassword] = useState(store.nzbgetPassword)
+  const [localNzbgetDownloadDir, setLocalNzbgetDownloadDir] = useState(store.nzbgetDownloadDir)
   const [localEnabledUsenetIndexers, setLocalEnabledUsenetIndexers] = useState<string[]>(store.enabledUsenetIndexers)
   const [localCustomUsenetIndexers, setLocalCustomUsenetIndexers] = useState<any[]>(store.customUsenetIndexers)
   const [newUsenetCustom, setNewUsenetCustom] = useState({ name: '', url: '', apiKey: '' })
@@ -1333,6 +1334,7 @@ export default function Settings({ onClose }: SettingsProps) {
           store.setNzbgetPort(localNzbgetPort)
           store.setNzbgetUsername(localNzbgetUsername)
           store.setNzbgetPassword(localNzbgetPassword)
+          store.setNzbgetDownloadDir(localNzbgetDownloadDir)
           store.setEnabledUsenetIndexers(localEnabledUsenetIndexers)
           store.setCustomUsenetIndexers(localCustomUsenetIndexers)
           await store.saveToDisk()
@@ -1392,6 +1394,14 @@ export default function Settings({ onClose }: SettingsProps) {
                         placeholder="Password (default: tegbzn6789)"
                         value={localNzbgetPassword}
                         onChange={(e) => setLocalNzbgetPassword(e.target.value)}
+                      />
+                      <input
+                        tabIndex={0}
+                        type="text"
+                        className={styles.input}
+                        placeholder="Download directory (e.g. /home/boc/Downloads/completed)"
+                        value={localNzbgetDownloadDir}
+                        onChange={(e) => setLocalNzbgetDownloadDir(e.target.value)}
                       />
                     </div>
 

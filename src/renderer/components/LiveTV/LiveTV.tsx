@@ -272,8 +272,13 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
                 >
                   <div style={{
                     aspectRatio: '16/9', background: '#111', display: 'flex',
-                    alignItems: 'center', justifyContent: 'center', position: 'relative',
+                    alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden',
                   }}>
+                    {ch.image && (
+                      <img src={ch.image} alt=""
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', padding: 12 }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    )}
                     <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
                       {ch.name.charAt(0).toUpperCase()}
                     </div>
