@@ -19,7 +19,7 @@ const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'TV Shows' },
-  { id: 'free', label: 'Torrents' },
+  { id: 'free', label: 'Search All' },
 ]
 
 function formatSize(bytes: number): string {
@@ -65,7 +65,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       if (srcTorrent) {
         promises.push(
           window.api.torrent.search({ query: q, type: 'movie' })
-            .then(r => { setTorrentResults(r || []); return r })
+            .then(r => { setTorrentResults(r?.torrents || []); return r })
             .catch(() => { setTorrentResults([]); return [] })
         )
       }
