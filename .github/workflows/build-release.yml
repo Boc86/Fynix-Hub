@@ -70,8 +70,7 @@ jobs:
             --base master \
             --head ci/version-${{ env.NEW_VERSION }} \
             --title "chore: bump version to ${{ env.NEW_VERSION }}" \
-            --body "Automated version bump from CI." \
-            --fill
+            --body "Automated version bump from CI."
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
