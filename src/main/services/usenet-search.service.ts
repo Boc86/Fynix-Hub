@@ -77,7 +77,7 @@ export async function searchUsenet(
 
   const allCustom = customIndexers.filter(i => i.enabled && enabledIndexerIds.includes(i.id))
 
-  const promises = allCustom.map(idx => searchNewznabIndexer(idx, searchTerm))
+  const promises = allCustom.map(idx => searchNewznabIndexer(idx, query))
 
   const resultsArrays = await Promise.all(promises)
   const allResults = resultsArrays.flat()
@@ -91,13 +91,29 @@ export async function searchUsenet(
 
 async function searchNewznabIndexer(
   indexer: UsenetIndexerConfig,
-  query: string
+  query: UsenetQuery
 ): Promise<UsenetResult[]> {
   if (!indexer.enabled || !indexer.url || !indexer.apiKey) return []
 
+  const searchTerm = query.query || query.title || ''
   const base = indexer.url.replace(/\/+$/, '')
   const apiBase = base.endsWith('/api') ? base : `${base}/api`
-  const searchUrl = `${apiBase}?t=search&q=${encodeURIComponent(query)}&limit=100&apikey=${indexer.apiKey}&o=json`
+
+  let searchUrl: string
+  if (query.type === 'tv') {
+    const params = new URLSearchParams({ t: 'tvsearch', apikey: indexer.apiKey, o: 'json', extended: '1', limit: '100' })
+    if (searchTerm) params.set('q', searchTerm)
+    if (query.season !== undefined) params.set('season', String(query.season))
+    if (query.episode !== undefined) params.set('ep', String(query.episode))
+    searchUrl = `${apiBase}?${params.toString()}`
+  } else if (query.imdbId) {
+    searchUrl = `${apiBase}?t=movie&imdbid=${query.imdbId}&extended=1&apikey=${indexer.apiKey}&o=json`
+  } else if (query.type === 'movie') {
+    searchUrl = `${apiBase}?t=movie&q=${encodeURIComponent(searchTerm)}&extended=1&limit=100&apikey=${indexer.apiKey}&o=json`
+  } else {
+    searchUrl = `${apiBase}?t=search&q=${encodeURIComponent(searchTerm)}&limit=100&apikey=${indexer.apiKey}&o=json`
+  }
+  console.log(`[Usenet] search ${indexer.name}: ${searchUrl.replace(indexer.apiKey, '***')}`)
 
   try {
     const controller = new AbortController()

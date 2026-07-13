@@ -71,7 +71,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       }
       if (srcUsenet) {
         promises.push(
-          window.api.usenet.search({ query: q, type: 'movie' })
+          window.api.usenet.search({ query: q })
             .then(r => {
               const maxSize = useSettingsStore.getState().maxDownloadSize
               const filtered = maxSize > 0 ? (r || []).filter((x: UsenetResult) => x.size <= maxSize * 1073741824) : (r || [])
