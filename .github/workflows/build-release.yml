@@ -29,6 +29,8 @@ jobs:
           sudo apt-get install -y dpkg fakeroot rpm
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O /tmp/appimagetool
           chmod +x /tmp/appimagetool
+          cd /tmp && ./appimagetool --appimage-extract &>/dev/null
+          echo "/tmp/squashfs-root/usr/bin" >> $GITHUB_PATH
 
       - name: Bump version
         run: |
@@ -39,6 +41,8 @@ jobs:
 
       - name: Build Linux packages (deb, rpm, zip)
         run: npm run make
+        env:
+          QA_RPATHS: 2
 
       - name: Build AppImage
         run: |
@@ -48,7 +52,7 @@ jobs:
             ls out/
             exit 1
           fi
-          export PATH="/tmp:$PATH"
+          export LD_LIBRARY_PATH="/tmp/squashfs-root/usr/lib:${LD_LIBRARY_PATH:-}"
           bash scripts/make-appimage.sh "$PACKAGE_DIR"
 
       - name: Push version bump commit and tag

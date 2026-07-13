@@ -33,6 +33,7 @@ cp assets/FLB-256.png "$APPIMAGE_DIR/usr/share/icons/hicolor/256x256/apps/fynix-
 cp assets/FLB-128.png "$APPIMAGE_DIR/usr/share/icons/hicolor/128x128/apps/fynix-hub.png"
 cp assets/FLB-64.png "$APPIMAGE_DIR/usr/share/icons/hicolor/64x64/apps/fynix-hub.png"
 cp assets/FLB-512.png "$APPIMAGE_DIR/.DirIcon"
+cp assets/FLB-256.png "$APPIMAGE_DIR/fynix-hub.png"
 
 cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]

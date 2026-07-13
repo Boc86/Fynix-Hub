@@ -9,6 +9,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
+    "postinstall": "patch-package",
     "setup:ffmpeg": "bash scripts/setup-ffmpeg.sh",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/webtorrent": "^0.110.1",
     "electron": "^42.4.1",
+    "patch-package": "^8.0.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },
