@@ -1,7 +1,7 @@
 import { RivestreamResult } from '../../renderer/types.d'
 import { getSetting } from './cache.service'
 
-const BASE = 'https://missourimonster-x.hf.space'
+const BASE = 'https://api.vyla.cc'
 const SSE_TIMEOUT = 60000
 
 // Obfuscated default key to prevent casual scraping
