@@ -2,6 +2,9 @@ import type { ForgeConfig } from '@electron-forge/shared-types'
 import { MakerFlatpak } from '@electron-forge/maker-flatpak'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import path from 'path'
+import fs from 'fs-extra'
+
+const ICON_SIZES = ['64', '128', '256', '512']
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -19,6 +22,31 @@ const config: ForgeConfig = {
       '.vscode',
       'out',
     ],
+  },
+  hooks: {
+    postPackage: async (opts) => {
+      const appDir = opts.outputPaths?.[0]
+      if (!appDir) return
+
+      const shareDir = path.join(appDir, 'share')
+      const iconsDir = path.join(shareDir, 'icons', 'hicolor')
+      const metainfoDir = path.join(shareDir, 'metainfo')
+
+      fs.mkdirpSync(metainfoDir)
+      fs.copyFileSync(
+        path.join(__dirname, 'com.fynix.hub.metainfo.xml'),
+        path.join(metainfoDir, 'com.fynix.hub.metainfo.xml'),
+      )
+
+      for (const size of ICON_SIZES) {
+        const dest = path.join(iconsDir, `${size}x${size}`, 'apps', 'com.fynix.hub.png')
+        const src = path.join(__dirname, 'assets', `FLB-${size}.png`)
+        if (fs.existsSync(src)) {
+          fs.mkdirpSync(path.dirname(dest))
+          fs.copyFileSync(src, dest)
+        }
+      }
+    },
   },
   makers: [
     new MakerFlatpak({
@@ -38,7 +66,20 @@ const config: ForgeConfig = {
         runtime: 'org.freedesktop.Platform',
         runtimeVersion: '24.08',
         sdk: 'org.freedesktop.Sdk',
-        modules: [],
+        modules: [
+          {
+            name: 'metainfo-icons',
+            buildsystem: 'simple',
+            'build-commands': [
+              'install -Dm644 com.fynix.hub.metainfo.xml /app/share/metainfo/com.fynix.hub.metainfo.xml',
+              'for s in 64 128 256 512; do install -Dm644 FLB-$s.png /app/share/icons/hicolor/${s}x${s}/apps/com.fynix.hub.png; done',
+            ],
+            sources: [
+              { type: 'file', path: 'com.fynix.hub.metainfo.xml' },
+              ...ICON_SIZES.map(s => ({ type: 'file', path: `assets/FLB-${s}.png` })),
+            ],
+          },
+        ],
         finishArgs: [
           '--share=network',
           '--socket=wayland',

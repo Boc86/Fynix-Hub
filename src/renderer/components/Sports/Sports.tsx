@@ -604,8 +604,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
   useEffect(() => {
     if (focusedIndex >= 0 && contentRef.current) {
-      const focused = contentRef.current.querySelector(`[data-focus-index="${focusedIndex}"]`) as HTMLElement | undefined
-      if (focused) focused.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    const focused = contentRef.current.querySelector(`[data-focus-index="${focusedIndex}"]`) as HTMLElement | undefined
+    if (focused) { focused.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); focused.focus() }
     }
   }, [focusedIndex])
 
@@ -836,6 +836,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             {totalPages > 1 && (
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 20, flexWrap: 'wrap' }}>
                 {paginationButtons.map(btn => {
+                  const isFocused = focusedIndex === btn.focusIndex
                   if (btn.type === 'prev') {
                     return (
                       <button key="prev" tabIndex={0} data-focus-index={btn.focusIndex}
@@ -844,14 +845,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                         aria-disabled={leaguesPage <= 1}
                         onClick={() => setLeaguesPage(p => Math.max(1, p - 1))}
                         style={{
-                          padding: '6px 14px', borderRadius: 6, border: 'none', cursor: leaguesPage <= 1 ? 'default' : 'pointer',
+                          padding: '6px 14px', borderRadius: 6, border: isFocused ? '2px solid var(--accent)' : '2px solid transparent',
+                          cursor: leaguesPage <= 1 ? 'default' : 'pointer',
                           background: leaguesPage <= 1 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
-                          color: leaguesPage <= 1 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                          color: leaguesPage <= 1 ? 'rgba(255,255,255,0.3)' : (isFocused ? '#fff' : 'rgba(255,255,255,0.7)'),
                           fontSize: 13, fontWeight: 600,
-                          boxShadow: leaguesPage <= 1 ? 'none' : undefined,
                         }}
-                        onFocus={(e) => { if (leaguesPage > 1) e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)' }}
-                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
                       >Prev</button>
                     )
                   }
@@ -863,14 +862,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                         aria-disabled={leaguesPage >= totalPages}
                         onClick={() => setLeaguesPage(p => Math.min(totalPages, p + 1))}
                         style={{
-                          padding: '6px 14px', borderRadius: 6, border: 'none', cursor: leaguesPage >= totalPages ? 'default' : 'pointer',
+                          padding: '6px 14px', borderRadius: 6, border: isFocused ? '2px solid var(--accent)' : '2px solid transparent',
+                          cursor: leaguesPage >= totalPages ? 'default' : 'pointer',
                           background: leaguesPage >= totalPages ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
-                          color: leaguesPage >= totalPages ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                          color: leaguesPage >= totalPages ? 'rgba(255,255,255,0.3)' : (isFocused ? '#fff' : 'rgba(255,255,255,0.7)'),
                           fontSize: 13, fontWeight: 600,
-                          boxShadow: leaguesPage >= totalPages ? 'none' : undefined,
                         }}
-                        onFocus={(e) => { if (leaguesPage < totalPages) e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)' }}
-                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
                       >Next</button>
                     )
                   }
@@ -882,14 +879,13 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                         aria-label={`Page ${btn.page}`}
                         aria-current={isActive ? 'page' : undefined}
                         style={{
-                          padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                          padding: '6px 12px', borderRadius: 6, border: isFocused ? '2px solid var(--accent)' : (isActive ? '2px solid var(--accent)' : '2px solid transparent'),
+                          cursor: 'pointer',
                           background: isActive ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
-                          color: isActive ? '#fff' : 'rgba(255,255,255,0.7)',
+                          color: isActive ? '#fff' : (isFocused ? '#fff' : 'rgba(255,255,255,0.7)'),
                           fontSize: 13, fontWeight: isActive ? 700 : 500,
                           minWidth: 32, textAlign: 'center',
                         }}
-                        onFocus={(e) => e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'}
-                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
                       >{btn.page}</button>
                     )
                   }
