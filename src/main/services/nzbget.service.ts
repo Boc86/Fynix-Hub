@@ -110,6 +110,8 @@ export async function checkConnection(): Promise<{ connected: boolean; error?: s
 }
 
 export async function appendNzb(nzbContentOrUrl: string, title: string): Promise<number> {
+  const isUrl = !nzbContentOrUrl.startsWith('<?xml') && !nzbContentOrUrl.startsWith('<')
+  console.log(`[NZB] appendNzb: host=${getHost()}:${getPort()}, type=${isUrl ? 'URL' : 'XML'}, ${isUrl ? `url=${nzbContentOrUrl.slice(0, 200)}` : `length=${nzbContentOrUrl.length}`}`)
   const nzbId = await jsonRpcCall('append', ['', nzbContentOrUrl, '', 0, false, false, '', 0, 'SCORE', false, []])
   if (typeof nzbId === 'number' && nzbId < 0) {
     throw new Error(`NZBGet rejected append (result: ${nzbId})`)

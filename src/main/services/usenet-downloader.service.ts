@@ -31,8 +31,10 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
   const maxSizeGb = CacheService.getSetting<number>('maxDownloadSize') || 0
   if (maxSizeGb > 0 || true) { // Always fetch the NZB to pass content directly to nzbget
     try {
+      console.log(`[UDB] sendNzb: fetching NZB from ${nzbUrl}`)
       const fetched = await fetchNzbContent(nzbUrl)
       nzbContent = fetched.content
+      console.log(`[UDB] sendNzb: fetched NZB content ${nzbContent.length} bytes, ${fetched.size} bytes estimated`)
       const effectiveSize = fetched.size || sizeBytes || 0
       if (maxSizeGb > 0 && effectiveSize > 0) {
         const sizeGb = effectiveSize / 1073741824
@@ -47,7 +49,9 @@ export async function sendNzb(nzbUrl: string, title: string, sizeBytes?: number)
   }
 
   try {
-    const nzbId = await NzbgetService.appendNzb(nzbContent || nzbUrl, title)
+    const payload = nzbContent || nzbUrl
+    console.log(`[UDB] sendNzb: appending to nzbget, url=${nzbUrl}, hasContent=${!!nzbContent}, payloadType=${nzbContent ? 'content' : 'url'}, payloadLength=${payload.length}`)
+    const nzbId = await NzbgetService.appendNzb(payload, title)
     console.log(`[UDB] sendNzb: appended "${title}" to nzbget, NZBID=${nzbId}`)
 
     activeDownloads.set(id, { nzbId, title, nzbUrl })
