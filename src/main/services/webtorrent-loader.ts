@@ -8,12 +8,12 @@ export async function initWebTorrent(): Promise<any> {
   const WebTorrent = WebTorrentModule.default || WebTorrentModule
   
   // Initialize with proper WebTorrent v3 configuration
-  // Disable uTP and DHT to avoid native module issues in Flatpak
+  // uTP is disabled because utp-native has native module issues
+  // DHT is enabled (pure JS, no native modules) for peer discovery
   cachedClient = new WebTorrent({
     utp: false,
-    dht: false,
-    tracker: [],
-    maxConns: 20,
+    dht: true,
+    maxConns: 50,
   })
 
   cachedClient.on('error', (err: Error) => {

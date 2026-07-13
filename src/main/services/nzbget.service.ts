@@ -111,6 +111,9 @@ export async function checkConnection(): Promise<{ connected: boolean; error?: s
 
 export async function appendNzb(nzbContentOrUrl: string, title: string): Promise<number> {
   const nzbId = await jsonRpcCall('append', ['', nzbContentOrUrl, '', 0, false, false, '', 0, 'SCORE', false, []])
+  if (typeof nzbId === 'number' && nzbId < 0) {
+    throw new Error(`NZBGet rejected append (result: ${nzbId})`)
+  }
   return nzbId as number
 }
 
