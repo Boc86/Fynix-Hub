@@ -67,7 +67,7 @@ jobs:
         run: |
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git push origin v${{ env.NEW_VERSION }}
-          git push origin HEAD:ci/version-${{ env.NEW_VERSION }}
+          git push origin HEAD:ci/version-${{ env.NEW_VERSION }} --force
           gh pr create \
             --base master \
             --head ci/version-${{ env.NEW_VERSION }} \
