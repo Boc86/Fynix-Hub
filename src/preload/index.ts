@@ -3,6 +3,15 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
     getVersion: () => ipcRenderer.invoke('app:get-version'),
     log: (...args: unknown[]) => ipcRenderer.invoke('log:info', ...args),
+    onUpdateStatus: (callback: (data: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+      ipcRenderer.on('app:update-status', handler)
+      return () => { ipcRenderer.removeListener('app:update-status', handler) }
+    },
+    checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
+    getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
+    downloadUpdate: () => ipcRenderer.invoke('app:download-update'),
+    installUpdate: () => ipcRenderer.invoke('app:install-update'),
     onRemoteAction: (callback: (action: string) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
       ipcRenderer.on('remote:action', handler)
