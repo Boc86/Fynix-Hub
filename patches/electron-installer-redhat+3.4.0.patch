@@ -1,8 +1,17 @@
 diff --git a/node_modules/electron-installer-redhat/resources/spec.ejs b/node_modules/electron-installer-redhat/resources/spec.ejs
-index e07a8a3..97e3597 100644
+index e07a8a3..fec6f48 100644
 --- a/node_modules/electron-installer-redhat/resources/spec.ejs
 +++ b/node_modules/electron-installer-redhat/resources/spec.ejs
-@@ -24,7 +24,7 @@ print('\n\n\n') }
+@@ -1,8 +1,6 @@
+ %define _binary_payload w<%= compressionLevel %>.xzdio
+ 
+-%if "%{_host_cpu}" != "%{_target_cpu}"
+ %global __strip /bin/true
+-%endif
+ 
+ Name: <%= name %>
+ Version: <%= version %>
+@@ -24,7 +22,7 @@ print('\n\n\n') }
  
  %>%install
  mkdir -p %{buildroot}/usr/
