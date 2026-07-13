@@ -5,6 +5,13 @@ const API_BASE_TV = 'https://cdnlivetv.tv/api/v1'
 const CACHE_TTL = 60000
 const CHANNELS_CACHE_TTL = 300000
 
+function msUntilEndOfDay(): number {
+  const now = Date.now()
+  const end = new Date()
+  end.setHours(23, 59, 59, 999)
+  return end.getTime() - now
+}
+
 const CC_MAP: [string, string][] = [
   ['united states', 'us'], ['usa', 'us'], ['u.s', 'us'],
   [' uk', 'gb'], ['u.k', 'gb'], ['britain', 'gb'], ['england', 'gb'],
@@ -104,10 +111,6 @@ function parseChannel(item: any): DamiTVChannel {
   const code = (typeof item.code === 'string' ? item.code.toLowerCase() : '') || (typeof item.country === 'string' ? item.country.toLowerCase() : '') || detectCountryCode(name)
   const id = String(item.id || item.channel_id || item.channel || `${name}_${code}`)
   let image = item.image || item.logo || item.icon || ''
-  // strip full cdnlivetv URLs to relative path so proxy adds auth query params
-  if (image.startsWith('https://cdnlivetv.tv/')) {
-    image = image.slice('https://cdnlivetv.tv'.length)
-  }
   return {
     id,
     name,
@@ -193,8 +196,9 @@ export async function getChannels(): Promise<DamiTVChannel[]> {
 
     const channels: DamiTVChannel[] = rawChannels.map(parseChannel).filter((c: DamiTVChannel) => c.name)
 
-    CacheService.setCache('dami-tv:channels', JSON.stringify(channels), CHANNELS_CACHE_TTL)
-    CacheService.setCache('dami-tv:channels-stale', JSON.stringify(channels), 86400000 * 7) // keep stale for 7 days
+    const dayMs = msUntilEndOfDay()
+    CacheService.setCache('dami-tv:channels', JSON.stringify(channels), dayMs)
+    CacheService.setCache('dami-tv:channels-stale', JSON.stringify(channels), dayMs + 86400000 * 6) // keep stale for 6 more days
     console.log(`[LiveTV] Loaded ${channels.length} channels from cdnlivetv.is`)
     return channels
   } catch (err: any) {

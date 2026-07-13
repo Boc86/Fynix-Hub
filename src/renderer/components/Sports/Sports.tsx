@@ -26,7 +26,7 @@ const OUR_TO_DB_SPORT: Record<string, string> = {
 interface ScheduleMatch {
   id: string; title: string; category: string; date: number; poster?: string
   teams?: { home?: { name: string; badge: string }; away?: { name: string; badge: string } }
-  sources: { source: string; id: string }[]
+  sources: { source: string; id: string; embedUrl?: string }[]
 }
 
 interface ReplayResult {
@@ -100,7 +100,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduleMatches, setScheduleMatches] = useState<ScheduleMatch[]>([])
   const [scheduleLoading, setScheduleLoading] = useState(false)
+  const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [scheduleLastUpdated, setScheduleLastUpdated] = useState<Date | null>(null)
+  const [schedulePage, setSchedulePage] = useState(1)
   const [scheduleStreams, setScheduleStreams] = useState<{ source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[]>([])
   const [scheduleStreamLoading, setScheduleStreamLoading] = useState(false)
   const [viewKey, setViewKey] = useState(0)
@@ -112,6 +114,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [leagueDbImages, setLeagueDbImages] = useState<Record<string, string>>({})
   const [leaguesPage, setLeaguesPage] = useState(1)
   const LEAGUES_PER_PAGE = 24
+  const SCHEDULE_PER_PAGE = 24
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const visibleSports = useMemo(() => {
@@ -135,6 +138,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     const startIdx = (leaguesPage - 1) * LEAGUES_PER_PAGE
     return filteredLeagues.slice(startIdx, startIdx + LEAGUES_PER_PAGE)
   }, [filteredLeagues, leaguesPage])
+
+  const scheduleTotalPages = useMemo(() => Math.max(1, Math.ceil(scheduleMatches.length / SCHEDULE_PER_PAGE)), [scheduleMatches])
+  const paginatedScheduleMatches = useMemo(() => {
+    const startIdx = (schedulePage - 1) * SCHEDULE_PER_PAGE
+    return scheduleMatches.slice(startIdx, startIdx + SCHEDULE_PER_PAGE)
+  }, [scheduleMatches, schedulePage])
 
   const paginationButtons = useMemo(() => {
     const btns: { type: 'prev' | 'page' | 'next'; page?: number; focusIndex: number }[] = []
@@ -351,83 +360,100 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
   const loadSchedule = useCallback(async () => {
     setScheduleLoading(true)
+    setScheduleError(null)
     setShowSchedule(true)
     setFocusedIndex(0)
+    setSchedulePage(1)
     try {
-      const matches: ScheduleMatch[] = await window.api.streamedpk.getToday()
+      // Use cached data if already fetched today
+      const now = new Date()
+      const todayStr = now.toDateString()
+      if (scheduleMatches.length > 0 && scheduleLastUpdated) {
+        const cacheDay = scheduleLastUpdated.toDateString()
+        if (cacheDay === todayStr) {
+          setScheduleLoading(false)
+          return
+        }
+      }
+
       const selectedSports = settingsStore.sportsSelected
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
       const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999)
       const todayMsStart = todayStart.getTime()
       const todayMsEnd = todayEnd.getTime()
-      if (selectedSports.length === 0) {
-        setScheduleMatches(matches.filter(m => m.date >= todayMsStart && m.date <= todayMsEnd))
-      } else {
-        // Enhanced category mapping with common aliases matching Streamed.pk categories
-        const sportMap = new Map<string, Set<string>>()
-        store.sportsList.filter((s: any) => selectedSports.includes(s.id)).forEach((sport: any) => {
-          const key = sport.id
-          const names = new Set<string>()
-          const add = (n: string) => { if (n) names.add(n.toLowerCase()) }
-          add(sport.slug); add(sport.name)
-          const lower = (sport.slug || sport.name || '').toLowerCase()
-          switch (lower) {
-            case 'football': case 'soccer':
-              add('football'); add('soccer'); add('futbol')
-              break
-            case 'american football':
-              add('american-football'); add('nfl'); add('gridiron')
-              break
-            case 'basketball':
-              add('basketball'); add('nba'); add('fib')
-              break
-            case 'ice hockey':
-              add('hockey'); add('nhl')
-              break
-            case 'baseball':
-              add('baseball'); add('mlb')
-              break
-            case 'tennis':
-              add('tennis'); add('atp'); add('wta')
-              break
-            case 'boxing': case 'mma':
-              add('fight'); add('ufc'); add('bellator')
-              break
-            case 'motor sport': case 'motorsport':
-              add('motor-sports'); add('f1'); add('motogp'); add('nascar')
-              break
-            case 'rugby':
-              add('rugby')
-              break
-            case 'golf':
-              add('golf')
-              break
-            case 'cricket':
-              add('cricket')
-              break
-            case 'darts':
-              add('darts')
-              break
-            case 'snooker': case 'billiards':
-              add('billiards'); add('snooker')
-              break
-            default:
-              if (lower.includes('rugby')) add('rugby')
-              else add('other')
-          }
-          sportMap.set(key, names)
-        })
-        const selectedCategories = new Set<string>()
-        sportMap.forEach(names => names.forEach(n => selectedCategories.add(n)))
-        setScheduleMatches(matches.filter(m =>
-          selectedCategories.has(m.category.toLowerCase()) &&
-          m.date >= todayMsStart && m.date <= todayMsEnd
-        ))
+
+      // Map local sport selections to Streamed.pk category IDs
+      const selectedCategories = new Set<string>()
+      store.sportsList.filter((s: any) => selectedSports.length === 0 || selectedSports.includes(s.id)).forEach((sport: any) => {
+        const names = new Set<string>()
+        const add = (n: string) => { if (n) names.add(n.toLowerCase()) }
+        add(sport.slug); add(sport.name)
+        const lower = (sport.slug || sport.name || '').toLowerCase()
+        switch (lower) {
+          case 'football': case 'soccer':
+            add('soccer')
+            break
+          case 'american football':
+            add('nfl')
+            break
+          case 'basketball':
+            add('basketball'); add('nba')
+            break
+          case 'ice hockey':
+            add('hockey'); add('nhl')
+            break
+          case 'baseball':
+            add('baseball'); add('mlb')
+            break
+          case 'tennis':
+            add('tennis')
+            break
+          case 'boxing': case 'mma':
+            add('ufc'); add('mma'); add('wwe')
+            break
+          case 'motor sport': case 'motorsport':
+            add('motorsport')
+            break
+          case 'rugby':
+            add('rugby')
+            break
+          case 'golf':
+            add('golf')
+            break
+          case 'cricket':
+            add('cricket')
+            break
+          case 'darts':
+            add('darts')
+            break
+          case 'snooker': case 'billiards':
+            add('darts')
+            break
+          default:
+            if (lower.includes('rugby')) add('rugby')
+        }
+        names.forEach(n => selectedCategories.add(n))
+      })
+
+      if (selectedCategories.size === 0) {
+        setScheduleMatches([])
+        setScheduleLastUpdated(new Date())
+        setScheduleLoading(false)
+        return
       }
+
+      const matches: ScheduleMatch[] = await window.api.streamedpk.getMatchesForSports([...selectedCategories])
+      if (!Array.isArray(matches)) throw new Error('Invalid response from schedule service')
+
+      setScheduleMatches(matches.filter(m => m.date >= todayMsStart && m.date <= todayMsEnd))
       setScheduleLastUpdated(new Date())
-    } catch { setScheduleMatches([]) }
+    } catch (err: any) {
+      console.error('[Sports] Schedule load failed:', err?.message || err)
+      setScheduleError(err?.message ? `Schedule service unavailable (${err.message})` : 'Schedule service unavailable')
+      setScheduleMatches([])
+    }
     setScheduleLoading(false)
-  }, [settingsStore.sportsSelected, store.sportsList])
+  }, [settingsStore.sportsSelected, store.sportsList, scheduleMatches, scheduleLastUpdated])
 
   // Auto-refresh schedule every 5 minutes when visible
   useEffect(() => {
@@ -444,11 +470,15 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     setScheduleStreams([])
     setFocusedIndex(0)
     try {
-      const all: { source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[] = []
-      for (const src of match.sources) {
-        const streams = await window.api.streamedpk.getStreams(src.source, src.id)
-        for (const s of streams) all.push(s)
-      }
+      const all: { source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[] = match.sources
+        .filter(s => s.embedUrl)
+        .map((s, i) => ({
+          source: s.source,
+          streamNo: i + 1,
+          language: 'Unknown',
+          hd: true,
+          embedUrl: s.embedUrl!
+        }))
       setScheduleStreams(all)
     } catch { setScheduleStreams([]) }
     setScheduleStreamLoading(false)
@@ -478,13 +508,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const goBack = useCallback(() => {
     if (showSchedule) {
       if (scheduleStreams.length > 0) setScheduleStreams([])
-      else {
-        setShowSchedule(false)
-        setScheduleMatches([])
-        setScheduleStreams([])
-        setScheduleLoading(false)
-        setScheduleStreamLoading(false)
-      }
+      else setShowSchedule(false)
+      setScheduleLoading(false)
+      setScheduleStreamLoading(false)
       setFocusedIndex(0)
       return
     }
@@ -544,12 +570,17 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           return
         }
         if (scheduleMatches.length > 0) {
-          if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, scheduleMatches.length - 1)) }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
-          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); loadScheduleStreams(scheduleMatches[focusedIndex]) }
+          const scheduleCols = getGridCols()
+          const scheduleMax = paginatedScheduleMatches.length - 1
+          if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + scheduleCols, scheduleMax)) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - scheduleCols, 0)) }
+          else if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, scheduleMax)) }
+          else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); loadScheduleStreams(paginatedScheduleMatches[focusedIndex]) }
           else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); goBack() }
           return
         }
+        if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); goBack() }
         return
       }
       const items = getItems()
@@ -598,7 +629,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     }
     el.addEventListener('keydown', handleKeyDown)
     return () => el.removeEventListener('keydown', handleKeyDown)
-  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, showSchedule, scheduleMatches, scheduleStreams, loadSchedule, loadScheduleStreams, onPlayUrl, totalPages, paginatedLeagues, paginationButtons, setLeaguesPage])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, showSchedule, scheduleMatches, scheduleStreams, loadSchedule, loadScheduleStreams, onPlayUrl, totalPages, paginatedLeagues, paginationButtons, setLeaguesPage, paginatedScheduleMatches])
 
   useEffect(() => { setFocusedIndex(0) }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents])
 
@@ -700,7 +731,11 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           </div>
         )
       }
-      if (scheduleMatches.length === 0) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No live events today for the selected sports.</div>
+      if (scheduleMatches.length === 0) return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, color: scheduleError ? 'rgba(255,150,50,0.6)' : 'rgba(255,255,255,0.3)', fontSize: 14 }}>
+          {scheduleError || 'No live events today for the selected sports.'}
+        </div>
+      )
       return (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -711,28 +746,70 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {scheduleMatches.map((match, i) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16, marginBottom: scheduleMatches.length > 24 ? 20 : 0 }} data-grid>
+            {paginatedScheduleMatches.map((match, i) => (
               <div key={match.id} data-focus-index={i} tabIndex={0}
-                style={eventCardStyle(isFocused(i, focusedIndex))}
+                style={cardStyle(isFocused(i, focusedIndex))}
                 onClick={() => loadScheduleStreams(match)}
                 onMouseEnter={() => setFocusedIndex(i)}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, textAlign: 'center' }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{match.title}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{match.category}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                    {formatTimeGMT(match.date)} GMT {'•'} {getStatus(match.date) === 'live' ? '🔴 LIVE' : getStatus(match.date) === 'finished' ? '✅ Finished' : '🕒 Upcoming'}
+                <div style={{ width: '100%', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', background: match.poster ? `rgba(255,255,255,0.03) url(${match.poster.startsWith('http') ? match.poster : `https://streamed.pk${match.poster}`}) center/cover no-repeat` : 'rgba(255,255,255,0.03)' }}>
+                  {match.poster && <div style={{ position: 'absolute', inset: 0, background: 'rgba(20,20,20,0.55)', zIndex: 0 }} />}
+                  {match.teams?.home?.badge && match.teams?.away?.badge ? (
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', position: 'relative', zIndex: 1 }}>
+                      <img src={match.teams.home.badge} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 6 }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3' }} />
+                      <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600 }}>vs</span>
+                      <img src={match.teams.away.badge} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 6 }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3' }} />
+                    </div>
+                  ) : match.teams?.home?.badge ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative', zIndex: 1 }}>
+                      <img src={match.teams.home.badge} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3' }} />
+                      <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600 }}>{match.teams.home.name}</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 40, opacity: 0.15, position: 'relative', zIndex: 1 }}>{SPORT_ICONS_RAW[match.category as keyof typeof SPORT_ICONS_RAW] || '🏅'}</span>
+                  )}
+                  <div style={{ position: 'absolute', top: 8, left: 8, fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: getStatus(match.date) === 'live' ? '#e74c3c' : getStatus(match.date) === 'finished' ? '#555' : 'rgba(0,0,0,0.5)', color: '#fff' }}>
+                    {getStatus(match.date) === 'live' ? 'LIVE' : getStatus(match.date) === 'finished' ? 'FINISHED' : formatTimeGMT(match.date) || 'UPCOMING'}
                   </div>
                 </div>
-                {match.teams?.home?.badge && <img src={match.teams.home.badge} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0' }} />}
-                {match.teams?.away?.badge && <img src={match.teams.away.badge} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0' }} />}
-                {!match.teams?.home?.badge && !match.teams?.away?.badge && match.poster && (
-                  <img src={match.poster} alt="" style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                )}
+                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', lineHeight: 1.3 }}>{match.title}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{match.category}</div>
+                </div>
               </div>
             ))}
           </div>
+          {scheduleMatches.length > 24 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <button tabIndex={0}
+                disabled={schedulePage <= 1}
+                onClick={() => setSchedulePage(p => Math.max(1, p - 1))}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, border: '2px solid transparent',
+                  cursor: schedulePage <= 1 ? 'default' : 'pointer',
+                  background: schedulePage <= 1 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
+                  color: schedulePage <= 1 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >Prev</button>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', padding: '0 8px' }}>{schedulePage} / {scheduleTotalPages}</span>
+              <button tabIndex={0}
+                disabled={schedulePage >= scheduleTotalPages}
+                onClick={() => setSchedulePage(p => Math.min(scheduleTotalPages, p + 1))}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, border: '2px solid transparent',
+                  cursor: schedulePage >= scheduleTotalPages ? 'default' : 'pointer',
+                  background: schedulePage >= scheduleTotalPages ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
+                  color: schedulePage >= scheduleTotalPages ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >Next</button>
+            </div>
+          )}
         </div>
       )
     }
