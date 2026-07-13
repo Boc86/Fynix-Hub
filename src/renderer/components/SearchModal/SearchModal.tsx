@@ -19,7 +19,7 @@ const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'TV Shows' },
-  { id: 'free', label: 'Torrents' },
+  { id: 'free', label: 'Search All' },
 ]
 
 function formatSize(bytes: number): string {
@@ -65,7 +65,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       if (srcTorrent) {
         promises.push(
           window.api.torrent.search({ query: q, type: 'movie' })
-            .then(r => { setTorrentResults(r || []); return r })
+            .then(r => { setTorrentResults(r?.torrents || []); return r })
             .catch(() => { setTorrentResults([]); return [] })
         )
       }
@@ -200,21 +200,26 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
              e.preventDefault()
              const sel = FILTERS[focusedIdx].id
              setFilter(sel)
-           } else if (focusedSection === 'result') {
-             e.preventDefault()
-             if (isTorrentView) {
-               onTorrentSelect?.(torrentResults[focusedIdx])
-             } else {
-               onSelect(results[focusedIdx])
-             }
-           }
+            } else if (focusedSection === 'result') {
+              e.preventDefault()
+              if (isTorrentView) {
+                if (sourceTorrent && focusedIdx < torrentResults.length) {
+                  onTorrentSelect?.(torrentResults[focusedIdx])
+                } else if (sourceUsenet) {
+                  const usenetIdx = sourceTorrent ? focusedIdx - torrentResults.length : focusedIdx
+                  onUsenetSelect?.(usenetResults[usenetIdx])
+                }
+              } else {
+                onSelect(results[focusedIdx])
+              }
+            }
            break
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [focusedSection, focusedIdx, filterCount, resultCount, results, torrentResults, filter, onSelect, keyboardOpen, isTorrentView])
+  }, [focusedSection, focusedIdx, filterCount, resultCount, results, torrentResults, usenetResults, filter, onSelect, onTorrentSelect, onUsenetSelect, keyboardOpen, isTorrentView, sourceTorrent, sourceUsenet])
 
   return (
     <div className={styles.overlay} onClick={onClose}>

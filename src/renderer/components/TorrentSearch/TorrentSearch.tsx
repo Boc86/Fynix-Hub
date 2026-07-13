@@ -168,8 +168,8 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Backspace') { onClose(); return }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
-      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, totalItems - 1)); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); return }
       if (e.key === 'Home') { e.preventDefault(); setSelectedIdx(0); return }
       if (e.key === 'End') { e.preventDefault(); setSelectedIdx(totalItems - 1); return }
       if (e.key === 'Enter') {
@@ -207,7 +207,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
           </button>
         </div>
 
-        <div className={styles.list}>
+        <div className={styles.list} ref={listRef}>
           {loading && (
             <div className={styles.loading}>
               <div className={styles.spinner} />

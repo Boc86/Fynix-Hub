@@ -1,7 +1,12 @@
 import type { ForgeConfig } from '@electron-forge/shared-types'
-import { MakerFlatpak } from '@electron-forge/maker-flatpak'
+import { MakerDeb } from '@electron-forge/maker-deb'
+import { MakerRpm } from '@electron-forge/maker-rpm'
+import { MakerZIP } from '@electron-forge/maker-zip'
+import { PublisherGithub } from '@electron-forge/publisher-github'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import path from 'path'
+
+const PROJ_ROOT = __dirname
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -21,37 +26,28 @@ const config: ForgeConfig = {
     ],
   },
   makers: [
-    new MakerFlatpak({
+    new MakerDeb({
       options: {
+        icon: path.join(PROJ_ROOT, 'assets', 'FLB-512.png'),
         categories: ['Video', 'AudioVideo'],
         mimeType: ['video/mp4', 'video/x-matroska'],
-        description: 'Fynix Hub - Media Hub with Netflix-like experience',
-        id: 'com.fynix.hub',
-        icon: {
-          '512x512': path.join(__dirname, 'assets/FLB-512.png'),
-          '256x256': path.join(__dirname, 'assets/FLB-256.png'),
-          '128x128': path.join(__dirname, 'assets/FLB-128.png'),
-          '64x64': path.join(__dirname, 'assets/FLB-64.png'),
-        },
-        base: 'org.electronjs.Electron2.BaseApp',
-        baseVersion: '24.08',
-        runtime: 'org.freedesktop.Platform',
-        runtimeVersion: '24.08',
-        sdk: 'org.freedesktop.Sdk',
-        modules: [],
-        finishArgs: [
-          '--share=network',
-          '--socket=wayland',
-          '--socket=pulseaudio',
-          '--device=dri',
-          '--filesystem=~/.config/fynix-hub:create',
-          '--filesystem=home:ro',
-          '--talk-name=org.freedesktop.DBus',
-          '--talk-name=org.freedesktop.Notifications',
-          '--talk-name=org.freedesktop.ScreenSaver',
-          '--env=VYLA_API_KEY=VYLA_API_KEY',
-        ]
-      }
+      },
+    }),
+    new MakerRpm({
+      options: {
+        icon: path.join(PROJ_ROOT, 'assets', 'FLB-512.png'),
+        categories: ['Video', 'AudioVideo'],
+      },
+    }),
+    new MakerZIP({}, ['linux']),
+  ],
+  publishers: [
+    new PublisherGithub({
+      repository: {
+        owner: 'Boc86',
+        name: 'Fynix-Hub',
+      },
+      draft: true,
     }),
   ],
   plugins: [

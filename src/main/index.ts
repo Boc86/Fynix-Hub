@@ -7,6 +7,7 @@ import * as MpvService from './services/mpv.service'
 import { TizenTubeService } from './services/tizentube.service'
 import { setupCursorHide } from "./utils/cursorUtils"
 import { setupRemoteControl } from "./utils/remoteControl"
+import * as UpdaterService from './services/updater.service'
 
 const AD_DOMAINS = [
   '*://*.doubleclick.net/*',
@@ -246,7 +247,10 @@ app.whenReady().then(async () => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+  createWindow()
+  UpdaterService.setMainWindow(mainWindow)
+  UpdaterService.init()
+  UpdaterService.checkForUpdates()
     }
   })
 })

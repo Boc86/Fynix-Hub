@@ -8,7 +8,8 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
-    "make:flatpak": "electron-forge make --platform=linux --arch=x64",
+    "publish": "electron-forge publish",
+    "postinstall": "patch-package",
     "setup:ffmpeg": "bash scripts/setup-ffmpeg.sh",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
@@ -16,30 +17,31 @@
   "keywords": [
     "media",
     "torrent",
-    "streaming",
-    "flatpak"
+    "streaming"
   ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
     "@electron-forge/maker-deb": "^7.11.2",
-    "@electron-forge/maker-flatpak": "^7.11.2",
     "@electron-forge/maker-rpm": "^7.11.2",
-    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.11.2",
+    "@electron-forge/publisher-github": "^7.11.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/webtorrent": "^0.110.1",
     "electron": "^42.4.1",
+    "patch-package": "^8.0.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },
   "dependencies": {
     "axios": "^1.18.1",
     "better-sqlite3": "^12.11.1",
+    "electron-updater": "^6.8.9",
     "fast-xml-parser": "^5.9.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

@@ -27,6 +27,7 @@ import * as SportsApiProService from '../services/sportsapipro.service'
 import * as EpgService from '../services/epg.service'
 import * as UsenetSearchService from '../services/usenet-search.service'
 import * as UsenetService from '../services/usenet.service'
+import * as UpdaterService from '../services/updater.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -45,7 +46,12 @@ export async function registerIpcHandlers(): Promise<void> {
     })
   }
 
-  handle('app:get-version', () => '1.0.0')
+  handle('app:get-version', () => app.getVersion())
+
+  handle('app:check-for-updates', () => UpdaterService.checkForUpdates())
+  handle('app:get-update-status', () => UpdaterService.getStatus())
+  handle('app:download-update', () => UpdaterService.downloadUpdate())
+  handle('app:install-update', () => UpdaterService.installUpdate())
 
   // Forward renderer logs to main process stdout (visible in terminal)
   handle('log:info', (_event, ...args: unknown[]) => {
