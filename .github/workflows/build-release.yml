@@ -64,8 +64,16 @@ jobs:
       - name: Push version bump commit and tag
         run: |
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git push origin HEAD:${GITHUB_REF_NAME}
           git push origin v${{ env.NEW_VERSION }}
+          git push origin HEAD:ci/version-${{ env.NEW_VERSION }}
+          gh pr create \
+            --base master \
+            --head ci/version-${{ env.NEW_VERSION }} \
+            --title "chore: bump version to ${{ env.NEW_VERSION }}" \
+            --body "Automated version bump from CI." \
+            --fill
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
