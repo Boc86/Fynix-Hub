@@ -46,12 +46,12 @@ const config: ForgeConfig = {
             name: 'metainfo-icons',
             buildsystem: 'simple',
             'build-commands': [
-              'install -Dm644 metainfo.xml /app/share/metainfo/com.fynix.hub.metainfo.xml',
-              'for s in 64 128 256 512; do install -Dm644 icon-$s.png /app/share/icons/hicolor/${s}x${s}/apps/com.fynix.hub.png; done',
+              'install -Dm644 com.fynix.hub.metainfo.xml /app/share/metainfo/com.fynix.hub.metainfo.xml',
+              'for s in 64 128 256 512; do install -Dm644 FLB-$s.png /app/share/icons/hicolor/${s}x${s}/apps/com.fynix.hub.png; done',
             ],
             sources: [
-              { type: 'file', path: path.join(PROJ_ROOT, 'com.fynix.hub.metainfo.xml'), destFilename: 'metainfo.xml' },
-              ...ICON_SIZES.map(s => ({ type: 'file', path: path.join(PROJ_ROOT, 'assets', `FLB-${s}.png`), destFilename: `icon-${s}.png` })),
+              { type: 'file', path: PROJ_ROOT + '/com.fynix.hub.metainfo.xml' },
+              ...ICON_SIZES.map(s => ({ type: 'file', path: PROJ_ROOT + '/assets/FLB-' + s + '.png' })),
             ],
           },
         ],
