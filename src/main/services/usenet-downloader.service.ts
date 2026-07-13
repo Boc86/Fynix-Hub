@@ -242,6 +242,19 @@ export async function getStreamUrl(id: string): Promise<string | null> {
       searchDirs.push(path.join(configInterDir, nzbSafeName))
     }
 
+    // User-configured download directory (overrides RPC-reported paths)
+    const customDir = CacheService.getSetting<string>('nzbgetDownloadDir') || ''
+    console.log(`[UDB] getStreamUrl customDir="${customDir}"`)
+    if (customDir) {
+      const customDirClean = customDir.replace(/\/+$/, '')
+      searchDirs.push(path.join(customDirClean, nzbSafeName))
+      searchDirs.push(customDirClean)
+      const customInterDir = customDirClean.replace(/\/completed\/?$/i, '/intermediate')
+      if (customInterDir !== customDirClean) {
+        searchDirs.push(path.join(customInterDir, nzbSafeName))
+      }
+    }
+
     // Also use per-file DestDir from listFiles if available
     if (confirmedFile && confirmedFile.DestDir) {
       searchDirs.push(confirmedFile.DestDir)

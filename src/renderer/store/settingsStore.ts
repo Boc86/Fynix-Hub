@@ -66,6 +66,7 @@ interface SettingsState {
   nzbgetPort: number
   nzbgetUsername: string
   nzbgetPassword: string
+  nzbgetDownloadDir: string
   enabledUsenetIndexers: string[]
   customUsenetIndexers: UsenetIndexerConfig[]
   usenetSearchEnabled: boolean
@@ -120,6 +121,7 @@ interface SettingsState {
   setNzbgetPort: (port: number) => void
   setNzbgetUsername: (username: string) => void
   setNzbgetPassword: (password: string) => void
+  setNzbgetDownloadDir: (dir: string) => void
   setEnabledUsenetIndexers: (ids: string[]) => void
   setCustomUsenetIndexers: (indexers: UsenetIndexerConfig[]) => void
   setUsenetSearchEnabled: (enabled: boolean) => void
@@ -183,6 +185,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   nzbgetPort: 6789,
   nzbgetUsername: '',
   nzbgetPassword: '',
+  nzbgetDownloadDir: '',
   enabledUsenetIndexers: [],
   customUsenetIndexers: [],
   usenetSearchEnabled: true,
@@ -237,6 +240,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setNzbgetPort: (port) => { set({ nzbgetPort: port }); get().saveToDisk() },
   setNzbgetUsername: (username) => { set({ nzbgetUsername: username }); get().saveToDisk() },
   setNzbgetPassword: (password) => { set({ nzbgetPassword: password }); get().saveToDisk() },
+  setNzbgetDownloadDir: (dir) => { set({ nzbgetDownloadDir: dir }); get().saveToDisk() },
   setEnabledUsenetIndexers: (ids) => { set({ enabledUsenetIndexers: ids }); get().saveToDisk() },
   setCustomUsenetIndexers: (indexers) => { set({ customUsenetIndexers: indexers }); get().saveToDisk() },
   setUsenetSearchEnabled: (enabled) => { set({ usenetSearchEnabled: enabled }); get().saveToDisk() },
@@ -446,6 +450,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('nzbgetPort', String(state.nzbgetPort)),
         window.api.settings.set('nzbgetUsername', state.nzbgetUsername),
         window.api.settings.set('nzbgetPassword', state.nzbgetPassword),
+        window.api.settings.set('nzbgetDownloadDir', state.nzbgetDownloadDir),
         window.api.settings.set('enabledUsenetIndexers', state.enabledUsenetIndexers),
         window.api.settings.set('customUsenetIndexers', state.customUsenetIndexers),
         window.api.settings.set('usenetSearchEnabled', state.usenetSearchEnabled),
