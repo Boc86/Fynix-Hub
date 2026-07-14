@@ -111,6 +111,9 @@ function parseChannel(item: any): DamiTVChannel {
   const code = (typeof item.code === 'string' ? item.code.toLowerCase() : '') || (typeof item.country === 'string' ? item.country.toLowerCase() : '') || detectCountryCode(name)
   const id = String(item.id || item.channel_id || item.channel || `${name}_${code}`)
   let image = item.image || item.logo || item.icon || ''
+  if (image && !image.startsWith('http')) {
+    image = `https://cdnlivetv.tv${image.startsWith('/') ? '' : '/'}${image}`
+  }
   return {
     id,
     name,
