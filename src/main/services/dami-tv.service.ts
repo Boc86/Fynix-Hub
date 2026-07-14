@@ -114,11 +114,6 @@ function parseChannel(item: any): DamiTVChannel {
   if (image && !image.startsWith('http')) {
     image = `https://cdnlivetv.tv${image.startsWith('/') ? '' : '/'}${image}`
   }
-  // Add auth params for cdnlivetv-hosted images
-  if (image && (image.includes('cdnlivetv.tv') || image.includes('cdnlivetv.is')) && !image.includes('user=')) {
-    const { user, plan } = getCredentials()
-    image = `${image}${image.includes('?') ? '&' : '?'}user=${encodeURIComponent(user)}&plan=${encodeURIComponent(plan)}`
-  }
   return {
     id,
     name,
