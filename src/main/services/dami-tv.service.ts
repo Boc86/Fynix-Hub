@@ -111,8 +111,13 @@ function parseChannel(item: any): DamiTVChannel {
   const code = (typeof item.code === 'string' ? item.code.toLowerCase() : '') || (typeof item.country === 'string' ? item.country.toLowerCase() : '') || detectCountryCode(name)
   const id = String(item.id || item.channel_id || item.channel || `${name}_${code}`)
   let image = item.image || item.logo || item.icon || ''
-  if (image && !image.startsWith('http')) {
-    image = `https://cdnlivetv.tv${image.startsWith('/') ? '' : '/'}${image}`
+  if (image) {
+    if (!image.startsWith('http')) {
+      image = `https://api.cdnlivetv.is${image.startsWith('/') ? '' : '/'}${image}`
+    } else {
+      // cdnlivetv.tv images require auth — rewrite to the API domain where auth works
+      image = image.replace('https://cdnlivetv.tv/', 'https://api.cdnlivetv.is/')
+    }
   }
   return {
     id,
