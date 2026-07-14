@@ -1,4 +1,4 @@
-# Fynix Hub
+# Fynix Hub (vibe coded in conjuction with OpenCode and Big Pickle. This app contains code produced by AI)
 
 An all-in-one Linux entertainment hub providing access to movies, TV shows, YouTube, sports replays, and other user-configured media sources through a beautiful unified interface. Built with Electron, React, and Vite.
 
