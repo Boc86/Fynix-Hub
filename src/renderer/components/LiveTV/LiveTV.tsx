@@ -5,12 +5,47 @@ interface Channel {
   id: string
   name: string
   image: string
+  logoImage: string
   countryCode: string
   countryName: string
   countryFlag: string
   playerUrl: string
   source: string
   status: string
+}
+
+function ChannelLogo({ logoImage, fallbackImage, name }: { logoImage: string; fallbackImage: string; name: string }) {
+  const [src, setSrc] = React.useState(logoImage || fallbackImage)
+  const [failed, setFailed] = React.useState(false)
+
+  const handleError = React.useCallback(() => {
+    if (src === logoImage && fallbackImage) {
+      setSrc(fallbackImage)
+    } else {
+      setFailed(true)
+    }
+  }, [src, logoImage, fallbackImage])
+
+  if (failed || !src) {
+    return <div data-ltv-letter style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
+      {name.charAt(0).toUpperCase()}
+    </div>
+  }
+
+  return <>
+    <img src={src} alt="" loading="lazy"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', padding: 12, zIndex: 1 }}
+      onLoad={e => {
+        window.api.log(`[LiveTV] OK ${(e.target as HTMLImageElement).src.slice(0, 120)}`)
+        const letter = e.currentTarget.parentElement?.querySelector('[data-ltv-letter]')
+        if (letter) (letter as HTMLElement).style.display = 'none'
+      }}
+      onError={handleError}
+    />
+    <div data-ltv-letter style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
+      {name.charAt(0).toUpperCase()}
+    </div>
+  </>
 }
 
 
@@ -22,6 +57,7 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [playing, setPlaying] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
+
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -50,6 +86,8 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       return a.name.localeCompare(b.name)
     })
   }, [channels, settingsStore.selectedLiveTvCountries])
+
+
 
   const flatItems = useMemo(() => {
     const map = new Map<string, Channel[]>()
@@ -274,14 +312,11 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
                     aspectRatio: '16/9', background: '#111', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden',
                   }}>
-                    {ch.image && (
-                      <img src={ch.image} alt=""
-                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', padding: 12 }}
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    )}
-                    <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
-                      {ch.name.charAt(0).toUpperCase()}
-                    </div>
+                    <ChannelLogo
+                      logoImage={ch.logoImage}
+                      fallbackImage={ch.image}
+                      name={ch.name}
+                    />
                     {playing === ch.id && (
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
                         <div style={{ width: 20, height: 20, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />

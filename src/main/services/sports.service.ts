@@ -1,6 +1,8 @@
 import * as CacheService from './cache.service'
 
 const SPORTARR_BASE = 'https://sportarr.net/api/public/v1'
+const SPORTARR_IMG_BASE = 'https://sportarr.net'
+const IMAGE_API_BASE = 'https://sportarr.net/api/v1'
 
 const CACHE_TTL = 300000
 
@@ -97,6 +99,71 @@ interface SportarrTeam {
   isActive: boolean
 }
 
+const IMAGE_PRIORITY: Record<string, string[]> = {
+  sport: ['icon', 'logo', 'badge', 'thumbnail'],
+  league: ['badge', 'logo', 'thumbnail'],
+  team: ['badge', 'logo', 'thumbnail'],
+}
+
+interface EntityImage {
+  id: string
+  image_type: string
+  is_primary: boolean
+  priority: number
+  url: string
+  status: string
+}
+
+interface EntityImageResponse {
+  images: EntityImage[]
+  total: number
+}
+
+async function fetchBestImage(entityType: string, entityId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${IMAGE_API_BASE}/images/entity/${entityType}/${entityId}?completedOnly=true`)
+    if (!res.ok) return null
+    const data: EntityImageResponse = await res.json()
+    if (!data.images || data.images.length === 0) return null
+
+    const completed = data.images.filter((i: EntityImage) => i.status === 'completed' && i.url)
+    if (completed.length === 0) return null
+
+    const types = IMAGE_PRIORITY[entityType] || ['logo', 'badge', 'thumbnail']
+    for (const t of types) {
+      const match = completed.find((i: EntityImage) => i.image_type === t && i.is_primary)
+      if (match) return `${SPORTARR_IMG_BASE}${match.url}`
+      const fallback = completed.find((i: EntityImage) => i.image_type === t)
+      if (fallback) return `${SPORTARR_IMG_BASE}${fallback.url}`
+    }
+
+    const primary = completed.find((i: EntityImage) => i.is_primary)
+    if (primary) return `${SPORTARR_IMG_BASE}${primary.url}`
+    return `${SPORTARR_IMG_BASE}${completed[0].url}`
+  } catch {
+    return null
+  }
+}
+
+async function populateImages<T extends { id: string }>(
+  entityType: string, items: T[], field: keyof T, batchSize = 5
+): Promise<T[]> {
+  const ids = items.map(i => i.id)
+  const imageMap = new Map<string, string>()
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize)
+    const urls = await Promise.all(batch.map(id => fetchBestImage(entityType, id)))
+    for (let j = 0; j < batch.length; j++) {
+      if (urls[j]) imageMap.set(batch[j], urls[j]!)
+    }
+  }
+  for (const item of items) {
+    const img = imageMap.get(item.id)
+    if (img) item[field] = img as T[keyof T]
+  }
+  return items
+}
+
 const http = {
   async get<T>(path: string): Promise<ApiResponse<T>> {
     const res = await fetch(`${SPORTARR_BASE}${path}`)
@@ -111,13 +178,15 @@ const http = {
 }
 
 export async function getSportsList(): Promise<SportarrSport[]> {
-  const cacheKey = 'sports:list:v2'
+  const cacheKey = 'sports:list:v3'
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrSport[]
 
   try {
     const data = await http.get<SportarrSport>('/sports')
-    const sports = data.items.filter(s => s.isActive)
+    let sports = data.items.filter(s => s.isActive)
+    sports = await populateImages('sport', sports, 'iconUrl')
+    console.log(`[Sports] getSportsList: ${sports.length} sports, with image count: ${sports.filter(s => s.iconUrl).length}`)
     CacheService.setCache(cacheKey, JSON.stringify(sports), 86400000)
     return sports
   } catch (err: any) {
@@ -141,13 +210,15 @@ async function fetchAll<T>(basePath: string): Promise<T[]> {
 }
 
 export async function getLeaguesBySport(sportId: string): Promise<SportarrLeague[]> {
-  const cacheKey = `sports:leagues:v2:${sportId}`
+  const cacheKey = `sports:leagues:v3:${sportId}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrLeague[]
 
   try {
     const items = await fetchAll<SportarrLeague>(`/leagues?sport=${encodeURIComponent(sportId)}`)
-    const leagues = items.filter(l => l.isActive)
+    let leagues = items.filter(l => l.isActive)
+    leagues = await populateImages('league', leagues, 'logoUrl')
+    console.log(`[Sports] getLeaguesBySport(${sportId}): ${leagues.length} leagues, with image count: ${leagues.filter(l => l.logoUrl).length}`)
     CacheService.setCache(cacheKey, JSON.stringify(leagues), CACHE_TTL)
     return leagues
   } catch (err: any) {
@@ -243,13 +314,18 @@ export async function getEventsInRange(leagueId: string, seasonId: string, from:
 }
 
 export async function getTeamDetails(teamId: string): Promise<SportarrTeam | null> {
-  const cacheKey = `sports:team:v2:${teamId}`
+  const cacheKey = `sports:team:v3:${teamId}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrTeam
 
   try {
     const team = await http.getOne<SportarrTeam>(`/teams/${encodeURIComponent(teamId)}`)
-    if (team) CacheService.setCache(cacheKey, JSON.stringify(team), 86400000)
+    if (team) {
+      const img = await fetchBestImage('team', teamId)
+      if (img) team.logoUrl = img
+      CacheService.setCache(cacheKey, JSON.stringify(team), 86400000)
+    }
+    console.log(`[Sports] getTeamDetails(${teamId}):`, team ? `${team.name} logoUrl=${team.logoUrl || 'NONE'}` : 'null')
     return team
   } catch (err: any) {
     console.error(`[Sports] Failed to fetch team ${teamId}:`, err.message)

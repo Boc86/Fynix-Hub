@@ -137,6 +137,10 @@ export function clearImageCache() {
   getDb().prepare("DELETE FROM cache WHERE key LIKE 'fanart:%' OR key LIKE 'tmdb:%'").run()
 }
 
+export function clearSportsCache() {
+  getDb().prepare("DELETE FROM cache WHERE key LIKE 'sports:%'").run()
+}
+
 export function closeDb() {
   if (db) {
     db.close()

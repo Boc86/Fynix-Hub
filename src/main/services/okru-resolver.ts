@@ -20,10 +20,25 @@ const CDN_HEADERS = {
   'Origin': 'https://ok.ru',
 }
 
-function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5, maxRetries = 3): Promise<{ status: number; body: string; headers: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     let currentUrl = url
     const visited: string[] = []
+    let retriesLeft = maxRetries
+    let errored = false
+
+    const retry = (err: Error) => {
+      if (errored) return
+      if (retriesLeft > 0) {
+        errored = true
+        retriesLeft--
+        console.log(`[okru-resolver] retrying (${maxRetries - retriesLeft}/${maxRetries}) after: ${err.message}`)
+        currentUrl = visited[visited.length - 1]
+        setTimeout(() => { errored = false; doFetch() }, 1000)
+      } else {
+        reject(err)
+      }
+    }
 
     const doFetch = () => {
       if (visited.length > maxRedirects) {
@@ -70,10 +85,10 @@ function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5
             headers: res.headers as Record<string, string>,
           })
         })
-        res.on('error', reject)
+        res.on('error', retry)
       })
 
-      req.on('error', reject)
+      req.on('error', retry)
       req.setTimeout(15000, () => req.destroy(new Error('Request timeout')))
       req.end()
     }

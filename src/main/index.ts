@@ -244,13 +244,13 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-  createWindow()
   UpdaterService.setMainWindow(mainWindow)
   UpdaterService.init()
   UpdaterService.checkForUpdates()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
     }
   })
 })
