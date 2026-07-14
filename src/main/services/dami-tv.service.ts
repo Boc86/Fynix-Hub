@@ -1,4 +1,5 @@
 import * as CacheService from './cache.service'
+import { lookupLogo } from './tv-logo.service'
 
 const API_BASE = 'https://api.cdnlivetv.is/api/v1'
 const API_BASE_TV = 'https://cdnlivetv.tv/api/v1'
@@ -98,6 +99,7 @@ export interface DamiTVChannel {
   id: string
   name: string
   image: string
+  logoImage: string
   countryCode: string
   countryName: string
   countryFlag: string
@@ -115,7 +117,6 @@ function parseChannel(item: any): DamiTVChannel {
     if (!image.startsWith('http')) {
       image = `https://api.cdnlivetv.is${image.startsWith('/') ? '' : '/'}${image}`
     } else {
-      // cdnlivetv.tv images require auth — rewrite to the API domain where auth works
       image = image.replace('https://cdnlivetv.tv/', 'https://api.cdnlivetv.is/')
     }
   }
@@ -123,6 +124,7 @@ function parseChannel(item: any): DamiTVChannel {
     id,
     name,
     image,
+    logoImage: '',
     countryCode: code,
     countryName: COUNTRY_NAMES[code] || code.toUpperCase(),
     countryFlag: countryFlag(code),
@@ -202,7 +204,19 @@ export async function getChannels(): Promise<DamiTVChannel[]> {
     const rawChannels = Array.isArray(data) ? data : (data.channels || data.data || [])
     console.log(`[LiveTV] API returned ${rawChannels.length} raw items`)
 
-    const channels: DamiTVChannel[] = rawChannels.map(parseChannel).filter((c: DamiTVChannel) => c.name)
+    const channels: DamiTVChannel[] = rawChannels
+      .map(parseChannel)
+      .filter((c: DamiTVChannel) => c.name)
+      .filter((c: DamiTVChannel, i: number, arr: DamiTVChannel[]) => arr.findIndex((x: DamiTVChannel) => x.id === c.id) === i)
+
+    // Construct tv-logo URL (no API calls needed, synchronous)
+    for (const ch of channels) {
+      if (!ch.countryCode) continue
+      const logoUrl = lookupLogo(ch.name, ch.countryCode)
+      if (logoUrl) {
+        ch.logoImage = logoUrl
+      }
+    }
 
     const dayMs = msUntilEndOfDay()
     CacheService.setCache('dami-tv:channels', JSON.stringify(channels), dayMs)

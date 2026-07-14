@@ -21,9 +21,7 @@ import * as SportsService from '../services/sports.service'
 import * as ReplayZoneService from '../services/replayzone.service'
 import * as StreamedPkService from '../services/streamedpk.service'
 import * as ExtractorService from '../services/extractor.service'
-import * as SportsDBService from '../services/sportsdb.service'
 import * as DamiTVService from '../services/dami-tv.service'
-import * as SportsApiProService from '../services/sportsapipro.service'
 import * as EpgService from '../services/epg.service'
 import * as UsenetSearchService from '../services/usenet-search.service'
 import * as UsenetService from '../services/usenet.service'
@@ -35,7 +33,6 @@ export async function registerIpcHandlers(): Promise<void> {
   DebridService.loadKeys()
   FanartService.loadApiKey()
   OpenSubtitlesService.loadApiKey()
-  SportsApiProService.loadApiKey()
   // SportsService uses public Sportarr API, no key needed
   EpgService.ensureEpgLoaded().catch(err => console.error('[Handler] EPG init error:', err?.message))
   await WebTorrentService.init()
@@ -600,7 +597,6 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'alldebridAccessToken') DebridService.loadKeys()
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
     if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
-    if (key === 'sportsApiProKey') SportsApiProService.setApiKey(String(value))
     if (key === 'liveTvUser' || key === 'liveTvPlan') DamiTVService.clearChannelsCache()
     // SportsService uses public Sportarr API, no key needed
 })
@@ -793,7 +789,9 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('sports:get-leagues-by-sport', async (_event, sport: string) => {
-    return SportsService.getLeaguesBySport(sport)
+    const leagues = await SportsService.getLeaguesBySport(sport)
+    console.log(`[Sports] getLeaguesBySport(${sport}):`, leagues.length, 'leagues, first logoUrl:', leagues[0] ? `${leagues[0].name}=${leagues[0].logoUrl}` : 'NONE')
+    return leagues
   })
 
   handle('youtube:get-stream-url', async (_event, videoUrl: string) => {
@@ -810,7 +808,9 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('sports:get-sports-list', async () => {
-    return SportsService.getSportsList()
+    const list = await SportsService.getSportsList()
+    console.log('[Sports] getSportsList:', list.length, 'sports, first iconUrl:', list[0] ? `${list[0].name}=${list[0].iconUrl}` : 'NONE')
+    return list
   })
 
   handle('sports:get-upcoming-events', async (_event, leagueId: string, seasonId?: string) => {
@@ -830,7 +830,9 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('sports:get-team-details', async (_event, teamId: string) => {
-    return SportsService.getTeamDetails(teamId)
+    const team = await SportsService.getTeamDetails(teamId)
+    console.log(`[Sports] getTeamDetails(${teamId}):`, team ? `${team.name} logoUrl=${team.logoUrl}` : 'null')
+    return team
   })
 
   handle('replayzone:search', async (_event, query: string) => {
@@ -843,38 +845,6 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('streamedpk:get-streams', async (_event, source: string, id: string) => {
     return StreamedPkService.getStream(source, id)
-  })
-
-  handle('sportsdb:get-all-sports', async () => {
-    return SportsDBService.getAllSports()
-  })
-
-  handle('sportsdb:get-league', async (_event, leagueId: string) => {
-    return SportsDBService.getLeagueById(leagueId)
-  })
-
-  handle('sportsdb:get-team', async (_event, teamId: string) => {
-    return SportsDBService.getTeamById(teamId)
-  })
-
-  handle('sportsdb:search-teams', async (_event, teamName: string) => {
-    return SportsDBService.searchTeams(teamName)
-  })
-
-  handle('sportsdb:get-teams-by-sport', async (_event, sportName: string) => {
-    return SportsDBService.getTeamsBySport(sportName)
-  })
-
-  handle('sportsdb:search-leagues', async (_event, query: string) => {
-    return SportsDBService.searchLeagues(query)
-  })
-
-  handle('sportsapipro:get-competition-image', async (_event, sportId: string, leagueName: string) => {
-    return SportsApiProService.getCompetitionImage(sportId, leagueName)
-  })
-
-  handle('sportsapipro:get-competitions', async (_event, sportId: string) => {
-    return SportsApiProService.getCompetitions(sportId)
   })
 
   handle('dami-tv:get-streams', async () => {
@@ -894,8 +864,8 @@ export async function registerIpcHandlers(): Promise<void> {
       url = `${url}?user=${encodeURIComponent(liveTvUser)}&plan=${encodeURIComponent(liveTvPlan)}`
       referer = 'https://cdnlivetv.tv/'
     } else {
-      // add auth for cdnlivetv hosted images
-      if (url.includes('cdnlivetv.tv') || url.includes('cdnlivetv.is')) {
+      // add auth for cdnlivetv.tv hosted images only (api.cdnlivetv.is serves images publicly)
+      if (url.includes('cdnlivetv.tv')) {
         const liveTvUser = CacheService.getSetting<string>('liveTvUser') || 'cdnlivetv'
         const liveTvPlan = CacheService.getSetting<string>('liveTvPlan') || 'free'
         const separator = url.includes('?') ? '&' : '?'

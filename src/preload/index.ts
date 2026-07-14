@@ -257,18 +257,6 @@ const api = {
     search: (opts: { tmdbId: number; type: 'movie' | 'tv'; season?: number; episode?: number }) =>
       ipcRenderer.invoke('rivestream:search', opts),
   },
-  sportsdb: {
-    getAllSports: () => ipcRenderer.invoke('sportsdb:get-all-sports'),
-    getLeague: (leagueId: string) => ipcRenderer.invoke('sportsdb:get-league', leagueId),
-    getTeam: (teamId: string) => ipcRenderer.invoke('sportsdb:get-team', teamId),
-    searchTeams: (teamName: string) => ipcRenderer.invoke('sportsdb:search-teams', teamName),
-    getTeamsBySport: (sportName: string) => ipcRenderer.invoke('sportsdb:get-teams-by-sport', sportName),
-    searchLeagues: (query: string) => ipcRenderer.invoke('sportsdb:search-leagues', query),
-  },
-  sportsapipro: {
-    getCompetitionImage: (sportId: string, leagueName: string) => ipcRenderer.invoke('sportsapipro:get-competition-image', sportId, leagueName),
-    getCompetitions: (sportId: string) => ipcRenderer.invoke('sportsapipro:get-competitions', sportId),
-  },
   damiTv: {
     getStreams: () => ipcRenderer.invoke('dami-tv:get-streams'),
     getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),

@@ -52,7 +52,6 @@ interface SettingsState {
   introDbApiKey: string
   opensubtitlesApiKey: string
   opensubtitlesForcedOnly: boolean
-  sportsApiProKey: string
   liveTvUser: string
   liveTvPlan: string
   preferredAudioLanguage: string
@@ -107,7 +106,6 @@ interface SettingsState {
   setIntroDbApiKey: (key: string) => void
   setOpensubtitlesApiKey: (key: string) => void
   setOpensubtitlesForcedOnly: (forced: boolean) => void
-  setSportsApiProKey: (key: string) => void
   setLiveTvUser: (user: string) => void
   setLiveTvPlan: (plan: string) => void
   setPreferredAudioLanguage: (lang: string) => void
@@ -171,7 +169,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   introDbApiKey: '',
   opensubtitlesApiKey: '',
   opensubtitlesForcedOnly: true,
-  sportsApiProKey: '',
   liveTvUser: 'cdnlivetv',
   liveTvPlan: 'free',
   preferredAudioLanguage: '',
@@ -226,7 +223,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
   setOpensubtitlesApiKey: (key) => { set({ opensubtitlesApiKey: key }); get().saveToDisk() },
   setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
-  setSportsApiProKey: (key) => { set({ sportsApiProKey: key }); get().saveToDisk() },
   setLiveTvUser: (user) => { set({ liveTvUser: user }); get().saveToDisk() },
   setLiveTvPlan: (plan) => { set({ liveTvPlan: plan }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
@@ -437,7 +433,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('introDbApiKey', state.introDbApiKey),
         window.api.settings.set('opensubtitlesApiKey', state.opensubtitlesApiKey),
         window.api.settings.set('opensubtitlesForcedOnly', state.opensubtitlesForcedOnly),
-        window.api.settings.set('sportsApiProKey', state.sportsApiProKey),
         window.api.settings.set('liveTvUser', state.liveTvUser),
         window.api.settings.set('liveTvPlan', state.liveTvPlan),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),

@@ -50,7 +50,6 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localRes, setLocalRes] = useState<string[]>(store.preferredResolutions)
   const [localIntroDb, setLocalIntroDb] = useState(store.introDbApiKey)
   const [localOpensubtitlesApiKey, setLocalOpensubtitlesApiKey] = useState(store.opensubtitlesApiKey)
-  const [localSportsApiProKey, setLocalSportsApiProKey] = useState(store.sportsApiProKey)
   const [localRemoteMapping, setLocalRemoteMapping] = useState<Record<string, string>>(store.remoteMapping || {} as Record<string, string>)
   const [localLiveTvCountries, setLocalLiveTvCountries] = useState<string[]>(store.selectedLiveTvCountries)
   const [availableCountries, setAvailableCountries] = useState<{ code: string; name: string; flag: string; count: number }[]>([])
@@ -344,7 +343,6 @@ export default function Settings({ onClose }: SettingsProps) {
         window.api.settings.set('customIndexers', localCustomIndexers),
         window.api.settings.set('introDbApiKey', localIntroDb),
         window.api.settings.set('opensubtitlesApiKey', localOpensubtitlesApiKey),
-        window.api.settings.set('sportsApiProKey', localSportsApiProKey),
         window.api.settings.set('usenetEnabled', localEnableUsenet),
         window.api.settings.set('nzbgetHost', localNzbgetHost),
         window.api.settings.set('nzbgetPort', String(localNzbgetPort)),
@@ -360,7 +358,6 @@ export default function Settings({ onClose }: SettingsProps) {
       store.setCustomIndexers(localCustomIndexers)
       store.setIntroDbApiKey(localIntroDb)
       store.setOpensubtitlesApiKey(localOpensubtitlesApiKey)
-      store.setSportsApiProKey(localSportsApiProKey)
       store.setUsenetEnabled(localEnableUsenet)
       store.setNzbgetHost(localNzbgetHost)
       store.setNzbgetPort(localNzbgetPort)
@@ -523,19 +520,7 @@ export default function Settings({ onClose }: SettingsProps) {
                  </div>
                 </div>
 
-               <div className={styles.settingGroup}>
-                 <h3 className={styles.settingTitle}>SportsAPIPro API</h3>
-                 <p className={styles.settingDesc}>API key for competition and team logos in Sports section. Get one at <a href="https://sportsapipro.com" target="_blank" rel="noopener noreferrer" style={{ color: '#FF6B00' }}>sportsapipro.com</a></p>
-                 <input
-                   type="password"
-                   className={styles.input}
-                   placeholder="Enter SportsAPIPro API Key"
-                   value={localSportsApiProKey}
-                   onChange={(e) => setLocalSportsApiProKey(e.target.value)}
-                 />
-               </div>
-
-                <div className={styles.settingGroup}>
+                 <div className={styles.settingGroup}>
                   <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
                <p className={styles.settingDesc}>Filter torrent results by resolution</p>
               <div className={styles.toggleGrid}>
