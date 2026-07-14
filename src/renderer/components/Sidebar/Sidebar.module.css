@@ -388,3 +388,44 @@
   border-color: var(--accent);
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.4);
 }
+
+.updateBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 16px;
+  padding: 10px 14px;
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  width: auto;
+}
+
+.updateBanner:hover {
+  background: rgba(var(--accent-rgb), 0.22);
+}
+
+.updateBannerFocused {
+  background: rgba(var(--accent-rgb), 0.25);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.3);
+}
+
+.updateBanner:focus-visible {
+  outline: none;
+}
+
+.versionInfo {
+  text-align: center;
+  padding: 8px 16px;
+  margin: 4px 16px;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  font-weight: 500;
+}

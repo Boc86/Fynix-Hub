@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app, dialog } from 'electron'
+import { ipcMain, BrowserWindow, app, dialog, shell } from 'electron'
 import { handle } from './handler-wrapper'
 import fs from 'fs'
 import path from 'path'
@@ -104,6 +104,9 @@ export async function registerIpcHandlers(): Promise<void> {
       WebTorrentService.removeAllTorrents()
     } catch {}
     app.quit()
+  })
+  handle('app:open-external', async (_event, url: string) => {
+    await shell.openExternal(url)
   })
   handle('window:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()

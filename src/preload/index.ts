@@ -12,6 +12,7 @@ const api = {
     getUpdateStatus: () => ipcRenderer.invoke('app:get-update-status'),
     downloadUpdate: () => ipcRenderer.invoke('app:download-update'),
     installUpdate: () => ipcRenderer.invoke('app:install-update'),
+    openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
     onRemoteAction: (callback: (action: string) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
       ipcRenderer.on('remote:action', handler)

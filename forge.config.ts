@@ -47,7 +47,7 @@ const config: ForgeConfig = {
         owner: 'Boc86',
         name: 'Fynix-Hub',
       },
-      draft: true,
+      draft: false,
     }),
   ],
   plugins: [

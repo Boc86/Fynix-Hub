@@ -63,7 +63,39 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { action: 'exit' as const, label: 'Exit', icon: 'exit' },
   ]
 
-  const totalNavItems = navItems.length + 1 + bottomItems.length
+  const [currentVersion, setCurrentVersion] = useState('')
+  const [updateState, setUpdateState] = useState<{ status: string; version?: string; percent?: number } | null>(null)
+  const updateBannerRef = useRef<HTMLButtonElement>(null)
+
+  const hasUpdateAction = updateState != null && (updateState.status === 'available' || updateState.status === 'downloaded')
+  const updateBannerIdx = hasUpdateAction ? navItems.length : -1
+  const profileIdx = navItems.length + (hasUpdateAction ? 1 : 0)
+  const totalNavItems = navItems.length + (hasUpdateAction ? 1 : 0) + 1 + bottomItems.length
+
+  useEffect(() => {
+    window.api.getVersion().then(setCurrentVersion)
+    window.api.getUpdateStatus().then(s => {
+      if (s.updateAvailable) setUpdateState({ status: 'available', version: s.updateVersion })
+    })
+    const unsub = window.api.onUpdateStatus((data) => {
+      if (data.status === 'available') setUpdateState({ status: 'available', version: data.version })
+      else if (data.status === 'downloading') setUpdateState(s => ({ ...s, status: 'downloading', percent: data.percent, version: s?.version }))
+      else if (data.status === 'downloaded') setUpdateState({ status: 'downloaded', version: data.version })
+      else if (data.status === 'not-available' || data.status === 'error') setUpdateState({ status: 'not-available' })
+    })
+    window.api.checkForUpdates()
+    return unsub
+  }, [])
+
+  const handleUpdate = useCallback(async () => {
+    const status = await window.api.getUpdateStatus()
+    if (status.isAppImage) {
+      const ok = await window.api.downloadUpdate()
+      if (ok) window.api.installUpdate()
+    } else {
+      window.api.openExternal('https://github.com/Boc86/Fynix-Hub/releases')
+    }
+  }, [])
 
   useEffect(() => {
     if (!open) {
@@ -119,10 +151,12 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
       if (idx < navItems.length) {
         onNavigate(navItems[idx].view)
         onClose()
-      } else if (idx === navItems.length) {
+      } else if (idx === updateBannerIdx) {
+        handleUpdate()
+      } else if (idx === profileIdx) {
         setProfileMenuOpen(true)
       } else {
-        const bottomIdx = idx - navItems.length - 1
+        const bottomIdx = idx - profileIdx - 1
         const item = bottomItems[bottomIdx]
         if (item) {
           if (item.action === 'settings') { onNavigate('settings'); onClose() }
@@ -131,7 +165,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
         }
       }
     }
-  }, [focusedIndex, onNavigate, onClose, profileMenuOpen, totalNavItems, navItems.length, bottomItems])
+  }, [focusedIndex, onNavigate, onClose, profileMenuOpen, totalNavItems, navItems.length, bottomItems, updateBannerIdx, profileIdx, handleUpdate])
 
   const handleNavClick = (view: NavView) => {
     onNavigate(view)
@@ -243,13 +277,32 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
 
         <div className={styles.spacer} />
 
+        {/* Update banner */}
+        {currentVersion && updateState && updateState.status !== 'checking' && (
+          hasUpdateAction ? (
+            <button
+              ref={(el) => { if (el) navItemsRef.current[updateBannerIdx] = el; updateBannerRef.current = el }}
+              tabIndex={0}
+              className={`${styles.updateBanner} ${focusedIndex === updateBannerIdx ? styles.updateBannerFocused : ''}`}
+              onClick={handleUpdate}
+              onFocus={() => setFocusedIndex(updateBannerIdx)}
+            >
+              {updateState.status === 'downloaded' ? 'Restart to update' : `Update v${updateState.version} available`}
+            </button>
+          ) : (
+            <div className={styles.versionInfo}>
+              v{currentVersion} — Latest
+            </div>
+          )
+        )}
+
         {/* Profile row at bottom */}
         <button
-          ref={(el) => { navItemsRef.current[navItems.length] = el!; (profileRowRef as React.MutableRefObject<HTMLButtonElement | null>).current = el }}
+          ref={(el) => { navItemsRef.current[profileIdx] = el!; (profileRowRef as React.MutableRefObject<HTMLButtonElement | null>).current = el }}
           tabIndex={0}
-          className={`${styles.profileRow} ${focusedIndex === navItems.length ? styles.focused : ''}`}
+          className={`${styles.profileRow} ${focusedIndex === profileIdx ? styles.focused : ''}`}
           onClick={() => setProfileMenuOpen((o) => !o)}
-          onFocus={() => setFocusedIndex(navItems.length)}
+          onFocus={() => setFocusedIndex(profileIdx)}
         >
           {activeProfile?.avatarPath ? (
             <img src={activeProfile.avatarPath} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
@@ -271,7 +324,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
         {/* Bottom row: Settings, Minimize, Exit */}
         <div className={styles.bottomControls}>
           {bottomItems.map((item, index) => {
-            const idx = navItems.length + 1 + index
+            const idx = profileIdx + 1 + index
             return (
               <button
                 key={item.action}
