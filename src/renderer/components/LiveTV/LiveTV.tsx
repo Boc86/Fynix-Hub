@@ -22,6 +22,7 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [playing, setPlaying] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
+  const [proxiedImages, setProxiedImages] = useState<Record<string, string>>({})
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -30,6 +31,14 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       window.api.log(`[LiveTV] ${ch.length} channels loaded, ${ch.filter((c: any) => c.image).length} have images`)
       setChannels(ch)
       setLoading(false)
+      // Proxy all channel images via main process (needs proper User-Agent/Referer)
+      for (const c of ch) {
+        if (c.image) {
+          window.api.damiTv.proxyImage(c.image).then(dataUrl => {
+            if (dataUrl) setProxiedImages(p => ({ ...p, [c.id]: dataUrl }))
+          })
+        }
+      }
     }).catch(() => setLoading(false))
   }, [])
 
@@ -274,11 +283,10 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
                     aspectRatio: '16/9', background: '#111', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden',
                   }}>
-                    {ch.image && (
-                      <img src={ch.image} alt=""
-                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', padding: 12 }}
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    )}
+                    {proxiedImages[ch.id] ? (
+                      <img src={proxiedImages[ch.id]} alt=""
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', padding: 12 }} />
+                    ) : null}
                     <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
                       {ch.name.charAt(0).toUpperCase()}
                     </div>
