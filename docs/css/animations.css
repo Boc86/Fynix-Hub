@@ -39,8 +39,8 @@
 }
 
 @keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.3), 0 0 40px rgba(var(--primary-rgb), 0.1); }
-  50% { box-shadow: 0 0 30px rgba(var(--primary-rgb), 0.5), 0 0 60px rgba(var(--primary-rgb), 0.2); }
+  0%, 100% { box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.3), 0 0 40px rgba(var(--accent-rgb), 0.1); }
+  50% { box-shadow: 0 0 30px rgba(var(--accent-rgb), 0.5), 0 0 60px rgba(var(--accent-rgb), 0.2); }
 }
 
 @keyframes shimmer {
@@ -76,8 +76,8 @@
 }
 
 @keyframes borderGlow {
-  0%, 100% { border-color: rgba(var(--primary-rgb), 0.2); }
-  50% { border-color: rgba(var(--primary-rgb), 0.5); }
+  0%, 100% { border-color: rgba(var(--accent-rgb), 0.2); }
+  50% { border-color: rgba(var(--accent-rgb), 0.5); }
 }
 
 @keyframes iconPulse {
