@@ -64,7 +64,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
   ]
 
   const [currentVersion, setCurrentVersion] = useState('')
-  const [updateState, setUpdateState] = useState<{ status: string; version?: string; percent?: number } | null>(null)
+  const [updateState, setUpdateState] = useState<{ status: string; version?: string; percent?: number }>({ status: 'not-available' })
   const updateBannerRef = useRef<HTMLButtonElement>(null)
 
   const hasUpdateAction = updateState != null && (updateState.status === 'available' || updateState.status === 'downloaded')
@@ -74,9 +74,6 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
 
   useEffect(() => {
     window.api.getVersion().then(setCurrentVersion)
-    window.api.getUpdateStatus().then(s => {
-      if (s.updateAvailable) setUpdateState({ status: 'available', version: s.updateVersion })
-    })
     const unsub = window.api.onUpdateStatus((data) => {
       if (data.status === 'available') setUpdateState({ status: 'available', version: data.version })
       else if (data.status === 'downloading') setUpdateState(s => ({ ...s, status: 'downloading', percent: data.percent, version: s?.version }))
