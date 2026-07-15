@@ -35,6 +35,7 @@ local state = {
     speed = 1,
     skip_intro_end = nil,
     has_next = false,
+    autoplay = false,
     osd_w = 1920,
     osd_h = 1080,
     menu_open = false,
@@ -513,6 +514,16 @@ local function draw_up_next(ass, w, h)
     ass:append(tostring(state.up_next_countdown))
 end
 
+local function render_osd(ass, w, h)
+    if state.osd_h > 1080 then
+        local scale = state.osd_h / 1080
+        ass.text = ass.text:gsub('\\fs(%-?%d+)', function(n)
+            return '\\fs' .. math.floor(tonumber(n) * scale)
+        end)
+    end
+    mp.set_osd_ass(w, h, ass.text)
+end
+
 function render()
     local ass = assdraw.ass_new()
     local w = state.osd_w
@@ -521,7 +532,7 @@ function render()
     -- Splash screen takes full priority
     if state.splash then
         draw_splash(ass, w, h)
-        mp.set_osd_ass(w, h, ass.text)
+        render_osd(ass, w, h)
         return
     end
 
@@ -545,7 +556,7 @@ function render()
     -- Main OSD (only when visible)
     if not state.visible then
         -- Still set the overlay text for up-next/clearlogo/plot
-        mp.set_osd_ass(w, h, ass.text)
+        render_osd(ass, w, h)
         return
     end
 
@@ -701,21 +712,26 @@ function render()
         end
     end
 
-    mp.set_osd_ass(w, h, ass.text)
+    render_osd(ass, w, h)
 end
 
 -- Up-next countdown
 local function start_up_next_countdown()
     if state.up_next_timer then state.up_next_timer:kill() end
-    state.up_next_countdown = 10
+    state.up_next_countdown = state.up_next_countdown or 10
     state.up_next_timer = mp.add_periodic_timer(1, function()
         state.up_next_countdown = state.up_next_countdown - 1
         if state.up_next_countdown <= 0 then
-            -- Auto-play next episode
             if state.up_next_timer then state.up_next_timer:kill() end
             state.up_next_timer = nil
-            state.up_next = nil
-            mp.command('quit 42')
+            if state.autoplay then
+                -- Auto-play the next episode
+                state.up_next = nil
+                mp.command('quit 42')
+            else
+                -- Manual mode: keep the prompt and wait for the user to confirm
+                state.up_next_countdown = 0
+            end
         end
         render()
     end)
@@ -790,6 +806,11 @@ end)
 
 mp.register_script_message('set-has-next', function(hasNext)
     state.has_next = hasNext == 'true'
+    render()
+end)
+
+mp.register_script_message('set-autoplay-next', function(v)
+    state.autoplay = (v == 'true')
     render()
 end)
 

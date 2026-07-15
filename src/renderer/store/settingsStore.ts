@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { CustomIndexer } from '../../main/services/torrent-search.service'
 import type { UsenetIndexerConfig } from '../../main/services/usenet-search.service'
 import { useMediaStore } from './mediaStore'
+import { usePlayerStore } from './playerStore'
 
 export interface UserProfile {
   id: string
@@ -313,6 +314,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           } catch { /* ignore */ }
           set({ traktConnected: false })
         }
+        // Drop the previous profile's cached Trakt data so the homescreen
+        // (Up Next / Continue Watching / progress) reloads for this profile.
+        try { await window.api.trakt.clearCache() } catch {}
+        // Reset profile-specific store data so stale content never flashes
+        useMediaStore.getState().clearTraktData()
+        usePlayerStore.getState().setCurrentEpisode(null)
+        usePlayerStore.getState().setNextEpisode(null)
+        usePlayerStore.getState().setIntroSegment(null)
+        usePlayerStore.getState().setRecapSegment(null)
         // Force homescreen refresh (up next, continue watching, etc)
         useMediaStore.getState().triggerRefresh()
       }

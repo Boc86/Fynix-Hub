@@ -89,7 +89,8 @@ const api = {
       ipcRenderer.invoke('trakt:poll-for-token', deviceCode),
     setTokens: (accessToken: string | null, refreshToken: string | null) =>
       ipcRenderer.invoke('trakt:set-tokens', accessToken, refreshToken),
-    getTokens: () => ipcRenderer.invoke('trakt:get-tokens'),
+      getTokens: () => ipcRenderer.invoke('trakt:get-tokens'),
+      clearCache: () => ipcRenderer.invoke('trakt:clear-cache'),
     getWatchedMovies: () => ipcRenderer.invoke('trakt:get-watched-movies'),
     getWatchedShows: () => ipcRenderer.invoke('trakt:get-watched-shows'),
     scrobble: (action: string, media: object) =>
@@ -211,6 +212,7 @@ const api = {
       showSplash: () => ipcRenderer.invoke('mpv:show-splash'),
       hideSplash: () => ipcRenderer.invoke('mpv:hide-splash'),
       setHasNext: (hasNext: boolean) => ipcRenderer.invoke('mpv:set-has-next', hasNext),
+      setAutoplayNext: (autoplay: boolean) => ipcRenderer.invoke('mpv:set-auto-play-next', autoplay),
       setClearlogo: (text: string) => ipcRenderer.invoke('mpv:set-clearlogo', text),
       clearClearlogo: () => ipcRenderer.invoke('mpv:clear-clearlogo'),
       setPlot: (text: string) => ipcRenderer.invoke('mpv:set-plot', text),

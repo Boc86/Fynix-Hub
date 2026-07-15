@@ -48,6 +48,10 @@ export function getTokens() {
   return { accessToken, refreshToken }
 }
 
+export function clearCache() {
+  CacheService.clearTraktCache()
+}
+
 export function isAuthenticated(): boolean {
   return !!accessToken
 }

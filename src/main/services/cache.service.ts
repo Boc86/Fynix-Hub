@@ -141,6 +141,10 @@ export function clearSportsCache() {
   getDb().prepare("DELETE FROM cache WHERE key LIKE 'sports:%'").run()
 }
 
+export function clearTraktCache() {
+  getDb().prepare("DELETE FROM cache WHERE key LIKE 'trakt:%'").run()
+}
+
 export function closeDb() {
   if (db) {
     db.close()

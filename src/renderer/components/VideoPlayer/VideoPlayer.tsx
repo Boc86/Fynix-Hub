@@ -26,6 +26,8 @@ interface VideoPlayerProps {
   streamError?: string | null
   mediaInfo?: MediaInfo
   playerLoading?: boolean
+  hasNextEpisode?: boolean
+  nextEpisodeTitle?: string
 }
 
 function buildScrobblePayload(tmdbId: number, mediaType: string, progress: number, season?: number, episode?: number) {
@@ -55,12 +57,12 @@ function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number,
   return { movies: [{ ids: { tmdb: tmdbId } }] }
 }
 
-export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, streamUrl, streamError, mediaInfo, playerLoading }: VideoPlayerProps) {
+export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, streamUrl, streamError, mediaInfo, playerLoading, hasNextEpisode, nextEpisodeTitle }: VideoPlayerProps) {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const skipCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrobbleThrottle = useRef(0)
-  const [segments, setSegments] = useState<IntroSegment[]>([])
   const [activeSkip, setActiveSkip] = useState<IntroSegment | null>(null)
+  const [segments, setSegments] = useState<IntroSegment[]>([])
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const currentTimeRef = useRef(0)
@@ -70,9 +72,13 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
   const preferredLanguagesRef = useRef<string[]>([])
   preferredLanguagesRef.current = preferredLanguages
+  const autoPlayNext = useSettingsStore((s) => s.autoPlayNext)
+  const autoPlayNextRef = useRef(false)
+  autoPlayNextRef.current = autoPlayNext
   const isPlayingRef = useRef(false)
   const prevPlayStateRef = useRef(false)
   const startScrobbledRef = useRef(false)
+  const exitedRef = useRef(false)
 
   const saveProgress = useCallback(() => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -165,7 +171,6 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   }, [mediaInfo])
 
   // Backup exit handler — if mpv exits and poll loop hasn't caught it yet
-  const exitedRef = useRef(false)
   useEffect(() => {
     const unsub = window.api.mpv.onExited(() => {
       if (exitedRef.current) return
@@ -231,6 +236,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     startScrobbledRef.current = false
 
     let wasEnded = false
+    let upNextShown = false
     let pollCount = 0
 
     pollIntervalRef.current = setInterval(async () => {
@@ -291,23 +297,54 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         }
         prevPlayStateRef.current = playing
 
-        if (!wasEnded && dur > 0 && pos >= dur - 5 && pos > 0 && mediaInfo) {
+        // Up Next popup — appears ~30s before the end of a TV episode that has a next episode.
+        // Shows on both auto-play and manual playback; the user can confirm or dismiss.
+        const UP_NEXT_LEAD = 30
+        if (
+          !upNextShown &&
+          !wasEnded &&
+          mediaInfo &&
+          mediaInfo.mediaType === 'tv' &&
+          hasNextEpisode &&
+          dur > 0 &&
+          pos > 0 &&
+          dur - pos <= UP_NEXT_LEAD &&
+          pos >= 60
+        ) {
+          upNextShown = true
+          window.api.mpv.setAutoplayNext(autoPlayNextRef.current).catch(() => {})
+          window.api.mpv.setUpNext({
+            title: nextEpisodeTitle || 'Next Episode',
+            subtitle: `S${String(mediaInfo.season ?? 0).padStart(2, '0')}E${String((mediaInfo.episode ?? 0) + 1).padStart(2, '0')}`,
+            countdown: 15,
+          }).catch(() => {})
+          window.api.mpv.setHasNext(true).catch(() => {})
+        }
+
+        // End-of-playback detection. mpv is launched with --keep-open, so it does not
+        // exit on its own at EOF. Detect the end here to auto-close the player (and
+        // auto-advance when autoplay is enabled with a next episode available).
+        if (!wasEnded && !exitedRef.current && dur > 0 && pos > 0 && dur - pos <= 2.5) {
           wasEnded = true
+          exitedRef.current = true
           saveProgress()
-          await scrobble('stop')
-          await markAsWatched()
+          scrobble('stop').catch(() => {})
+          markAsWatched().catch(() => {})
           useMediaStore.getState().triggerRefresh()
-          if (mediaInfo?.isTrailer) {
-            onBack()
-          } else if (mediaInfo?.mediaType === 'tv') {
+          if (mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current) {
             onNextEpisode()
+          } else {
+            onBack()
           }
         }
       } catch (e: any) {
         window.api.log('[VP] poll error:', e?.message || e)
         const running = await window.api.mpv.isRunning().catch(() => false)
         if (!running && !wasEnded && !playerLoading) {
+          // If the exit was already handled by the onExited handler, do nothing
+          if (exitedRef.current) return
           wasEnded = true
+          exitedRef.current = true
           saveProgress()
           scrobble('stop').catch(() => {})
           markAsWatched().catch(() => {})

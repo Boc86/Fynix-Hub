@@ -282,6 +282,10 @@ export async function registerIpcHandlers(): Promise<void> {
     TraktService.setTokens(accessToken, refreshToken)
   })
 
+  handle('trakt:clear-cache', async () => {
+    TraktService.clearCache()
+  })
+
   // Test handler: simulates scrobble for a movie/show with fake progress
   handle('trakt:test-scrobble', async (_event, opts: {
     tmdbId: number; mediaType: 'movie' | 'tv'; progress: number; season?: number; episode?: number
@@ -683,6 +687,10 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('mpv:set-has-next', async (_event, hasNext: boolean) => {
     await MpvService.setHasNext(hasNext)
+  })
+
+  handle('mpv:set-auto-play-next', async (_event, autoplay: boolean) => {
+    await MpvService.setAutoplayNext(autoplay)
   })
 
   handle('mpv:set-clearlogo', async (_event, text: string) => {
