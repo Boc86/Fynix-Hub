@@ -37,6 +37,7 @@ interface MediaState {
   setEpisodeWatched: (data: Map<number, Map<number, Set<number>>>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+  clearTraktData: () => void
   triggerRefresh: () => void
 }
 
@@ -83,5 +84,13 @@ export const useMediaStore = create<MediaState>((set) => ({
   setEpisodeWatched: (data) => set({ episodeWatched: data }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
+  clearTraktData: () => set({
+    continueWatching: [],
+    upNext: [],
+    traktWatched: new Set<number>(),
+    traktPlayback: [],
+    episodeWatched: new Map<number, Map<number, Set<number>>>(),
+    resumeProgress: null,
+  }),
   triggerRefresh: () => set((state) => ({ refreshVersion: state.refreshVersion + 1 })),
 }))

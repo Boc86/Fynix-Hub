@@ -428,6 +428,12 @@ export async function setHasNext(hasNext: boolean): Promise<void> {
   } catch {}
 }
 
+export async function setAutoplayNext(autoplay: boolean): Promise<void> {
+  try {
+    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-autoplay-next', autoplay ? 'true' : 'false'] })
+  } catch {}
+}
+
 export async function setClearlogo(text: string): Promise<void> {
   try {
     await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-clearlogo', text] })
