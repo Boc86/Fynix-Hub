@@ -699,6 +699,11 @@ export default function App() {
           if (s.progress >= 100) {
             clearInterval(poll)
             currentUsenetIdRef.current = null
+            if (streamed) {
+              window.api.log('[App] Already streaming, skipping duplicate mpv.start at 100%')
+              setPlayerLoading(false)
+              return
+            }
             const stream = await window.api.usenet.getStreamUrl(status.id)
             if (stream?.url) {
               const audioLang = getAudioLang()
@@ -1010,6 +1015,30 @@ export default function App() {
     })
 
     const { autoPlayTorrent, maxDownloadSize, torrentSearchEnabled, vylaSearchEnabled, usenetSearchEnabled, usenetEnabled } = useSettingsStore.getState()
+
+    // Check WebDAV cache before any search
+    if (usenetSearchEnabled && usenetEnabled) {
+      const isEpisode = selected.mediaType === 'tv' && episode !== null
+      try {
+        const cacheResults = await window.api.usenet.searchWebdavCache(
+          isEpisode ? `${selected.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : selected.title,
+          { title: selected.title, type: selected.mediaType || 'movie', season: season ?? undefined, episode: episode ?? undefined },
+        )
+        if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
+          window.api.log(`[App] Found in WebDAV cache, playing directly: ${cacheResults[0].name}`)
+          setPlayerLoading(true)
+          setStreamUrl(undefined)
+          setStreamError(null)
+          navigate('player')
+          await window.api.mpv.start(cacheResults[0].streamUrl, resumePosition, accentColor, false, undefined)
+          setPlayerLoading(false)
+          return
+        }
+      } catch (err: any) {
+        window.api.log('[App] WebDAV cache check failed:', err?.message)
+      }
+    }
+
     if (!autoPlayTorrent) {
       window.api.log(`[App] handlePlay manual path, opening modal`)
       const isEpisode = selected.mediaType === 'tv' && episode !== null

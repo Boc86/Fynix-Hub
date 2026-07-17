@@ -424,6 +424,12 @@ img {
   border: 1px solid rgba(100, 100, 255, 0.3);
 }
 
+.product-badge.in-progress {
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
 .product-icon {
   width: 48px;
   height: 48px;

@@ -51,6 +51,10 @@ local state = {
     up_next = nil,
     up_next_countdown = 10,
     up_next_timer = nil,
+
+    key_repeat = 0,
+    key_repeat_time = 0,
+    last_key = '',
 }
 
 local hide_timer = nil
@@ -308,6 +312,24 @@ local function activate()
     show_osd()
 end
 
+local seek_steps = {5, 10, 20, 30, 60, 300, 600, 1200, 1800, 3600}
+
+local function do_seek(key)
+    if key == state.last_key and mp.get_time() - state.key_repeat_time < 0.8 then
+        state.key_repeat = state.key_repeat + 1
+    else
+        state.key_repeat = 1
+    end
+    state.key_repeat_time = mp.get_time()
+    state.last_key = key
+    local amount = seek_steps[math.min(state.key_repeat, #seek_steps)]
+    if key == 'left' then
+        mp.commandv('seek', -amount)
+    else
+        mp.commandv('seek', amount)
+    end
+end
+
 local function on_key(key)
     if state.menu_open then return end
 
@@ -319,9 +341,9 @@ local function on_key(key)
             mp.commandv('cycle', 'pause')
             show_osd()
         elseif key == 'left' then
-            mp.commandv('seek', -10)
+            do_seek('left')
         elseif key == 'right' then
-            mp.commandv('seek', 10)
+            do_seek('right')
         elseif key == 'up' then
             mp.commandv('add', 'volume', 5)
         elseif key == 'down' then
@@ -338,14 +360,14 @@ local function on_key(key)
             show_osd()
         elseif key == 'left' then
             if state.row == 1 then
-                mp.commandv('seek', -10)
+                do_seek('left')
                 show_osd()
             else
                 move_focus(-1)
             end
         elseif key == 'right' then
             if state.row == 1 then
-                mp.commandv('seek', 10)
+                do_seek('right')
                 show_osd()
             else
                 move_focus(1)
