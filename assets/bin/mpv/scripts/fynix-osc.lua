@@ -38,7 +38,6 @@ local state = {
     autoplay = false,
     osd_w = 1920,
     osd_h = 1080,
-    menu_open = false,
 
     splash = false,
     splash_dots = '',
@@ -119,10 +118,6 @@ local function get_buttons()
     return btns
 end
 
-local function get_row_count()
-    return 2
-end
-
 local function get_row_items(row)
     if row == 1 then
         return {{id = 'seek', type = 'seekbar'}}
@@ -142,7 +137,7 @@ end
 
 local function switch_row(dir)
     if dir > 0 then
-        if state.row < get_row_count() then
+        if state.row < 2 then
             state.row = state.row + 1
             state.focus = 1
         end
@@ -331,8 +326,6 @@ local function do_seek(key)
 end
 
 local function on_key(key)
-    if state.menu_open then return end
-
     if not state.visible then
         if key == 'enter' then
             show_osd()
@@ -860,7 +853,7 @@ mp.register_script_message('set-plot', function(text)
     render()
 end)
 
-mp.register_script_message('set-up-next', function(imagePath, title, subtitle, countdown)
+mp.register_script_message('set-up-next', function(_, title, subtitle, countdown)
     state.up_next = {
         title = title or '',
         subtitle = subtitle or '',

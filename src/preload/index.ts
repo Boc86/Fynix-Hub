@@ -20,7 +20,6 @@ const api = {
     },
     writeDebugFile: (data: unknown) => ipcRenderer.invoke('app:write-debug-file', data),
     clearImageCache: () => ipcRenderer.invoke('app:clear-image-cache'),
-    selectFile: (options: any) => ipcRenderer.invoke('app:select-file', options),
   youtube: {
     getStreamUrl: (videoUrl: string): Promise<{ success: boolean; url?: string; fileType?: string; error?: string }> =>
       ipcRenderer.invoke('youtube:get-stream-url', videoUrl),
@@ -47,15 +46,6 @@ const api = {
   app: {
     minimize: () => ipcRenderer.invoke('app:minimize'),
     quit: () => ipcRenderer.invoke('app:quit'),
-  },
-  window: {
-    minimize: () => ipcRenderer.invoke('window:minimize'),
-    maximize: () => ipcRenderer.invoke('window:maximize'),
-    close: () => ipcRenderer.invoke('window:close'),
-    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
-    onMaximizeChange: (callback: (isMaximized: boolean) => void) => {
-      ipcRenderer.on('window:maximize-changed', (_event, isMaximized) => callback(isMaximized))
-    },
   },
   tmdb: {
     getTrending: (type: string, timeWindow: string) =>
@@ -100,14 +90,10 @@ const api = {
     markUnwatched: (media: object) =>
       ipcRenderer.invoke('trakt:mark-unwatched', media),
     getAuthStatus: () => ipcRenderer.invoke('trakt:get-auth-status'),
-    getWatchlist: (type: 'movies' | 'shows') =>
-      ipcRenderer.invoke('trakt:get-watchlist', type),
     getPlayback: () => ipcRenderer.invoke('trakt:get-playback'),
     getPlaybackMovies: () => ipcRenderer.invoke('trakt:get-playback-movies'),
     getPlaybackEpisodes: () => ipcRenderer.invoke('trakt:get-playback-episodes'),
     getWatchedProgress: () => ipcRenderer.invoke('trakt:get-watched-progress'),
-    testScrobble: (opts: { tmdbId: number; mediaType: 'movie' | 'tv'; progress: number; season?: number; episode?: number }) =>
-      ipcRenderer.invoke('trakt:test-scrobble', opts),
   },
   torrent: {
     onRiveResult: (callback: (result: any) => void) => {
@@ -133,7 +119,6 @@ const api = {
   },
   indexerCatalog: {
     get: () => ipcRenderer.invoke('indexer-catalog:get'),
-    shouldRefresh: () => ipcRenderer.invoke('indexer-catalog:should-refresh'),
     refresh: () => ipcRenderer.invoke('indexer-catalog:refresh'),
     getBuiltIns: () => ipcRenderer.invoke('indexer-catalog:built-ins'),
   },
@@ -148,16 +133,8 @@ const api = {
   debrid: {
     getStatus: (service: string) =>
       ipcRenderer.invoke('debrid:get-status', service),
-    getServices: () =>
-      ipcRenderer.invoke('debrid:get-services'),
-    checkAccountStatus: (service: string) =>
-      ipcRenderer.invoke('debrid:check-account-status', service),
     checkAllAccountStatus: () =>
       ipcRenderer.invoke('debrid:check-all-account-status'),
-    getValidServices: () =>
-      ipcRenderer.invoke('debrid:get-valid-services'),
-    getPreferred: () =>
-      ipcRenderer.invoke('debrid:get-preferred'),
     checkCached: (service: string, hash: string) =>
       ipcRenderer.invoke('debrid:check-cached', service, hash),
     checkCachedBatch: (service: string, hashes: string[], magnets?: string[]) =>
@@ -172,12 +149,12 @@ const api = {
       ipcRenderer.invoke('debrid:alldebrid-get-device-pin'),
     alldebridPollForToken: (pin: string, deviceId?: string) =>
       ipcRenderer.invoke('debrid:alldebrid-poll-token', pin, deviceId),
+    getTorboxSettingsUrl: () =>
+      ipcRenderer.invoke('debrid:torbox-settings-url'),
     realDebridGetDeviceCode: () =>
       ipcRenderer.invoke('debrid:real-debrid-device-code'),
     realDebridPollForCredentials: (deviceCode: string) =>
       ipcRenderer.invoke('debrid:real-debrid-poll-credentials', deviceCode),
-    getTorboxSettingsUrl: () =>
-      ipcRenderer.invoke('debrid:torbox-settings-url'),
     torboxGetDeviceCode: () =>
       ipcRenderer.invoke('debrid:torbox-get-device-code'),
     torboxPollForToken: (deviceCode: string) =>
@@ -194,16 +171,12 @@ const api = {
       ipcRenderer.invoke('watch:update-progress', tmdbId, mediaType, progress, season, episode),
     getProgress: (tmdbId: number, mediaType: string, season?: number, episode?: number) =>
       ipcRenderer.invoke('watch:get-progress', tmdbId, mediaType, season, episode),
-    getHistory: () => ipcRenderer.invoke('watch:get-history'),
   },
   mpv: {
-      isAvailable: () => ipcRenderer.invoke('mpv:is-available'),
     addSubtitle: (filePath: string) => ipcRenderer.invoke('mpv:add-subtitle', filePath),
       start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext, audioLanguage, playbackInfo, referer),
       stop: () => ipcRenderer.invoke('mpv:stop'),
       isRunning: () => ipcRenderer.invoke('mpv:is-running'),
-      togglePause: () => ipcRenderer.invoke('mpv:toggle-pause'),
-      seek: (seconds: number) => ipcRenderer.invoke('mpv:seek', seconds),
       getTimePos: () => ipcRenderer.invoke('mpv:get-time-pos'),
       getDuration: () => ipcRenderer.invoke('mpv:get-duration'),
       getPaused: () => ipcRenderer.invoke('mpv:get-paused'),
@@ -231,41 +204,29 @@ const api = {
     },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),
-    isCached: (infoHash: string) => ipcRenderer.invoke('local-cache:is-cached', infoHash),
     status: () => ipcRenderer.invoke('local-cache:status'),
     clear: () => ipcRenderer.invoke('local-cache:clear'),
   },
   openSubtitles: {
     search: (params: any) => ipcRenderer.invoke('opensubtitles:search', params),
-    download: (fileId: number) => ipcRenderer.invoke('opensubtitles:download', fileId),
     downloadAndSave: (fileId: number) => ipcRenderer.invoke('opensubtitles:download-and-save', fileId),
   },
   sports: {
     getLeaguesBySport: (sport: string) => ipcRenderer.invoke('sports:get-leagues-by-sport', sport),
     getSeasons: (leagueId: string) => ipcRenderer.invoke('sports:get-seasons', leagueId),
     getSportsList: () => ipcRenderer.invoke('sports:get-sports-list'),
-    getUpcomingEvents: (leagueId: string, seasonId?: string) => ipcRenderer.invoke('sports:get-upcoming-events', leagueId, seasonId),
-    getPastEvents: (leagueId: string, seasonId?: string) => ipcRenderer.invoke('sports:get-past-events', leagueId, seasonId),
-    getEventDetails: (eventId: string) => ipcRenderer.invoke('sports:get-event-details', eventId),
     getEventsInRange: (leagueId: string, seasonId: string, from: string, to: string) => ipcRenderer.invoke('sports:get-events-in-range', leagueId, seasonId, from, to),
     getTeamDetails: (teamId: string) => ipcRenderer.invoke('sports:get-team-details', teamId),
     searchReplays: (query: string) => ipcRenderer.invoke('replayzone:search', query),
   },
   streamedpk: {
     getMatchesForSports: (sports: string[]) => ipcRenderer.invoke('streamedpk:get-matches-for-sports', sports),
-    getStreams: (source: string, id: string) => ipcRenderer.invoke('streamedpk:get-streams', source, id),
   },
-  rivestream: {
-    search: (opts: { tmdbId: number; type: 'movie' | 'tv'; season?: number; episode?: number }) =>
-      ipcRenderer.invoke('rivestream:search', opts),
-  },
+
   damiTv: {
-    getStreams: () => ipcRenderer.invoke('dami-tv:get-streams'),
     getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),
-    getChannelsByCountry: (countryCode: string) => ipcRenderer.invoke('dami-tv:get-channels-by-country', countryCode),
     getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
     extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => ipcRenderer.invoke('dami-tv:extract-url', ch),
-    proxyImage: (imageUrl: string) => ipcRenderer.invoke('dami-tv:proxy-image', imageUrl),
   },
   epg: {
     getChannels: () => ipcRenderer.invoke('epg:get-channels'),
