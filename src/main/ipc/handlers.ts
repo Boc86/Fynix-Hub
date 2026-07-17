@@ -1,8 +1,8 @@
-import { ipcMain, BrowserWindow, app, dialog, shell } from 'electron'
+import { ipcMain, BrowserWindow, app, shell } from 'electron'
 import { handle } from './handler-wrapper'
 import fs from 'fs'
 import path from 'path'
-import crypto from 'crypto'
+
 import * as TmdbService from '../services/tmdb.service'
 import * as TraktService from '../services/trakt.service'
 import * as WebTorrentService from '../services/webtorrent.service'
@@ -82,13 +82,6 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  handle('app:select-file', async (event, options) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return { canceled: true, filePaths: [] }
-    const result = await dialog.showOpenDialog(win, options || {})
-    return result
-  })
-
   handle('app:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize()
   })
@@ -105,25 +98,6 @@ export async function registerIpcHandlers(): Promise<void> {
   handle('app:open-external', async (_event, url: string) => {
     await shell.openExternal(url)
   })
-  handle('window:minimize', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.minimize()
-  })
-
-  handle('window:maximize', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (win) {
-      win.isMaximized() ? win.unmaximize() : win.maximize()
-    }
-  })
-
-  handle('window:close', (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close()
-  })
-
-  handle('window:is-maximized', (event) => {
-    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
-  })
-
   handle('tmdb:get-trending', async (_event, type, timeWindow) => {
     return TmdbService.getTrending(type, timeWindow)
   })
@@ -245,10 +219,6 @@ export async function registerIpcHandlers(): Promise<void> {
     return { authenticated: TraktService.isAuthenticated() }
   })
 
-  handle('trakt:get-watchlist', async (_event, type) => {
-    return TraktService.getWatchlist(type)
-  })
-
   handle('trakt:get-playback', async () => {
     return TraktService.getPlayback()
   })
@@ -286,26 +256,6 @@ export async function registerIpcHandlers(): Promise<void> {
     TraktService.clearCache()
   })
 
-  // Test handler: simulates scrobble for a movie/show with fake progress
-  handle('trakt:test-scrobble', async (_event, opts: {
-    tmdbId: number; mediaType: 'movie' | 'tv'; progress: number; season?: number; episode?: number
-  }) => {
-    const { tmdbId, mediaType, progress, season, episode } = opts
-    console.log('[Trakt] test-scrobble called with:', JSON.stringify(opts))
-    const payload = TraktService.buildScrobblePayload(tmdbId, mediaType, progress, season, episode)
-    const start = await TraktService.scrobble('start', payload)
-    console.log('[Trakt] test-scrobble start result:', JSON.stringify(start).slice(0, 300))
-    const pause = await TraktService.scrobble('pause', payload)
-    console.log('[Trakt] test-scrobble pause result:', JSON.stringify(pause).slice(0, 300))
-    const stop = await TraktService.scrobble('stop', payload)
-    console.log('[Trakt] test-scrobble stop result:', JSON.stringify(stop).slice(0, 300))
-    return { start, pause, stop }
-  })
-
-
-
-
-
   handle('torrent:search', async (event, query) => {
     console.log('[Handler] torrent:search', JSON.stringify(query).slice(0, 200))
     const providers = query.providers || {}
@@ -340,36 +290,26 @@ export async function registerIpcHandlers(): Promise<void> {
       console.log('[Handler] RAW RESULTS:')
       for (const r of torrentResults.slice(0, 30)) {
         console.log(`  [${r.indexer}] seeds=${r.seeders} leechers=${r.leechers} size=${r.size} title="${r.title.slice(0, 80)}" infoHash=${r.infoHash.slice(0, 16)}`)
-      }
+    }
 
-      // Asynchronously pre-cache metadata for top 15 results (fire-and-forget, don't block response)
-      if (torrentResults.length > 0) {
-        setImmediate(() => {
-          WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(err => {
-            console.error('[Handler] prefetchBatch failed (non-critical):', err?.message || err)
-          })
+    // Asynchronously pre-cache metadata for top 15 results (fire-and-forget, don't block response)
+    if (torrentResults.length > 0) {
+      setImmediate(() => {
+        WebTorrentService.prefetchBatch(torrentResults.slice(0, 15)).catch(err => {
+          console.error('[Handler] prefetchBatch failed (non-critical):', err?.message || err)
         })
-      }
-
-      return {
-        torrents: torrentResults,
-        rive: []
-      }
-    } catch (err: any) {
-      console.error('[Handler] torrent:search failed:', err.message)
-      throw err
+      })
     }
-  })
 
-  handle('rivestream:search', async (_event, { tmdbId, type, season, episode }: { tmdbId: number; type: 'movie' | 'tv'; season?: number; episode?: number }) => {
-    try {
-      const results = await ExtractorService.searchStreams({ tmdbId, type, season, episode })
-      return results
-    } catch (err: any) {
-      console.error('[Handler] rivestream:search failed:', err.message)
-      return []
+    return {
+      torrents: torrentResults,
+      rive: []
     }
-  })
+  } catch (err: any) {
+    console.error('[Handler] torrent:search failed:', err.message)
+    throw err
+  }
+})
 
   handle('torrent:refresh-trackers', async () => {
     try {
@@ -386,10 +326,6 @@ export async function registerIpcHandlers(): Promise<void> {
       catalog: IndexerCatalogService.getStoredCatalog(),
       lastUpdated: IndexerCatalogService.getCatalogLastUpdated(),
     }
-  })
-
-  handle('indexer-catalog:should-refresh', () => {
-    return IndexerCatalogService.shouldRefreshCatalog()
   })
 
   handle('indexer-catalog:refresh', async () => {
@@ -458,14 +394,6 @@ export async function registerIpcHandlers(): Promise<void> {
     return { configured: DebridService.isConfigured(service) }
   })
 
-  handle('debrid:get-services', () => {
-    return DebridService.getServices()
-  })
-
-  handle('debrid:check-account-status', async (_event, service: string) => {
-    return DebridService.checkAccountStatus(service)
-  })
-
   handle('debrid:check-all-account-status', async () => {
     const services = DebridService.getServices()
     const results: Record<string, { valid: boolean; expiry?: string; error?: string }> = {}
@@ -473,14 +401,6 @@ export async function registerIpcHandlers(): Promise<void> {
       results[svc] = await DebridService.checkAccountStatus(svc)
     }))
     return results
-  })
-
-  handle('debrid:get-valid-services', async () => {
-    return DebridService.getValidServices()
-  })
-
-  handle('debrid:get-preferred', () => {
-    return { service: DebridService.getPreferred() }
   })
 
   handle('debrid:check-cached', async (_event, service, hash) => {
@@ -580,10 +500,6 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
-  handle('debrid:torbox-settings-url', async () => {
-    return { url: DebridService.getTorboxSettingsUrl() }
-  })
-
   handle('fanart:get-images', async (_event, tmdbId, type) => {
     return FanartService.getImages(tmdbId, type)
   })
@@ -615,10 +531,6 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('watch:get-progress', (_event, tmdbId, mediaType, season, episode) => {
     return CacheService.getWatchProgress(tmdbId, mediaType, season, episode)
-  })
-
-  handle('watch:get-history', () => {
-    return CacheService.getFullWatchHistory()
   })
 
   handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => {
@@ -655,18 +567,6 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('mpv:add-subtitle', async (_event, filePath: string) => {
     await MpvService.addSubtitle(filePath)
-  })
-
-  handle('mpv:is-available', () => {
-    return MpvService.isAvailable()
-  })
-
-  handle('mpv:toggle-pause', async () => {
-    await MpvService.togglePause()
-  })
-
-  handle('mpv:seek', async (_event, seconds: number) => {
-    await MpvService.seek(seconds)
   })
 
   handle('mpv:show-skip-intro', async (_event, endMs: number) => {
@@ -765,10 +665,6 @@ export async function registerIpcHandlers(): Promise<void> {
     return { url }
   })
 
-  handle('local-cache:is-cached', async (_event, infoHash) => {
-    return LocalCacheService.isCached(infoHash)
-  })
-
   handle('local-cache:status', () => {
     return LocalCacheService.getCacheStatus()
   })
@@ -779,13 +675,6 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('opensubtitles:search', async (_event, params) => {
     return OpenSubtitlesService.searchSubtitles(params)
-  })
-
-  handle('opensubtitles:download', async (_event, fileId) => {
-    const content = await OpenSubtitlesService.downloadSubtitle(fileId)
-    if (!content) return null
-    const vtt = OpenSubtitlesService.srtToVtt(content)
-    return { vtt }
   })
 
   handle('opensubtitles:download-and-save', async (_event, fileId: number) => {
@@ -821,20 +710,8 @@ export async function registerIpcHandlers(): Promise<void> {
     return list
   })
 
-  handle('sports:get-upcoming-events', async (_event, leagueId: string, seasonId?: string) => {
-    return SportsService.getUpcomingEvents(leagueId, seasonId)
-  })
-
-  handle('sports:get-past-events', async (_event, leagueId: string, seasonId?: string) => {
-    return SportsService.getPastEvents(leagueId, seasonId)
-  })
-
   handle('sports:get-events-in-range', async (_event, leagueId: string, seasonId: string, from: string, to: string) => {
     return SportsService.getEventsInRange(leagueId, seasonId, from, to)
-  })
-
-  handle('sports:get-event-details', async (_event, eventId: string) => {
-    return SportsService.getEventDetails(eventId)
   })
 
   handle('sports:get-team-details', async (_event, teamId: string) => {
@@ -851,87 +728,8 @@ export async function registerIpcHandlers(): Promise<void> {
     return StreamedPkService.getMatchesForSports(sports)
   })
 
-  handle('streamedpk:get-streams', async (_event, source: string, id: string) => {
-    return StreamedPkService.getStream(source, id)
-  })
-
-  handle('dami-tv:get-streams', async () => {
-    return DamiTVService.getStreams()
-  })
-
-  handle('dami-tv:proxy-image', async (_event, imageUrl: string) => {
-    console.log(`[ProxyImage] Proxying: "${imageUrl?.slice(0, 200)}"`)
-    if (!imageUrl) { console.log('[ProxyImage] No URL'); return null }
-
-    let url = imageUrl
-    let referer = 'https://cdnlivetv.is/'
-    if (!url.startsWith('http')) {
-      url = `https://cdnlivetv.tv${url.startsWith('/') ? '' : '/'}${url}`
-      const liveTvUser = CacheService.getSetting<string>('liveTvUser') || 'cdnlivetv'
-      const liveTvPlan = CacheService.getSetting<string>('liveTvPlan') || 'free'
-      url = `${url}?user=${encodeURIComponent(liveTvUser)}&plan=${encodeURIComponent(liveTvPlan)}`
-      referer = 'https://cdnlivetv.tv/'
-    } else {
-      // add auth for cdnlivetv.tv hosted images only (api.cdnlivetv.is serves images publicly)
-      if (url.includes('cdnlivetv.tv')) {
-        const liveTvUser = CacheService.getSetting<string>('liveTvUser') || 'cdnlivetv'
-        const liveTvPlan = CacheService.getSetting<string>('liveTvPlan') || 'free'
-        const separator = url.includes('?') ? '&' : '?'
-        url = `${url}${separator}user=${encodeURIComponent(liveTvUser)}&plan=${encodeURIComponent(liveTvPlan)}`
-      }
-      try { const p = new URL(url); referer = `${p.protocol}//${p.host}/` } catch {}
-    }
-
-    // disk cache
-    const IMG_CACHE = path.join(app.getPath('userData'), 'live-tv-images')
-    if (!fs.existsSync(IMG_CACHE)) fs.mkdirSync(IMG_CACHE, { recursive: true })
-    const hash = crypto.createHash('md5').update(url).digest('hex')
-    const cachedPath = path.join(IMG_CACHE, `${hash}.bin`)
-    const metaPath = path.join(IMG_CACHE, `${hash}.json`)
-
-    // check disk cache
-    if (fs.existsSync(cachedPath) && fs.existsSync(metaPath)) {
-      try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
-        const buf = fs.readFileSync(cachedPath)
-        console.log(`[ProxyImage] Cache HIT for ${url.slice(0, 80)} (${buf.length} bytes, ${meta.contentType})`)
-        return `data:${meta.contentType};base64,${buf.toString('base64')}`
-      } catch { /* corrupted cache, re-fetch */ }
-    }
-
-    try {
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': referer,
-        },
-      })
-      console.log(`[ProxyImage] HTTP ${res.status} for ${url.slice(0, 120)}`)
-      if (!res.ok) return null
-      const contentType = res.headers.get('content-type') || 'image/png'
-      const buf = Buffer.from(await res.arrayBuffer())
-
-      // save to disk cache
-      try {
-        fs.writeFileSync(cachedPath, buf)
-        fs.writeFileSync(metaPath, JSON.stringify({ contentType, url, fetched: Date.now() }))
-        console.log(`[ProxyImage] Cached to disk: ${hash}`)
-      } catch (e: any) { console.log(`[ProxyImage] Cache write failed: ${e.message}`) }
-
-      console.log(`[ProxyImage] OK ${buf.length} bytes, type=${contentType}`)
-      return `data:${contentType};base64,${buf.toString('base64')}`
-    } catch (err: any) {
-      console.log(`[ProxyImage] Error: ${err?.message || err}`)
-      return null
-    }
-  })
-
   handle('dami-tv:get-channels', async () => {
     return DamiTVService.getChannels()
-  })
-
-  handle('dami-tv:get-channels-by-country', async (_event, countryCode: string) => {
-    return DamiTVService.getChannelsByCountry(countryCode)
   })
 
   handle('dami-tv:get-available-countries', async () => {

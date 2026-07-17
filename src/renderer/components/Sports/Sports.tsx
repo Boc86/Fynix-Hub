@@ -13,20 +13,6 @@ interface ReplayResult {
   sources: { label: string; type: string; url: string }[]
 }
 
-const SPORT_ICONS: Record<string, string> = {
-  'Soccer': '\u26BD', 'American Football': '\uD83C\uDFC8', 'Basketball': '\uD83C\uDFC0',
-  'Baseball': '\u26BE', 'Ice Hockey': '\uD83C\uDFD2', 'Tennis': '\uD83C\uDFBE',
-  'Golf': '\uD83C\uDFCC\uFE0F', 'Boxing': '\uD83E\uDD4A', 'MMA': '\uD83E\uDD4B',
-  'Rugby': '\uD83C\uDFC9', 'Cricket': '\uD83C\uDFCF', 'Volleyball': '\uD83C\uDFD0',
-  'Handball': '\uD83E\uDD3E', 'Water Sports': '\uD83C\uDFCA', 'Winter Sports': '\u26F7\uFE0F',
-  'Motor Sport': '\uD83C\uDFCE\uFE0F', 'Cycling': '\uD83D\uDEB4', 'Horse Racing': '\uD83C\uDFC7',
-  'Snooker': '\uD83C\uDFB1', 'Darts': '\uD83C\uDFAF', 'Badminton': '\uD83C\uDFF8',
-  'Table Tennis': '\uD83C\uDFD3', 'Field Hockey': '\uD83C\uDFD1', 'Esports': '\uD83C\uDFAE',
-  'Athletics': '\uD83C\uDFC3', 'Swimming': '\uD83C\uDFCA', 'Wrestling': '\uD83E\uDD3C',
-  'Weightlifting': '\uD83C\uDFCB\uFE0F', 'Archery': '\uD83C\uDFF9', 'Fencing': '\uD83E\uDD3A',
-  'Skateboarding': '\uD83D\uDEF9', 'Surfing': '\uD83C\uDFC4',
-}
-
 const SPORT_ICONS_RAW: Record<string, string> = {
   'Soccer': '⚽', 'American Football': '🏈', 'Basketball': '🏀',
   'Baseball': '⚾', 'Ice Hockey': '🏒', 'Tennis': '🎾',

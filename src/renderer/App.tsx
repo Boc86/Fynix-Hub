@@ -962,15 +962,6 @@ export default function App() {
     setPlayerLoading(false)
   }, [navigate, accentColor])
 
-  const handlePlayUrl = useCallback(async (url: string) => {
-    try {
-      await window.api.mpv.start(url, undefined, accentColor, false, undefined)
-    } catch (err: any) {
-      window.api.log('[App] Playback failed:', err.message)
-      setStreamError(err?.message || 'Failed to start playback')
-    }
-  }, [accentColor])
-
   const handlePlayEmbed = useCallback((result: RivestreamResult) => {
     setTorrentSearchOpen(false)
     setFreeSearchOpen(false)

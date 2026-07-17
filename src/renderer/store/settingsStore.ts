@@ -41,7 +41,6 @@ interface SettingsState {
   autoPlayNext: boolean
   autoPlayTorrent: boolean
   maxDownloadSize: number
-  keyboardNavEnabled: boolean
   preferredLanguages: string[]
   preferredResolutions: string[]
   enabledIndexers: string[]
@@ -95,7 +94,6 @@ interface SettingsState {
   setAutoPlayNext: (enabled: boolean) => void
   setAutoPlayTorrent: (enabled: boolean) => void
   setMaxDownloadSize: (size: number) => void
-  setKeyboardNavEnabled: (enabled: boolean) => void
   setPreferredLanguages: (languages: string[]) => void
   setPreferredResolutions: (resolutions: string[]) => void
   setEnabledIndexers: (ids: string[]) => void
@@ -158,7 +156,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   autoPlayNext: true,
   autoPlayTorrent: false,
   maxDownloadSize: 0,
-  keyboardNavEnabled: true,
   preferredLanguages: DEFAULT_LANGUAGES,
   preferredResolutions: DEFAULT_RESOLUTIONS,
   enabledIndexers: DEFAULT_ENABLED_INDEXERS,
@@ -212,7 +209,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setAutoPlayNext: (enabled) => { set({ autoPlayNext: enabled }); get().saveToDisk() },
   setAutoPlayTorrent: (enabled) => { set({ autoPlayTorrent: enabled }); get().saveToDisk() },
   setMaxDownloadSize: (size) => { set({ maxDownloadSize: size }); get().saveToDisk() },
-  setKeyboardNavEnabled: (enabled) => set({ keyboardNavEnabled: enabled }),
   setPreferredLanguages: (languages) => set({ preferredLanguages: languages }),
   setPreferredResolutions: (resolutions) => set({ preferredResolutions: resolutions }),
   setEnabledIndexers: (ids) => { set({ enabledIndexers: ids }); get().saveToDisk() },
@@ -431,7 +427,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('autoPlayTorrent', state.autoPlayTorrent),
         window.api.settings.set('maxDownloadSize', state.maxDownloadSize),
         window.api.settings.set('maxTorrentSize', state.maxDownloadSize),
-        window.api.settings.set('keyboardNavEnabled', state.keyboardNavEnabled),
         window.api.settings.set('preferredLanguages', state.preferredLanguages),
         window.api.settings.set('preferredResolutions', state.preferredResolutions),
         window.api.settings.set('enabledIndexers', state.enabledIndexers),

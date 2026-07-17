@@ -24,14 +24,6 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(0)} KB`
 }
 
-function qualityLabel(q: string): string {
-  if (q === '4K') return '4K'
-  if (q === '1080p') return '1080p'
-  if (q === '720p') return '720p'
-  if (q === '480p') return '480p'
-  return q
-}
-
 function qualityFromTitle(title: string): string {
   const lower = title.toLowerCase()
   if (lower.includes('2160p') || lower.includes('4k')) return '4K'
@@ -287,7 +279,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
                   >
                     <div className={styles.resultTitle}>{r.title}</div>
                     <div className={styles.resultMeta}>
-                      <span className={`${styles.badge} ${styles.quality}`}>{qualityLabel(r.quality)}</span>
+                      <span className={`${styles.badge} ${styles.quality}`}>{r.quality}</span>
                       <span className={`${styles.badge} ${styles.indexer}`}>{r.indexer}</span>
                       <span className={styles.size}>{formatSize(r.size)}</span>
                       <span className={styles.seeders}>S: {r.seeders}</span>
