@@ -24,6 +24,21 @@ function getCrewByJob(crew: CrewMember[], jobs: string[]): CrewMember[] {
   return crew.filter((c) => jobs.includes(c.job));
 }
 
+function getClassification(media: any): string | null {
+  if (media.releaseDates?.results) {
+    const us = media.releaseDates.results.find((r: any) => r.iso31661 === 'US')
+    if (us?.releaseDates?.length) {
+      const c = us.releaseDates.find((d: any) => d.certification)
+      if (c?.certification) return c.certification
+    }
+  }
+  if (media.contentRatings?.results) {
+    const us = media.contentRatings.results.find((r: any) => r.iso31661 === 'US')
+    if (us?.rating) return us.rating
+  }
+  return null
+}
+
 export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMenu }: DetailViewProps) {
   const {
     selectedMedia,
@@ -467,6 +482,9 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
 
     <div className={styles.meta}>
     <span className={styles.rating}>{selectedMedia.voteAverage.toFixed(1)} ({selectedMedia.voteCount?.toLocaleString()} votes)</span>
+    {getClassification(selectedMedia) && (
+      <span className={styles.classification}>{getClassification(selectedMedia)}</span>
+    )}
     <span>{selectedMedia.releaseDate?.slice(0, 4)}</span>
     {'runtime' in selectedMedia && selectedMedia.runtime > 0 && (
       <span>{formatRuntime(selectedMedia.runtime)}</span>
