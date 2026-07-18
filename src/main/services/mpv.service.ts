@@ -178,9 +178,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--gpu-api=opengl',
     '--cache=yes',
     '--cache-pause-initial=yes',
-    '--cache-secs=60',
-    '--network-timeout=30',
-    '--demuxer-readahead-secs=30',
+    '--demuxer-readahead-secs=15',
     '--demuxer-max-bytes=200MiB',
     '--demuxer-max-back-bytes=50MiB',
     '--ytdl=no',
@@ -197,6 +195,15 @@ export async function startPlayback(url: string, resumePosition?: number, accent
 
     if (!isLocalCache) {
       mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+    }
+
+    // Network timeout + larger network cache apply only to real remote streams.
+    // Local 127.0.0.1 / file:// streams (torrent + usenet cache) must NOT get a
+    // network timeout — their server stalls while buffering and mpv would abort,
+    // leaving --keep-open frozen on the first frame ("plays the same file").
+    if (!isLocalCache && !isOkCdn && !isVk) {
+      mpvArgs.push('--network-timeout=30')
+      mpvArgs.push('--cache-secs=60')
     }
 
     if (isOkCdn) {
