@@ -82,7 +82,6 @@ export async function getDetails(type: 'movie' | 'tv', id: number) {
   mapped.title = mapped.title || mapped.name || ''
   mapped.releaseDate = mapped.releaseDate || mapped.firstAirDate || ''
   mapped.mediaType = type
-  console.log('[tmdb] getDetails', { type, id, append, hasReleaseDates: 'release_dates' in data, hasReleaseDatesMapped: 'releaseDates' in mapped, dataKeys: Object.keys(data).filter(k => k.includes('release') || k.includes('content')), mappedKeys: Object.keys(mapped).filter(k => k.includes('release') || k.includes('content')), releaseDatesVal: mapped.releaseDates ? 'present (' + JSON.stringify(mapped.releaseDates).slice(0, 100) + ')' : 'absent', contentRatingsVal: mapped.contentRatings ? 'present (' + JSON.stringify(mapped.contentRatings).slice(0, 100) + ')' : 'absent' })
   return mapped
 }
 

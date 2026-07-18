@@ -26,14 +26,14 @@ function getCrewByJob(crew: CrewMember[], jobs: string[]): CrewMember[] {
 
 function getClassification(media: any): string | null {
   if (media.releaseDates?.results) {
-    const us = media.releaseDates.results.find((r: any) => r.iso31661 === 'US')
+    const us = media.releaseDates.results.find((r: any) => r.iso_3166_1 === 'US')
     if (us?.releaseDates?.length) {
       const c = us.releaseDates.find((d: any) => d.certification)
       if (c?.certification) return c.certification
     }
   }
   if (media.contentRatings?.results) {
-    const us = media.contentRatings.results.find((r: any) => r.iso31661 === 'US')
+    const us = media.contentRatings.results.find((r: any) => r.iso_3166_1 === 'US')
     if (us?.rating) return us.rating
   }
   return null
@@ -54,8 +54,6 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     traktWatched,
     traktPlayback,
   } = useMediaStore();
-
-  console.log('[DetailView] render', { title: selectedMedia?.title, releaseDate: selectedMedia?.releaseDate, releaseDates: selectedMedia && 'releaseDates' in selectedMedia ? (selectedMedia as any).releaseDates : null, contentRatings: selectedMedia && 'contentRatings' in selectedMedia ? (selectedMedia as any).contentRatings : null })
 
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [clearlogo, setClearlogo] = useState<string | null>(null);
