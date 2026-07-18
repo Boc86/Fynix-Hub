@@ -29,6 +29,7 @@ const api = {
       ipcRenderer.on('youtube:focus-back', callback)
       return () => { ipcRenderer.removeListener('youtube:focus-back', callback) }
     },
+    signOut: () => ipcRenderer.invoke('youtube:sign-out'),
   },
   embed: {
     show: (url: string) => ipcRenderer.send('embed:show', url),

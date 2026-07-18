@@ -55,6 +55,7 @@ interface SettingsState {
   liveTvUser: string
   liveTvPlan: string
   preferredAudioLanguage: string
+  classificationCountry: string
   accentColor: string
   remoteMapping: Record<string, string>
   sportsEnabled: boolean
@@ -108,6 +109,7 @@ interface SettingsState {
   setLiveTvUser: (user: string) => void
   setLiveTvPlan: (plan: string) => void
   setPreferredAudioLanguage: (lang: string) => void
+  setClassificationCountry: (country: string) => void
   setAccentColor: (color: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
   setSportsEnabled: (enabled: boolean) => void
@@ -170,6 +172,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   liveTvUser: 'cdnlivetv',
   liveTvPlan: 'free',
   preferredAudioLanguage: '',
+  classificationCountry: 'US',
   accentColor: '#FF6B00',
   remoteMapping: {} as Record<string, string>,
   sportsEnabled: false,
@@ -223,6 +226,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setLiveTvUser: (user) => { set({ liveTvUser: user }); get().saveToDisk() },
   setLiveTvPlan: (plan) => { set({ liveTvPlan: plan }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
+  setClassificationCountry: (country) => { set({ classificationCountry: country }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
@@ -441,6 +445,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('liveTvUser', state.liveTvUser),
         window.api.settings.set('liveTvPlan', state.liveTvPlan),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
+        window.api.settings.set('classificationCountry', state.classificationCountry),
         window.api.settings.set('accentColor', state.accentColor),
         window.api.settings.set('remoteMapping', state.remoteMapping),
 

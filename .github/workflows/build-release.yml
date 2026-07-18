@@ -43,10 +43,14 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          OLD_VERSION=$(node -p "require('./package.json').version")
-          git tag -d "v$OLD_VERSION" 2>/dev/null || true
-          npm version patch -m "chore: bump version to %s [skip ci]"
-          echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+          CURRENT=$(node -p "require('./package.json').version")
+          if git ls-remote --tags origin "v$CURRENT" | grep -q .; then
+            npm version patch -m "chore: bump version to %s [skip ci]"
+            echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+          else
+            echo "Tag v$CURRENT not found upstream — keeping current version"
+            echo "NEW_VERSION=$CURRENT" >> $GITHUB_ENV
+          fi
 
       - name: Build Linux packages (deb, rpm, zip)
         run: npm run make
@@ -63,6 +67,28 @@ jobs:
           fi
           export LD_LIBRARY_PATH="/tmp/squashfs-root/usr/lib:${LD_LIBRARY_PATH:-}"
           bash scripts/make-appimage.sh "$PACKAGE_DIR"
+
+      - name: Generate latest-linux.yml
+        run: |
+          APPIMAGE="out/Fynix_Hub-${NEW_VERSION}-x86_64.AppImage"
+          if [ -f "$APPIMAGE" ]; then
+            SIZE=$(stat -c%s "$APPIMAGE")
+            SHA512=$(sha512sum "$APPIMAGE" | cut -d' ' -f1 | xxd -r -p | base64 -w0)
+            DATE=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+            cat > out/latest-linux.yml <<EOF
+            version: ${NEW_VERSION}
+            files:
+              - url: Fynix_Hub-${NEW_VERSION}-x86_64.AppImage
+                sha512: ${SHA512}
+                size: ${SIZE}
+            path: Fynix_Hub-${NEW_VERSION}-x86_64.AppImage
+            sha512: ${SHA512}
+            releaseDate: ${DATE}
+            EOF
+            echo "Generated latest-linux.yml for v${NEW_VERSION}"
+          else
+            echo "AppImage not found at $APPIMAGE, skipping latest-linux.yml"
+          fi
 
       - name: Push version bump commit and tag
         run: |
@@ -85,6 +111,7 @@ jobs:
           files: |
             out/make/**/*
             out/*.AppImage
+            out/latest-linux.yml
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,6 +3,8 @@ import { handle } from './handler-wrapper'
 import fs from 'fs'
 import path from 'path'
 
+const TMDB_CACHE_VERSION = 2 // bump when TMDB append_to_response fields change
+
 import * as TmdbService from '../services/tmdb.service'
 import * as TraktService from '../services/trakt.service'
 import * as WebTorrentService from '../services/webtorrent.service'
@@ -107,7 +109,7 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('tmdb:get-details', async (_event, type, id) => {
-    const cacheKey = `tmdb:details:${type}:${id}`
+    const cacheKey = `tmdb:details:${TMDB_CACHE_VERSION}:${type}:${id}`
     const cached = CacheService.getCache(cacheKey)
     if (cached) {
       const data = JSON.parse(cached)

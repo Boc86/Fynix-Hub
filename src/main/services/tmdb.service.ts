@@ -74,7 +74,10 @@ export async function getTopRated(type: 'movie' | 'tv', page: number = 1) {
 }
 
 export async function getDetails(type: 'movie' | 'tv', id: number) {
-  const data = await fetchTmdb(`/${type}/${id}`, { append_to_response: 'credits,videos,images' })
+  const append = type === 'movie'
+    ? 'credits,videos,images,release_dates'
+    : 'credits,videos,images,content_ratings'
+  const data = await fetchTmdb(`/${type}/${id}`, { append_to_response: append })
   const mapped = mapKeys(data)
   mapped.title = mapped.title || mapped.name || ''
   mapped.releaseDate = mapped.releaseDate || mapped.firstAirDate || ''

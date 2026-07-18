@@ -270,6 +270,10 @@ async function extractHlsUrlFromPlayerPage(playerUrl: string): Promise<string | 
   })
   const html = await res.text()
 
+  // ponytail: regex fallback for direct .m3u8 URLs before trying JS obfuscation
+  const m3u8Match = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/)
+  if (m3u8Match) return m3u8Match[0]
+
   const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/)
   if (!scriptMatch) return null
 
@@ -319,8 +323,8 @@ export async function extractChannelUrl(ch: { id: string; name: string; countryC
       return { hlsUrl }
     }
 
-    console.warn(`[LiveTV] Could not extract HLS URL for ${channelName}, falling back to raw URL`)
-    return { hlsUrl: pageUrl }
+    console.warn(`[LiveTV] Could not extract HLS URL for ${channelName}`)
+    return {}
   } catch (err) {
     console.warn(`[LiveTV] extractChannelUrl failed for ${ch.id || ch.name}:`, err)
     return {}
