@@ -22,6 +22,7 @@ interface VideoPlayerProps {
   onBack: () => void
   onNextEpisode: () => void
   onStreamError?: () => void
+  onRetryStream?: () => void
   streamUrl?: string
   streamError?: string | null
   mediaInfo?: MediaInfo
@@ -57,7 +58,7 @@ function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number,
   return { movies: [{ ids: { tmdb: tmdbId } }] }
 }
 
-export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, streamUrl, streamError, mediaInfo, playerLoading, hasNextEpisode, nextEpisodeTitle }: VideoPlayerProps) {
+export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRetryStream, streamUrl, streamError, mediaInfo, playerLoading, hasNextEpisode, nextEpisodeTitle }: VideoPlayerProps) {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const skipCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrobbleThrottle = useRef(0)
@@ -79,23 +80,33 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   const prevPlayStateRef = useRef(false)
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
+  const retryCountRef = useRef(0)
 
   const saveProgress = useCallback(() => {
     if (!mediaInfo || mediaInfo.isTrailer) return
     const t = currentTimeRef.current
-    const d = durationRef.current
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
     if (!isFinite(d) || d <= 0 || !isFinite(t)) return
     const progress = Math.min(Math.max(t / d, 0), 1)
-    if (isFinite(progress) && progress > 0) {
-      window.api.watch.updateProgress(
+    // Resume hygiene (Kodi-style): a trivially-small or essentially-finished
+    // position is not a useful resume point — clear it instead of saving.
+    if (progress < 0.02 || progress >= 0.98) {
+      window.api.watch.deleteProgress(
         mediaInfo.tmdbId,
         mediaInfo.mediaType,
-        progress,
         mediaInfo.season,
         mediaInfo.episode,
       )
+      return
     }
-  }, [mediaInfo])
+    window.api.watch.updateProgress(
+      mediaInfo.tmdbId,
+      mediaInfo.mediaType,
+      progress,
+      mediaInfo.season,
+      mediaInfo.episode,
+    )
+  }, [mediaInfo, fallbackDuration])
 
   const splashHiddenRef = useRef(false)
   const [showSubNotFound, setShowSubNotFound] = useState(false)
@@ -104,7 +115,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
 
   const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    const d = durationRef.current
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
     if (!isFinite(d) || d <= 0) return
     const progress = Math.min(Math.max(currentTimeRef.current / d, 0), 1)
     if (!isFinite(progress)) return
@@ -122,10 +133,17 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     } catch (e: any) {
       window.api.log(`[Trakt] scrobble ${action} failed: ${e?.message || e}`)
     }
-  }, [mediaInfo])
+  }, [mediaInfo, fallbackDuration])
 
   const markAsWatched = useCallback(async () => {
     if (!mediaInfo || mediaInfo.isTrailer) return
+    // Watched gating (Kodi-style): only mark watched when genuinely finished —
+    // >=90% watched, or stopped within the final 8% (treated as completed).
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
+    const t = currentTimeRef.current
+    let progress = 0
+    if (isFinite(d) && d > 0 && isFinite(t)) progress = Math.min(Math.max(t / d, 0), 1)
+    if (progress < 0.90 && progress < 0.92) return
     try {
       const payload = buildHistoryPayload(
         mediaInfo.tmdbId, mediaInfo.mediaType,
@@ -136,7 +154,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     } catch (e: any) {
       window.api.log(`[Trakt] markWatched failed: ${e?.message || e}`)
     }
-  }, [mediaInfo])
+  }, [mediaInfo, fallbackDuration])
 
   const handleSearchSubs = useCallback(async () => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -227,6 +245,22 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     fetchSegments()
     return () => { cancelled = true }
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
+
+  // Finalize playback: persist progress, stop scrobble, mark watched, refresh.
+  const finishPlayback = useCallback((goNext: boolean) => {
+    saveProgress()
+    scrobble('stop').catch(() => {})
+    markAsWatched().catch(() => {})
+    useMediaStore.getState().triggerRefresh()
+    if (goNext) onNextEpisode()
+    else onBack()
+  }, [saveProgress, scrobble, markAsWatched, onNextEpisode, onBack])
+
+  // A live/sports stream has a streamUrl but no tmdbId. VOD/torrent have a
+  // tmdbId, so auto-replaying them from the start on a crash is undesirable.
+  const isReconnectableStream = useCallback(() => {
+    return !!streamUrl && !mediaInfo?.tmdbId
+  }, [streamUrl, mediaInfo])
 
   // Poll mpv for time/duration/paused state + scrobble + exit detection
   useEffect(() => {
@@ -343,15 +377,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         if (!wasEnded && !exitedRef.current && dur > 0 && pos > 0 && dur - pos <= 2.5) {
           wasEnded = true
           exitedRef.current = true
-          saveProgress()
-          scrobble('stop').catch(() => {})
-          markAsWatched().catch(() => {})
-          useMediaStore.getState().triggerRefresh()
-          if (mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current) {
-            onNextEpisode()
-          } else {
-            onBack()
-          }
+          finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
         }
       } catch (e: any) {
         window.api.log('[VP] poll error:', e?.message || e)
@@ -361,15 +387,20 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           if (exitedRef.current) return
           wasEnded = true
           exitedRef.current = true
-          saveProgress()
-          scrobble('stop').catch(() => {})
-          markAsWatched().catch(() => {})
-          useMediaStore.getState().triggerRefresh()
           const code = await window.api.mpv.getLastExitCode().catch(() => null)
           if (code === 42) {
-            onNextEpisode()
+            finishPlayback(true)
+          } else if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
+            // Kodi-style live reconnect: dead stream → re-open same URL at the
+            // new live edge once, instead of bailing back to the app.
+            retryCountRef.current++
+            window.api.log(`[VP] stream died, auto-reconnect attempt ${retryCountRef.current}`)
+            exitedRef.current = false
+            wasEnded = false
+            failCount = 0
+            onRetryStream()
           } else {
-            onBack()
+            finishPlayback(false)
           }
         } else if (running && !wasEnded && !playerLoading) {
           // mpv is alive but unresponsive (frozen). After enough consecutive
@@ -379,12 +410,17 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           if (failCount >= 6) {
             wasEnded = true
             exitedRef.current = true
-            saveProgress()
-            scrobble('stop').catch(() => {})
-            markAsWatched().catch(() => {})
-            useMediaStore.getState().triggerRefresh()
             await window.api.mpv.stop().catch(() => {})
-            onBack()
+            if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
+              retryCountRef.current++
+              window.api.log(`[VP] stream frozen, auto-reconnect attempt ${retryCountRef.current}`)
+              exitedRef.current = false
+              wasEnded = false
+              failCount = 0
+              onRetryStream()
+            } else {
+              finishPlayback(false)
+            }
           }
         }
       }
@@ -393,7 +429,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [playerLoading, mediaInfo, scrobble, saveProgress, markAsWatched, onBack, onNextEpisode])
+  }, [playerLoading, mediaInfo, scrobble, saveProgress, markAsWatched, onBack, onNextEpisode, finishPlayback, isReconnectableStream, onRetryStream])
 
   // Skip-intro detection — sends skip-intro to mpv Lua script
   useEffect(() => {

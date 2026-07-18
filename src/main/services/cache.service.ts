@@ -126,6 +126,12 @@ export function getWatchProgress(tmdbId: number, mediaType: string, season?: num
   return row?.progress ?? null
 }
 
+export function deleteWatchProgress(tmdbId: number, mediaType: string, season?: number, episode?: number) {
+  getDb().prepare(
+    'DELETE FROM watch_history WHERE tmdb_id = ? AND media_type = ? AND season IS ? AND episode IS ?'
+  ).run(tmdbId, mediaType, season ?? null, episode ?? null)
+}
+
 export function getFullWatchHistory() {
   const rows = getDb().prepare(
     'SELECT tmdb_id, media_type, season, episode, progress, watched_at FROM watch_history ORDER BY watched_at DESC'

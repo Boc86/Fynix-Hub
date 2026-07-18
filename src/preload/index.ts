@@ -172,6 +172,8 @@ const api = {
       ipcRenderer.invoke('watch:update-progress', tmdbId, mediaType, progress, season, episode),
     getProgress: (tmdbId: number, mediaType: string, season?: number, episode?: number) =>
       ipcRenderer.invoke('watch:get-progress', tmdbId, mediaType, season, episode),
+    deleteProgress: (tmdbId: number, mediaType: string, season?: number, episode?: number) =>
+      ipcRenderer.invoke('watch:delete-progress', tmdbId, mediaType, season, episode),
   },
   mpv: {
     addSubtitle: (filePath: string) => ipcRenderer.invoke('mpv:add-subtitle', filePath),

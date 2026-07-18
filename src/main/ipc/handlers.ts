@@ -535,6 +535,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return CacheService.getWatchProgress(tmdbId, mediaType, season, episode)
   })
 
+  handle('watch:delete-progress', (_event, tmdbId, mediaType, season, episode) => {
+    CacheService.deleteWatchProgress(tmdbId, mediaType, season, episode)
+  })
+
   handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => {
     try {
       await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage, playbackInfo, referer)
