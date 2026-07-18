@@ -55,6 +55,8 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     traktPlayback,
   } = useMediaStore();
 
+  console.log('[DetailView] render', { title: selectedMedia?.title, releaseDate: selectedMedia?.releaseDate, releaseDates: selectedMedia && 'releaseDates' in selectedMedia ? (selectedMedia as any).releaseDates : null, contentRatings: selectedMedia && 'contentRatings' in selectedMedia ? (selectedMedia as any).contentRatings : null })
+
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [clearlogo, setClearlogo] = useState<string | null>(null);
   const [similar, setSimilar] = useState<MediaItem[]>([]);
@@ -485,7 +487,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     {getClassification(selectedMedia) && (
       <span className={styles.classification}>{getClassification(selectedMedia)}</span>
     )}
-    <span>{selectedMedia.releaseDate?.slice(0, 4)}</span>
+    <span>{selectedMedia.releaseDate}</span>
     {'runtime' in selectedMedia && selectedMedia.runtime > 0 && (
       <span>{formatRuntime(selectedMedia.runtime)}</span>
     )}

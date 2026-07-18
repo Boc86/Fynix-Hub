@@ -401,8 +401,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         if (item) {
           try {
             const detail = await window.api.tmdb.getDetails(item.mediaType, item.id)
+            console.log('[Browser] getDetails OK', { type: item.mediaType, id: item.id, title: detail?.title, releaseDate: detail?.releaseDate, hasRD: 'releaseDates' in (detail || {}), hasCR: 'contentRatings' in (detail || {}) })
             useMediaStore.getState().setSelectedMedia(detail)
-          } catch {
+          } catch (e) {
+            console.log('[Browser] getDetails FAIL', item.mediaType, item.id, item.title, e)
             useMediaStore.getState().setSelectedMedia(item as any)
           }
           const upNextMatch = upNext.find(u => u.item.id === item.id)
