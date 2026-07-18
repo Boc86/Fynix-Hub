@@ -152,7 +152,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     if (!store.loading && containerRef.current) {
       containerRef.current.focus()
     }
-  }, [store.loading, store.view])
+  }, [store.loading, store.view, showSchedule])
 
 
 
@@ -235,56 +235,40 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       const todayMsEnd = todayEnd.getTime()
 
       // Map local sport selections to Streamed.pk category IDs
+      const CATEGORY_MAP: [string[], string][] = [
+        [['football', 'soccer'], 'soccer'],
+        [['american football'], 'nfl'],
+        [['basketball', 'nba'], 'basketball'],
+        [['ice hockey', 'hockey', 'nhl'], 'hockey'],
+        [['baseball', 'mlb'], 'baseball'],
+        [['tennis'], 'tennis'],
+        [['boxing', 'mma', 'ufc', 'wwe'], 'ufc'],
+        [['motor sport', 'motorsport', 'formula 1', 'f1', 'nascar', 'moto gp', 'motogp'], 'motorsport'],
+        [['rugby'], 'rugby'],
+        [['golf'], 'golf'],
+        [['cricket'], 'cricket'],
+        [['darts'], 'darts'],
+        [['snooker', 'billiards'], 'snooker'],
+        [['cycling'], 'cycling'],
+        [['volleyball'], 'volleyball'],
+        [['badminton'], 'badminton'],
+        [['handball'], 'handball'],
+        [['futsal'], 'futsal'],
+        [['horse racing'], 'horse racing'],
+        [['winter sports'], 'winter sports'],
+        [['ncaa', 'college'], 'ncaa'],
+      ]
       const selectedCategories = new Set<string>()
+      const add = (n: string) => { if (n) selectedCategories.add(n.toLowerCase()) }
       store.sportsList.filter((s: any) => selectedSports.length === 0 || selectedSports.includes(s.id)).forEach((sport: any) => {
-        const names = new Set<string>()
-        const add = (n: string) => { if (n) names.add(n.toLowerCase()) }
-        add(sport.slug); add(sport.name)
         const lower = (sport.slug || sport.name || '').toLowerCase()
-        switch (lower) {
-          case 'football': case 'soccer':
-            add('soccer')
-            break
-          case 'american football':
-            add('nfl')
-            break
-          case 'basketball':
-            add('basketball'); add('nba')
-            break
-          case 'ice hockey':
-            add('hockey'); add('nhl')
-            break
-          case 'baseball':
-            add('baseball'); add('mlb')
-            break
-          case 'tennis':
-            add('tennis')
-            break
-          case 'boxing': case 'mma':
-            add('ufc'); add('mma'); add('wwe')
-            break
-          case 'motor sport': case 'motorsport':
-            add('motorsport')
-            break
-          case 'rugby':
-            add('rugby')
-            break
-          case 'golf':
-            add('golf')
-            break
-          case 'cricket':
-            add('cricket')
-            break
-          case 'darts':
-            add('darts')
-            break
-          case 'snooker': case 'billiards':
-            add('darts')
-            break
-          default:
-            if (lower.includes('rugby')) add('rugby')
+        let matched = false
+        for (const [aliases, category] of CATEGORY_MAP) {
+          if (aliases.some(a => lower === a || lower.includes(a))) {
+            add(category); matched = true
+          }
         }
-        names.forEach(n => selectedCategories.add(n))
+        if (!matched) add(sport.slug || sport.name)
       })
 
       if (selectedCategories.size === 0) {
@@ -428,12 +412,22 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         }
         if (scheduleMatches.length > 0) {
           const scheduleCols = getGridCols()
-          const scheduleMax = paginatedScheduleMatches.length - 1
+          const scheduleHasPagination = scheduleMatches.length > 24
+          const schedulePagEnd = scheduleHasPagination ? paginatedScheduleMatches.length + 1 : paginatedScheduleMatches.length - 1
+          const scheduleMax = scheduleHasPagination ? schedulePagEnd : paginatedScheduleMatches.length - 1
           if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + scheduleCols, scheduleMax)) }
           else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - scheduleCols, 0)) }
           else if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, scheduleMax)) }
           else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
-          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); loadScheduleStreams(paginatedScheduleMatches[focusedIndex]) }
+          else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); e.stopPropagation()
+            if (scheduleHasPagination && focusedIndex >= paginatedScheduleMatches.length) {
+              if (focusedIndex === paginatedScheduleMatches.length && schedulePage > 1) setSchedulePage(p => Math.max(1, p - 1))
+              else if (focusedIndex === paginatedScheduleMatches.length + 1 && schedulePage < scheduleTotalPages) setSchedulePage(p => Math.min(scheduleTotalPages, p + 1))
+            } else {
+              loadScheduleStreams(paginatedScheduleMatches[focusedIndex])
+            }
+          }
           else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); goBack() }
           return
         }
@@ -504,7 +498,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
   const formatTime = (dateStr: string) => {
     if (!dateStr) return ''
-    try { return new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) } catch { return '' }
+    const tz = settingsStore.sportsTimezone || 'GMT'
+    try { return new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: tz }) } catch { return '' }
   }
 
   const getStatus = (date: number) => {
@@ -516,7 +511,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   }
 
   const formatTimeGMT = (ts: number) => {
-    try { return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: 'GMT' }) } catch { return '' }
+    const tz = settingsStore.sportsTimezone || 'GMT'
+    try { return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: tz }) } catch { return '' }
   }
 
   const isFocused = (index: number, focusedIndex: number) => index === focusedIndex
@@ -650,26 +646,26 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           </div>
           {scheduleMatches.length > 24 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <button tabIndex={0}
+              <button tabIndex={0} data-focus-index={paginatedScheduleMatches.length}
                 disabled={schedulePage <= 1}
                 onClick={() => setSchedulePage(p => Math.max(1, p - 1))}
                 style={{
-                  padding: '6px 14px', borderRadius: 6, border: '2px solid transparent',
+                  padding: '6px 14px', borderRadius: 6, border: focusedIndex === paginatedScheduleMatches.length ? '2px solid var(--accent)' : '2px solid transparent',
                   cursor: schedulePage <= 1 ? 'default' : 'pointer',
-                  background: schedulePage <= 1 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
-                  color: schedulePage <= 1 ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                  background: schedulePage <= 1 ? 'rgba(255,255,255,0.05)' : (focusedIndex === paginatedScheduleMatches.length ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.1)'),
+                  color: schedulePage <= 1 ? 'rgba(255,255,255,0.3)' : (focusedIndex === paginatedScheduleMatches.length ? '#fff' : 'rgba(255,255,255,0.7)'),
                   fontSize: 13, fontWeight: 600,
                 }}
               >Prev</button>
               <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', padding: '0 8px' }}>{schedulePage} / {scheduleTotalPages}</span>
-              <button tabIndex={0}
+              <button tabIndex={0} data-focus-index={paginatedScheduleMatches.length + 1}
                 disabled={schedulePage >= scheduleTotalPages}
                 onClick={() => setSchedulePage(p => Math.min(scheduleTotalPages, p + 1))}
                 style={{
-                  padding: '6px 14px', borderRadius: 6, border: '2px solid transparent',
+                  padding: '6px 14px', borderRadius: 6, border: focusedIndex === paginatedScheduleMatches.length + 1 ? '2px solid var(--accent)' : '2px solid transparent',
                   cursor: schedulePage >= scheduleTotalPages ? 'default' : 'pointer',
-                  background: schedulePage >= scheduleTotalPages ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)',
-                  color: schedulePage >= scheduleTotalPages ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+                  background: schedulePage >= scheduleTotalPages ? 'rgba(255,255,255,0.05)' : (focusedIndex === paginatedScheduleMatches.length + 1 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.1)'),
+                  color: schedulePage >= scheduleTotalPages ? 'rgba(255,255,255,0.3)' : (focusedIndex === paginatedScheduleMatches.length + 1 ? '#fff' : 'rgba(255,255,255,0.7)'),
                   fontSize: 13, fontWeight: 600,
                 }}
               >Next</button>

@@ -1622,7 +1622,41 @@ export default function Settings({ onClose }: SettingsProps) {
               </div>
             </div>
 
-            {store.sportsEnabled && (
+            {store.sportsEnabled && (<div><div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Timezone</h3>
+                <p className={styles.settingDesc}>Display times in your local timezone. The schedule uses this to show kickoff times.</p>
+                <select
+                  tabIndex={0}
+                  value={store.sportsTimezone || 'GMT'}
+                  onChange={(e) => store.setSportsTimezone(e.target.value)}
+                  style={{
+                    padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+                    background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 13, width: 240,
+                    cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  <option value="GMT">GMT (London)</option>
+                  <option value="Europe/London">Europe/London (BST)</option>
+                  <option value="Europe/Paris">Europe/Paris (CET)</option>
+                  <option value="Europe/Berlin">Europe/Berlin (CET)</option>
+                  <option value="Europe/Athens">Europe/Athens (EET)</option>
+                  <option value="Europe/Moscow">Europe/Moscow (MSK)</option>
+                  <option value="America/New_York">America/New York (ET)</option>
+                  <option value="America/Chicago">America/Chicago (CT)</option>
+                  <option value="America/Denver">America/Denver (MT)</option>
+                  <option value="America/Los_Angeles">America/Los Angeles (PT)</option>
+                  <option value="America/Anchorage">America/Anchorage (AKT)</option>
+                  <option value="Pacific/Honolulu">Pacific/Honolulu (HT)</option>
+                  <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                  <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                  <option value="Asia/Seoul">Asia/Seoul (KST)</option>
+                  <option value="Australia/Sydney">Australia/Sydney (AET)</option>
+                  <option value="Pacific/Auckland">Pacific/Auckland (NZST)</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </div>
               <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>Visible Sports</h3>
                 <p className={styles.settingDesc}>Select which sports appear in the Sports section. Leave empty to show all.</p>
@@ -1663,7 +1697,7 @@ export default function Settings({ onClose }: SettingsProps) {
                   })}
                 </div>
               </div>
-            )}
+            </div>)}
           </div>
         )
 

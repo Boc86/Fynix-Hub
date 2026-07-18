@@ -60,6 +60,7 @@ interface SettingsState {
   remoteMapping: Record<string, string>
   sportsEnabled: boolean
   sportsSelected: string[]
+  sportsTimezone: string
   liveTvEnabled: boolean
   selectedLiveTvCountries: string[]
   usenetEnabled: boolean
@@ -114,6 +115,7 @@ interface SettingsState {
   setRemoteMapping: (mapping: Record<string, string>) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsSelected: (ids: string[]) => void
+  setSportsTimezone: (tz: string) => void
   setLiveTvEnabled: (enabled: boolean) => void
   setSelectedLiveTvCountries: (codes: string[]) => void
   setUsenetEnabled: (enabled: boolean) => void
@@ -177,6 +179,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   remoteMapping: {} as Record<string, string>,
   sportsEnabled: false,
   sportsSelected: [],
+  sportsTimezone: 'GMT',
   liveTvEnabled: false,
   selectedLiveTvCountries: [],
   usenetEnabled: false,
@@ -231,6 +234,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
   setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
   setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
+  setSportsTimezone: (tz) => { set({ sportsTimezone: tz }); get().saveToDisk() },
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
   setUsenetEnabled: (enabled) => { set({ usenetEnabled: enabled }); get().saveToDisk() },
@@ -451,6 +455,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
         window.api.settings.set('sportsEnabled', state.sportsEnabled),
         window.api.settings.set('sportsSelected', state.sportsSelected),
+        window.api.settings.set('sportsTimezone', state.sportsTimezone),
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
         window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
         window.api.settings.set('usenetEnabled', state.usenetEnabled),
