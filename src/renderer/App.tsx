@@ -63,6 +63,8 @@ export default function App() {
   const autoPlayUsenetPromiseRef = useRef<Promise<void> | null>(null)
   const currentInfoHashRef = useRef<string | null>(null)
   const currentUsenetIdRef = useRef<string | null>(null)
+  const lastStreamUrlRef = useRef<string | undefined>(undefined)
+  const lastStreamRefererRef = useRef<string | undefined>(undefined)
   const resumePositionRef = useRef<number | undefined>(undefined)
   const resumeDurationRef = useRef<number>(3600) // default 1h estimate
   const searchSessionRef = useRef(0)
@@ -1218,6 +1220,23 @@ export default function App() {
     goBack()
   }, [])
 
+  // Kodi-style live reconnect: re-open the same live/sports URL at its new edge
+  // when the stream dies or freezes — handled once by VideoPlayer before bailing.
+  const onRetryStream = useCallback(() => {
+    const url = lastStreamUrlRef.current
+    if (!url) return
+    const audioLang = getAudioLang()
+    setPlayerLoading(true)
+    setStreamError(null)
+    window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, lastStreamRefererRef.current)
+      .catch((err: any) => {
+        window.api.log('[App] onRetryStream failed:', err?.message || err)
+        setStreamError(err?.message || 'Failed to reconnect stream')
+        setPlayerLoading(false)
+      })
+    setPlayerLoading(false)
+  }, [accentColor])
+
   const handlePlayYouTubeVideo = useCallback(async (video: any) => {
     // Placeholder for the Webview approach
     // We will implement the BrowserView logic in the main process
@@ -1537,6 +1556,7 @@ export default function App() {
           onStreamError={onStreamError}
           onBack={handlePlayerBack}
           onNextEpisode={handleNextEpisode}
+          onRetryStream={onRetryStream}
         />
       )}
       {view === 'settings' && (
@@ -1565,6 +1585,8 @@ export default function App() {
                 currentInfoHashRef.current = null
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
+                lastStreamUrlRef.current = url
+                lastStreamRefererRef.current = 'https://cdnlivetv.is/'
                 await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://cdnlivetv.is/')
                 setPlayerLoading(false)
               } catch (err: any) {
@@ -1592,6 +1614,8 @@ export default function App() {
                 currentInfoHashRef.current = null
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
+                lastStreamUrlRef.current = url
+                lastStreamRefererRef.current = 'https://cdnlivetv.is/'
                 await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://cdnlivetv.is/')
                 setPlayerLoading(false)
               } catch (err: any) {
