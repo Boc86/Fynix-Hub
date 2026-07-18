@@ -518,10 +518,24 @@ export default function Settings({ onClose }: SettingsProps) {
                      Forced-only subtitles (only foreign dialogue)
                    </label>
                  </div>
-                </div>
+                 </div>
 
                  <div className={styles.settingGroup}>
-                  <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
+                   <h3 className={styles.settingTitle}>Classification Country</h3>
+                   <p className={styles.settingDesc}>Country code used for age classification ratings (e.g. US, GB, DE, FR)</p>
+                   <input
+                     className={styles.input}
+                     placeholder="US"
+                     value={store.classificationCountry}
+                     onChange={(e) => store.setClassificationCountry(e.target.value.toUpperCase().slice(0, 2))}
+                     tabIndex={0}
+                     maxLength={2}
+                     style={{ width: 80, textTransform: 'uppercase' }}
+                   />
+                 </div>
+
+                  <div className={styles.settingGroup}>
+                   <h3 className={styles.settingTitle}>Preferred Resolutions</h3>
                <p className={styles.settingDesc}>Filter torrent results by resolution</p>
               <div className={styles.toggleGrid}>
                 {resolutions.map(res => (

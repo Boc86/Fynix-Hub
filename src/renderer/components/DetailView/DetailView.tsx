@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useMediaStore } from '../../store/mediaStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import type { Episode, TvDetails, MovieDetails, MediaItem, CastMember, CrewMember, Video } from '../../types';
 import type { ContextTarget } from '../ContextMenu/ContextMenu';
 import styles from './DetailView.module.css';
@@ -24,17 +25,17 @@ function getCrewByJob(crew: CrewMember[], jobs: string[]): CrewMember[] {
   return crew.filter((c) => jobs.includes(c.job));
 }
 
-function getClassification(media: any): string | null {
+function getClassification(media: any, country: string = 'US'): string | null {
   if (media.releaseDates?.results) {
-    const us = media.releaseDates.results.find((r: any) => r.iso_3166_1 === 'US')
-    if (us?.releaseDates?.length) {
-      const c = us.releaseDates.find((d: any) => d.certification)
+    const entry = media.releaseDates.results.find((r: any) => r.iso_3166_1 === country)
+    if (entry?.releaseDates?.length) {
+      const c = entry.releaseDates.find((d: any) => d.certification)
       if (c?.certification) return c.certification
     }
   }
   if (media.contentRatings?.results) {
-    const us = media.contentRatings.results.find((r: any) => r.iso_3166_1 === 'US')
-    if (us?.rating) return us.rating
+    const entry = media.contentRatings.results.find((r: any) => r.iso_3166_1 === country)
+    if (entry?.rating) return entry.rating
   }
   return null
 }
@@ -55,6 +56,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     traktPlayback,
   } = useMediaStore();
 
+  const classificationCountry = useSettingsStore((s) => s.classificationCountry)
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [clearlogo, setClearlogo] = useState<string | null>(null);
   const [similar, setSimilar] = useState<MediaItem[]>([]);
@@ -482,8 +484,8 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
 
     <div className={styles.meta}>
     <span className={styles.rating}>{selectedMedia.voteAverage.toFixed(1)} ({selectedMedia.voteCount?.toLocaleString()} votes)</span>
-    {getClassification(selectedMedia) && (
-      <span className={styles.classification}>{getClassification(selectedMedia)}</span>
+    {getClassification(selectedMedia, classificationCountry) && (
+      <span className={styles.classification}>{getClassification(selectedMedia, classificationCountry)}</span>
     )}
     <span>{selectedMedia.releaseDate}</span>
     {'runtime' in selectedMedia && selectedMedia.runtime > 0 && (
