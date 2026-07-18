@@ -75,16 +75,13 @@ jobs:
             SIZE=$(stat -c%s "$APPIMAGE")
             SHA512=$(sha512sum "$APPIMAGE" | cut -d' ' -f1 | xxd -r -p | base64 -w0)
             DATE=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-            cat > out/latest-linux.yml <<EOF
-            version: ${NEW_VERSION}
-            files:
-              - url: Fynix_Hub-${NEW_VERSION}-x86_64.AppImage
-                sha512: ${SHA512}
-                size: ${SIZE}
-            path: Fynix_Hub-${NEW_VERSION}-x86_64.AppImage
-            sha512: ${SHA512}
-            releaseDate: ${DATE}
-            EOF
+            printf 'version: %s\nfiles:\n  - url: %s\n    sha512: %s\n    size: %s\npath: %s\nsha512: %s\nreleaseDate: %s\n' \
+              "${NEW_VERSION}" \
+              "Fynix_Hub-${NEW_VERSION}-x86_64.AppImage" \
+              "${SHA512}" "${SIZE}" \
+              "Fynix_Hub-${NEW_VERSION}-x86_64.AppImage" \
+              "${SHA512}" "${DATE}" \
+              > out/latest-linux.yml
             echo "Generated latest-linux.yml for v${NEW_VERSION}"
           else
             echo "AppImage not found at $APPIMAGE, skipping latest-linux.yml"
