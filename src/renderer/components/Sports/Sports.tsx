@@ -489,7 +489,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     const focused = contentRef.current.querySelector(`[data-focus-index="${focusedIndex}"]`) as HTMLElement | undefined
     if (focused) { focused.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); focused.focus() }
     }
-  }, [focusedIndex])
+  }, [focusedIndex, scheduleStreams])
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return ''
