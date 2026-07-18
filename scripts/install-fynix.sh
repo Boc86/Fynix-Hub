@@ -30,10 +30,10 @@ mkdir -p "$INSTALL_DIR" "$DESKTOP_DIR" "$ICON_DIR"
 curl -sL "$URL" -o "$INSTALL_DIR/$BIN"
 chmod +x "$INSTALL_DIR/$BIN"
 
-# Download icon from GitHub (fallback to a generic media icon)
+# Download icon from GitHub (fallback to a common themed icon)
 ICON_PATH="$ICON_DIR/fynix-hub.png"
-if ! curl -sL "https://raw.githubusercontent.com/$REPO/master/assets/icon.png" -o "$ICON_PATH" 2>/dev/null; then
-  ICON_PATH="multimedia-player"
+if ! curl -sL "https://raw.githubusercontent.com/$REPO/master/assets/FLB-256.png" -o "$ICON_PATH" 2>/dev/null; then
+  ICON_PATH="video-player"
 fi
 
 # Create desktop entry
@@ -44,8 +44,8 @@ Exec=$INSTALL_DIR/$BIN
 Terminal=false
 Type=Application
 Icon=$ICON_PATH
-Categories=Multimedia;
-StartupWMClass=Fynix Hub
+Categories=AudioVideo;Video;Player;
+StartupWMClass=fynix-hub
 Comment=Media Hub with Netflix-like experience
 EOF
 
