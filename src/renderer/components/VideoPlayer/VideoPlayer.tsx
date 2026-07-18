@@ -85,7 +85,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     const t = currentTimeRef.current
     const d = durationRef.current
     if (!isFinite(d) || d <= 0 || !isFinite(t)) return
-    const progress = t / d
+    const progress = Math.min(Math.max(t / d, 0), 1)
     if (isFinite(progress) && progress > 0) {
       window.api.watch.updateProgress(
         mediaInfo.tmdbId,
@@ -106,7 +106,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     if (!mediaInfo || mediaInfo.isTrailer) return
     const d = durationRef.current
     if (!isFinite(d) || d <= 0) return
-    const progress = currentTimeRef.current / d
+    const progress = Math.min(Math.max(currentTimeRef.current / d, 0), 1)
     if (!isFinite(progress)) return
     try {
       const now = Date.now()
@@ -238,6 +238,8 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     let wasEnded = false
     let upNextShown = false
     let pollCount = 0
+    let failCount = 0
+    let scrobbleCount = 0
 
     pollIntervalRef.current = setInterval(async () => {
       pollCount++
@@ -253,6 +255,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         pos = poll[0]
         dur = poll[1]
         paused = poll[2]
+        failCount = 0
 
         // Hide splash on first valid time-pos
         if (pos > 0 && !splashHiddenRef.current) {
@@ -280,6 +283,10 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         setCurrentTime(pos)
         if (dur > 0) setDuration(dur)
 
+        // Persist a fresh resume point every poll tick so a crash/freeze before
+        // playback ends never loses the user's position.
+        saveProgress()
+
         const playing = !paused
         isPlayingRef.current = playing
 
@@ -292,8 +299,17 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
             startScrobbledRef.current = true
           }
         }
+        // Resume after a pause: send a fresh start so Trakt logs the resume time.
+        if (playing && prev === false && startScrobbledRef.current) {
+          scrobble('start')
+        }
         if (prev === true && !playing) {
           scrobble('pause')
+        }
+        // Periodic progress update to Trakt (throttled to 60s inside scrobble()).
+        scrobbleCount++
+        if (playing && scrobbleCount % 24 === 0) {
+          scrobble('start')
         }
         prevPlayStateRef.current = playing
 
@@ -353,6 +369,21 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
           if (code === 42) {
             onNextEpisode()
           } else {
+            onBack()
+          }
+        } else if (running && !wasEnded && !playerLoading) {
+          // mpv is alive but unresponsive (frozen). After enough consecutive
+          // failed polls, force-kill it so the app recovers instead of hanging.
+          failCount++
+          window.api.log(`[VP] mpv unresponsive (${failCount}/6)`)
+          if (failCount >= 6) {
+            wasEnded = true
+            exitedRef.current = true
+            saveProgress()
+            scrobble('stop').catch(() => {})
+            markAsWatched().catch(() => {})
+            useMediaStore.getState().triggerRefresh()
+            await window.api.mpv.stop().catch(() => {})
             onBack()
           }
         }

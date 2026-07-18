@@ -71,12 +71,23 @@ function sendCommand(command: object): Promise<any> {
       const client = new net.Socket()
       const payload = JSON.stringify(command) + '\n'
       let settled = false
+      let connTimer: NodeJS.Timeout | null = null
 
       function cleanup() {
+        if (connTimer) { clearTimeout(connTimer); connTimer = null }
         client.destroy()
       }
 
+      connTimer = setTimeout(() => {
+        if (!settled) {
+          settled = true
+          cleanup()
+          reject(new Error('IPC socket connect timed out'))
+        }
+      }, 3000)
+
       client.connect(ipcSocketPath, () => {
+        if (connTimer) { clearTimeout(connTimer); connTimer = null }
         client.write(payload)
       })
 
@@ -167,7 +178,9 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--gpu-api=opengl',
     '--cache=yes',
     '--cache-pause-initial=yes',
-    '--demuxer-readahead-secs=15',
+    '--cache-secs=60',
+    '--network-timeout=30',
+    '--demuxer-readahead-secs=30',
     '--demuxer-max-bytes=200MiB',
     '--demuxer-max-back-bytes=50MiB',
     '--ytdl=no',

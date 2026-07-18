@@ -51,6 +51,7 @@ local state = {
     up_next_countdown = 10,
     up_next_timer = nil,
 
+    aspect_idx = 1,
     key_repeat = 0,
     key_repeat_time = 0,
     last_key = '',
@@ -115,6 +116,7 @@ local function get_buttons()
         btns[#btns + 1] = {id = 'skip', label = 'Skip Intro', width = 120}
     end
     btns[#btns + 1] = {id = 'subs', icon = 'CC', width = 60}
+    btns[#btns + 1] = {id = 'aspect', label = 'AR', width = 60}
     return btns
 end
 
@@ -296,6 +298,8 @@ local function activate()
         cycle_audio()
     elseif btn.id == 'subs' then
         cycle_subs()
+    elseif btn.id == 'aspect' then
+        cycle_aspect()
     elseif btn.id == 'next' then
         mp.command('quit 42')
     elseif btn.id == 'skip' then
@@ -304,6 +308,20 @@ local function activate()
             state.skip_intro_end = nil
         end
     end
+    show_osd()
+end
+
+-- Aspect ratio cycling
+local aspect_ratios = {'-1', '4/3', '16/9', '16/10', '21/9', '2.35/1'}
+local aspect_labels = {'Auto', '4:3', '16:9', '16:10', '21:9', '2.35:1'}
+
+local function cycle_aspect()
+    state.aspect_idx = state.aspect_idx + 1
+    if state.aspect_idx > #aspect_ratios then
+        state.aspect_idx = 1
+    end
+    mp.set_property('video-aspect-override', aspect_ratios[state.aspect_idx])
+    mp.commandv('show-text', 'Aspect: ' .. aspect_labels[state.aspect_idx], 2000)
     show_osd()
 end
 
