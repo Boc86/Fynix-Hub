@@ -325,16 +325,18 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     setScheduleStreams([])
     setFocusedIndex(0)
     try {
-      const all: { source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[] = match.sources
+      const resolved = await Promise.all(match.sources
         .filter(s => s.embedUrl)
-        .map((s, i) => ({
-          source: s.source,
-          streamNo: i + 1,
-          language: 'Unknown',
-          hd: true,
-          embedUrl: s.embedUrl!
+        .map(async (s) => {
+          let url = s.embedUrl!
+          if (!url.endsWith('.m3u8')) {
+            const result = await window.api.damiTv.extractUrl({ id: s.id || s.source, name: match.title, countryCode: '', playerUrl: url }).catch(() => null)
+            if (result?.hlsUrl) url = result.hlsUrl
+          }
+          return { source: s.source, streamNo: 1, language: 'Unknown', hd: true, embedUrl: url }
         }))
-      setScheduleStreams(all)
+      const valid = resolved.filter(s => s.embedUrl)
+      setScheduleStreams(valid.length > 0 ? valid.map((s, i) => ({ ...s, streamNo: i + 1 })) : [])
     } catch { setScheduleStreams([]) }
     setScheduleStreamLoading(false)
   }, [])

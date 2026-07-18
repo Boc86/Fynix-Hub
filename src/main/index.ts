@@ -300,6 +300,22 @@ ipcMain.on('youtube:hide', () => {
   }
 })
 
+ipcMain.handle('youtube:sign-out', async () => {
+  try {
+    if (youtubeView) {
+      await youtubeView.webContents.session.clearStorageData({
+        origin: 'https://www.youtube.com',
+        storages: ['cookies', 'localstorage', 'cachestorage'],
+      })
+      youtubeView.webContents.loadURL('https://www.youtube.com/tv')
+    }
+    return { success: true }
+  } catch (err: any) {
+    console.error('[IPC Error] youtube:sign-out:', err?.message || String(err))
+    return { success: false, error: err?.message }
+  }
+})
+
 ipcMain.on('embed:show', (_event, url: string) => {
   try { createEmbedView(url) } catch (err: any) { console.error('[IPC Error] embed:show:', err?.message || String(err)) }
 })

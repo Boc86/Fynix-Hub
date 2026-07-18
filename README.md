@@ -60,6 +60,14 @@ If you find this project useful, consider supporting development on Ko-fi. Every
 | ![Splash](docs/assets/screenshots/Splash.png) | Profile picker / splash screen on launch |
 | ![Settings](docs/assets/screenshots/Settings.png) | Configuration panel with search providers, debrid services, and playback options |
 
+## Quick Install (Linux)
+
+```bash
+curl -sL https://raw.githubusercontent.com/Boc86/Fynix-Hub/dev/scripts/install-fynix.sh | bash
+```
+
+Downloads the latest AppImage to `~/Applications/`, creates a desktop entry under **Multimedia**, and adds an app icon.
+
 ## Download
 
 Download the latest release for Linux from the [Releases page](https://github.com/Boc86/Fynix-Hub/releases).

@@ -58,7 +58,11 @@ export function isAppImage(): boolean {
 }
 
 export async function checkForUpdates(): Promise<void> {
-  return autoUpdater.checkForUpdates().then(() => {}).catch(() => {})
+  try {
+    await autoUpdater.checkForUpdates()
+  } catch (err: any) {
+    console.error('[Updater] checkForUpdates failed:', err?.message || err)
+  }
 }
 
 export async function downloadUpdate(): Promise<boolean> {
@@ -95,4 +99,9 @@ export function getStatus() {
 
 export function init() {
   autoUpdater.logger = console
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'Boc86',
+    repo: 'Fynix-Hub',
+  })
 }

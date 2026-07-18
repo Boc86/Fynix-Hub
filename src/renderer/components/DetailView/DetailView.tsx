@@ -466,7 +466,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     )}
 
     <div className={styles.meta}>
-    <span className={styles.rating}>{selectedMedia.voteAverage.toFixed(1)}</span>
+    <span className={styles.rating}>{selectedMedia.voteAverage.toFixed(1)} ({selectedMedia.voteCount?.toLocaleString()} votes)</span>
     <span>{selectedMedia.releaseDate?.slice(0, 4)}</span>
     {'runtime' in selectedMedia && selectedMedia.runtime > 0 && (
       <span>{formatRuntime(selectedMedia.runtime)}</span>

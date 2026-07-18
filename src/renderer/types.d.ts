@@ -14,6 +14,7 @@ export interface MediaItem {
   backdropPath: string | null
   releaseDate: string
   voteAverage: number
+  voteCount: number
   mediaType: 'movie' | 'tv'
   genreIds: number[]
 }
