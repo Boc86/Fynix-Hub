@@ -40,16 +40,20 @@ jobs:
           echo "/tmp/squashfs-root/usr/bin" >> $GITHUB_PATH
 
       - name: Bump version
+        id: version
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           CURRENT=$(node -p "require('./package.json').version")
           if git ls-remote --tags origin "v$CURRENT" | grep -q .; then
             npm version patch -m "chore: bump version to %s [skip ci]"
-            echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+            NEW_VERSION=$(node -p "require('./package.json').version")
+            echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+            echo "bumped=true" >> $GITHUB_OUTPUT
           else
-            echo "Tag v$CURRENT not found upstream — keeping current version"
+            echo "Tag v$CURRENT not found upstream — releasing current version"
             echo "NEW_VERSION=$CURRENT" >> $GITHUB_ENV
+            echo "bumped=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Build Linux packages (deb, rpm, zip)
@@ -88,6 +92,7 @@ jobs:
           fi
 
       - name: Push version bump commit and tag
+        if: steps.version.outputs.bumped == 'true'
         run: |
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git push origin v${{ env.NEW_VERSION }}
