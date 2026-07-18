@@ -1109,7 +1109,7 @@ export default function App() {
         if (!check.ok) {
           throw new Error(`Vyla URL returned ${check.status} (${check.error || 'unreachable'})`)
         }
-        await window.api.mpv.start(result.embedUrl, undefined, ac, pi?.mediaType === 'tv', audioLang, pi)
+        await window.api.mpv.start(result.embedUrl, undefined, ac, pi?.mediaType === 'tv', audioLang, undefined)
         // Poll for time-pos > 0 to confirm real playback
         for (let i = 0; i < 8; i++) {
           await new Promise(r => setTimeout(r, 500))
