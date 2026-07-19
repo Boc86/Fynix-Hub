@@ -16,6 +16,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt from './components/Prompt/Prompt'
+import UpdateModal from './components/UpdateModal/UpdateModal'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
@@ -56,6 +57,8 @@ export default function App() {
   const [streamError, setStreamError] = useState<string | null>(null)
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | undefined>()
   const [playerLoading, setPlayerLoading] = useState(false)
+  const [updateDownloading, setUpdateDownloading] = useState(false)
+  const [updatePercent, setUpdatePercent] = useState(0)
   const [genreType, setGenreType] = useState<'movie' | 'tv' | undefined>()
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
   const autoPlayIndexRef = useRef(0)
@@ -96,6 +99,19 @@ export default function App() {
   useEffect(() => {
     return window.api.embed.onHide(() => {
       window.api.embed.hide()
+    })
+  }, [])
+
+  // Listen for update download progress to show modal feedback
+  useEffect(() => {
+    return window.api.onUpdateStatus((data) => {
+      if (data.status === 'downloading') {
+        setUpdateDownloading(true)
+        setUpdatePercent(data.percent ?? 0)
+      } else if (data.status === 'downloaded' || data.status === 'error' || data.status === 'not-available') {
+        setUpdateDownloading(false)
+        setUpdatePercent(0)
+      }
     })
   }, [])
 
@@ -1511,6 +1527,9 @@ export default function App() {
         {virtualKeyboardOpen && (
           <VirtualKeyboard inputElement={keyboardInputRef.current as HTMLInputElement | HTMLTextAreaElement | null} onClose={() => setVirtualKeyboardOpen(false)} />
         )}
+        {updateDownloading && (
+          <UpdateModal percent={updatePercent} onCancel={() => setUpdateDownloading(false)} />
+        )}
       </>
     )
   }
@@ -1593,6 +1612,7 @@ export default function App() {
                 window.api.log('[App] Replay playback failed:', err.message)
                 setStreamError(err?.message || 'Failed to start replay')
                 setPlayerLoading(false)
+                throw err
               }
             }}
             onBack={() => goBack()}
