@@ -1,3 +1,5 @@
+import * as TmdbService from './tmdb.service'
+
 export interface UsenetQuery {
   query?: string
   title?: string
@@ -75,6 +77,17 @@ export async function searchUsenet(
   const searchTerm = query.query || query.title || ''
   if (!searchTerm) return []
 
+  // Resolve an IMDb id so we can use the precise movie/tvsearch APIs instead of
+  // a loose title query (which returns lots of unrelated results).
+  if (!query.imdbId && query.tmdbId) {
+    try {
+      const ext = await TmdbService.getExternalIds(query.type === 'tv' ? 'tv' : 'movie', query.tmdbId)
+      if (ext.imdbId) query = { ...query, imdbId: ext.imdbId }
+    } catch {
+      // ignore — fall back to title-based search
+    }
+  }
+
   const allCustom = customIndexers.filter(i => i.enabled && enabledIndexerIds.includes(i.id))
 
   const promises = allCustom.map(idx => searchNewznabIndexer(idx, query))
@@ -102,15 +115,20 @@ async function searchNewznabIndexer(
   let searchUrl: string
   if (query.type === 'tv') {
     const params = new URLSearchParams({ t: 'tvsearch', apikey: indexer.apiKey, o: 'json', extended: '1', limit: '100' })
-    if (searchTerm) params.set('q', searchTerm)
+    // Prefer an IMDb id for precise matching; fall back to title only if absent.
+    if (query.imdbId) params.set('imdbid', query.imdbId.replace(/^tt/, ''))
+    else if (searchTerm) params.set('q', searchTerm)
     if (query.season !== undefined) params.set('season', String(query.season))
     if (query.episode !== undefined) params.set('ep', String(query.episode))
     searchUrl = `${apiBase}?${params.toString()}`
   } else if (query.imdbId) {
-    searchUrl = `${apiBase}?t=movie&imdbid=${query.imdbId}&extended=1&apikey=${indexer.apiKey}&o=json`
+    searchUrl = `${apiBase}?t=movie&imdbid=${query.imdbId.replace(/^tt/, '')}&extended=1&apikey=${indexer.apiKey}&o=json`
   } else if (query.type === 'movie') {
+    // No IMDb id (e.g. Search All): keep the general movie search rather than
+    // the broad t=search so results stay movie-scoped.
     searchUrl = `${apiBase}?t=movie&q=${encodeURIComponent(searchTerm)}&extended=1&limit=100&apikey=${indexer.apiKey}&o=json`
   } else {
+    // General search — only used by the Search All modal (no type/imdbid).
     searchUrl = `${apiBase}?t=search&q=${encodeURIComponent(searchTerm)}&limit=100&apikey=${indexer.apiKey}&o=json`
   }
   console.log(`[Usenet] search ${indexer.name}: ${searchUrl.replace(indexer.apiKey, '***')}`)

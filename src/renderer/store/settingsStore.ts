@@ -69,6 +69,7 @@ interface SettingsState {
   nzbgetUsername: string
   nzbgetPassword: string
   nzbgetDownloadDir: string
+  autoDeleteUsenet: boolean
   enabledUsenetIndexers: string[]
   customUsenetIndexers: UsenetIndexerConfig[]
   usenetSearchEnabled: boolean
@@ -124,6 +125,7 @@ interface SettingsState {
   setNzbgetUsername: (username: string) => void
   setNzbgetPassword: (password: string) => void
   setNzbgetDownloadDir: (dir: string) => void
+  setAutoDeleteUsenet: (enabled: boolean) => void
   setEnabledUsenetIndexers: (ids: string[]) => void
   setCustomUsenetIndexers: (indexers: UsenetIndexerConfig[]) => void
   setUsenetSearchEnabled: (enabled: boolean) => void
@@ -188,6 +190,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   nzbgetUsername: '',
   nzbgetPassword: '',
   nzbgetDownloadDir: '',
+  autoDeleteUsenet: true,
   enabledUsenetIndexers: [],
   customUsenetIndexers: [],
   usenetSearchEnabled: true,
@@ -243,6 +246,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setNzbgetUsername: (username) => { set({ nzbgetUsername: username }); get().saveToDisk() },
   setNzbgetPassword: (password) => { set({ nzbgetPassword: password }); get().saveToDisk() },
   setNzbgetDownloadDir: (dir) => { set({ nzbgetDownloadDir: dir }); get().saveToDisk() },
+  setAutoDeleteUsenet: (enabled) => { set({ autoDeleteUsenet: enabled }); get().saveToDisk() },
   setEnabledUsenetIndexers: (ids) => { set({ enabledUsenetIndexers: ids }); get().saveToDisk() },
   setCustomUsenetIndexers: (indexers) => { set({ customUsenetIndexers: indexers }); get().saveToDisk() },
   setUsenetSearchEnabled: (enabled) => { set({ usenetSearchEnabled: enabled }); get().saveToDisk() },
@@ -464,6 +468,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('nzbgetUsername', state.nzbgetUsername),
         window.api.settings.set('nzbgetPassword', state.nzbgetPassword),
         window.api.settings.set('nzbgetDownloadDir', state.nzbgetDownloadDir),
+        window.api.settings.set('autoDeleteUsenet', state.autoDeleteUsenet),
         window.api.settings.set('enabledUsenetIndexers', state.enabledUsenetIndexers),
         window.api.settings.set('customUsenetIndexers', state.customUsenetIndexers),
         window.api.settings.set('usenetSearchEnabled', state.usenetSearchEnabled),

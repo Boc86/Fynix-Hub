@@ -249,6 +249,7 @@ const api = {
     removeDownload: (id: string) => ipcRenderer.invoke('usenet:remove-download', id),
     clearAll: () => ipcRenderer.invoke('usenet:clear-all'),
     searchWebdavCache: (query: string, opts?: { title?: string; year?: number; type?: string; season?: number; episode?: number }) => ipcRenderer.invoke('usenet:search-webdav-cache', opts ? { query, ...opts } : query),
+    deleteByPath: (filePath: string) => ipcRenderer.invoke('usenet:delete-by-path', filePath),
     onResult: (callback: (result: any) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, result: any) => callback(result)
       ipcRenderer.on('usenet:result', handler)

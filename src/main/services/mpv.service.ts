@@ -73,9 +73,11 @@ function sendCommand(command: object): Promise<any> {
       const payload = JSON.stringify(command) + '\n'
       let settled = false
       let connTimer: NodeJS.Timeout | null = null
+      let cmdTimer: NodeJS.Timeout | null = null
 
       function cleanup() {
         if (connTimer) { clearTimeout(connTimer); connTimer = null }
+        if (cmdTimer) { clearTimeout(cmdTimer); cmdTimer = null }
         client.destroy()
       }
 
@@ -109,14 +111,19 @@ function sendCommand(command: object): Promise<any> {
       })
 
       client.on('close', () => {
-        if (!settled && data) {
+        if (!settled) {
           settled = true
-          try {
-            resolve(JSON.parse(data))
-          } catch {
-            resolve(data)
+          if (data) {
+            try {
+              resolve(JSON.parse(data))
+            } catch {
+              resolve(data)
+            }
+          } else {
+            reject(new Error('IPC connection closed without response'))
           }
         }
+        cleanup()
       })
 
       client.on('error', (err: NodeJS.ErrnoException) => {
@@ -129,12 +136,12 @@ function sendCommand(command: object): Promise<any> {
         }
       })
 
-      setTimeout(() => {
+      cmdTimer = setTimeout(() => {
         if (!settled) {
           settled = true
+          cleanup()
           reject(new Error('IPC command timed out'))
         }
-        cleanup()
       }, 5000)
     }
 
@@ -200,6 +207,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--demuxer-max-bytes=200MiB',
     '--demuxer-max-back-bytes=50MiB',
     '--ytdl=no',
+    '--log-file=/tmp/mpv-fynix.log',
   ]
 
   if (audioLanguage) {
@@ -210,6 +218,12 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     const isLocalCache = /^http:\/\/127\.0\.0\.1/.test(playUrl)
     const isOkCdn = /okcdn\.ru/i.test(playUrl)
     const isVk = /vk\.com|vkvideo/i.test(playUrl)
+    // ok.ru replay resolves to a direct *.vkuser.net progressive URL.
+    const isVkUser = /vkuser\.net/i.test(playUrl)
+    // Live HLS hosts (no VOD duration) must not get a network timeout or long
+    // lookahead cache — those abort/stall on CDN gaps instead of riding through.
+    // ponytail: matches v1.3.3, which had no such flags for these streams.
+    const isLiveHost = /cdnlivetv\.(tv|is)/i.test(playUrl)
 
     if (!isLocalCache) {
       mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
@@ -219,7 +233,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     // Local 127.0.0.1 / file:// streams (torrent + usenet cache) must NOT get a
     // network timeout — their server stalls while buffering and mpv would abort,
     // leaving --keep-open frozen on the first frame ("plays the same file").
-    if (!isLocalCache && !isOkCdn && !isVk && !isDailymotion) {
+    if (!isLocalCache && !isOkCdn && !isVk && !isVkUser && !isDailymotion && !isLiveHost) {
       mpvArgs.push('--network-timeout=30')
       mpvArgs.push('--cache-secs=60')
     }
@@ -227,9 +241,9 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     if (isOkCdn) {
       mpvArgs.push('--referrer=https://ok.ru/')
       mpvArgs.push('--http-header-fields=Origin: https://ok.ru')
-    } else if (isVk) {
-      mpvArgs.push('--referrer=https://vk.com/')
-      mpvArgs.push('--http-header-fields=Origin: https://vk.com')
+    } else if (isVk || isVkUser) {
+      mpvArgs.push('--referrer=https://ok.ru/')
+      mpvArgs.push('--http-header-fields=Origin: https://ok.ru')
     } else if (isDailymotion) {
       mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0')
       mpvArgs.push('--referrer=https://www.dailymotion.com/')
@@ -361,16 +375,27 @@ export async function startPlayback(url: string, resumePosition?: number, accent
 export async function stopPlayback(): Promise<void> {
   if (mpvProcess) {
     const proc = mpvProcess
-    try {
-      await sendCommand({ command: ['quit'] })
-    } catch {}
-    proc.kill('SIGTERM')
-    setTimeout(() => {
-      if (!proc.killed) {
-        proc.kill('SIGKILL')
-      }
-    }, 500)
     mpvProcess = null
+    // Graceful quit first; only escalate to SIGTERM/SIGKILL if mpv ignores it.
+    // Sending quit + SIGTERM together races and yields a confusing exit code 4.
+    // Bound the whole thing so a frozen mpv can never block the caller (the
+    // reconnect/finish path depends on stop() resolving promptly).
+    const quitWithTimeout = Promise.race([
+      sendCommand({ command: ['quit'] }).then(() => true).catch(() => false),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 2000)),
+    ])
+    const quitOk = await quitWithTimeout
+    if (quitOk) {
+      const exited = await new Promise<boolean>((resolve) => {
+        const t = setTimeout(() => resolve(false), 500)
+        proc.once('exit', () => { clearTimeout(t); resolve(true) })
+      })
+      if (exited) return
+    }
+    if (!proc.killed) proc.kill('SIGTERM')
+    setTimeout(() => {
+      if (!proc.killed) proc.kill('SIGKILL')
+    }, 500)
   }
   if (fs.existsSync(ipcSocketPath)) {
     try { fs.unlinkSync(ipcSocketPath) } catch {}

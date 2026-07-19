@@ -183,11 +183,14 @@ export async function getDownloadStatus(id: string): Promise<{
 
 export async function getStreamUrl(id: string): Promise<string | null> {
   const active = activeDownloads.get(id)
-  if (!active) return null
+  // The active entry can be cleared by the status-poller by the time a
+  // completed download is replayed. Fall back to resolving the directory from
+  // nzbget history by NZBID so completed downloads still resolve.
+  const nzbId = active?.nzbId ?? Number(id)
 
   try {
     // Cached completed dir from getDownloadStatus
-    if (active.completedDir) {
+    if (active?.completedDir) {
       console.log(`[UDB] getStreamUrl checking completedDir="${active.completedDir}"`)
       const videoFile = await findVideoFile(active.completedDir)
       console.log(`[UDB] getStreamUrl completedDir result: ${videoFile || 'null'}`)
@@ -195,11 +198,11 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     }
 
     // Lookup NZB name and list of files for this NZB ID
-    const nzbName = active.title  // used for fallback dir names
+    const nzbName = active?.title || ''  // used for fallback dir names
 
     // Get per-file info from nzbget (confirmed filenames, per-file destdirs)
-    console.log(`[UDB] getStreamUrl calling listFiles for NZBID=${active.nzbId}`)
-    const files = await NzbgetService.listFiles(active.nzbId)
+    console.log(`[UDB] getStreamUrl calling listFiles for NZBID=${nzbId}`)
+    const files = await NzbgetService.listFiles(nzbId)
     const confirmedFile = files.find((f: any) => f.FilenameConfirmed && f.Filename)
     console.log(`[UDB] getStreamUrl listFiles confirmed: ${confirmedFile ? `Filename="${confirmedFile.Filename}" DestDir="${confirmedFile.DestDir}"` : `none — raw files: ${JSON.stringify(files).slice(0, 300)}`}`)
 
@@ -214,9 +217,9 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     const searchDirs: string[] = []
 
     // Active downloads (listgroups)
-    console.log(`[UDB] getStreamUrl calling listGroups for NZBID=${active.nzbId}`)
+    console.log(`[UDB] getStreamUrl calling listGroups for NZBID=${nzbId}`)
     const groups = await NzbgetService.listGroups()
-    const group = groups.find(g => g.NZBID === active.nzbId)
+    const group = groups.find(g => g.NZBID === nzbId)
     console.log(`[UDB] getStreamUrl listGroups found group: ${group ? `DestDir="${group.DestDir}" FinalDir="${group.FinalDir}" NZBFilename="${group.NZBFilename}"` : 'null'}`)
     if (group) {
       const base = group.DestDir || group.FinalDir
@@ -264,15 +267,15 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     }
 
     // History (completed) — last resort
-    console.log(`[UDB] getStreamUrl checking history for NZBID=${active.nzbId}`)
+    console.log(`[UDB] getStreamUrl checking history for NZBID=${nzbId}`)
     const histItems = await NzbgetService.history()
-    const histMatch = histItems.find(h => h.NZBID === active.nzbId)
+    const histMatch = histItems.find(h => h.NZBID === nzbId)
     console.log(`[UDB] getStreamUrl history match: ${histMatch ? `DestDir="${histMatch.DestDir}" FinalDir="${histMatch.FinalDir}"` : 'null'}`)
     if (histMatch) {
       const dir = histMatch.FinalDir || histMatch.DestDir
       if (dir) {
         searchDirs.push(dir)
-        active.completedDir = dir
+        if (active) active.completedDir = dir
       }
     }
 
@@ -346,15 +349,91 @@ export async function listDownloads(): Promise<any[]> {
   }
 }
 
-export async function removeDownload(id: string): Promise<boolean> {
-  const active = activeDownloads.get(id)
-  if (!active) return false
+// Recursively delete a download's files from disk. Only deletes a per-download
+// subfolder, never the shared nzbget DestDir root, to avoid wiping other
+// downloads. `nzbid` is the nzbget NZBID used to locate FinalDir/DestDir.
+async function deleteDownloadDirectory(nzbid: number): Promise<void> {
+  let dir: string | undefined
+  try {
+    // Prefer the per-download completed folder from history.
+    const histItems = await NzbgetService.history()
+    const hist = histItems.find(h => h.NZBID === nzbid)
+    if (hist) dir = hist.FinalDir || hist.DestDir
+    if (!dir) {
+      const groups = await NzbgetService.listGroups()
+      const g = groups.find(x => x.NZBID === nzbid)
+      if (g) dir = g.FinalDir || g.DestDir
+    }
+  } catch { /* ignore */ }
+
+  if (!dir) return
+
+  // Safety: never delete the shared base DestDir (would remove all downloads).
+  try {
+    const config = await NzbgetService.getConfig()
+    const baseDest = (config.find((c: any) => c.Name === 'DestDir')?.Value || '').replace(/\/+$/, '')
+    const baseInter = (config.find((c: any) => c.Name === 'InterDir')?.Value || '').replace(/\/+$/, '')
+    const dirClean = dir.replace(/\/+$/, '')
+    if ((baseDest && dirClean === baseDest) || (baseInter && dirClean === baseInter)) return
+  } catch { /* ignore */ }
 
   try {
-    await NzbgetService.deleteNzb(active.nzbId)
+    const fsPromises = await import('fs/promises')
+    await fsPromises.rm(dir, { recursive: true, force: true })
+    console.log(`[UDB] deleted download directory: ${dir}`)
+  } catch (e: any) {
+    console.warn(`[UDB] failed to delete directory ${dir}: ${e?.message}`)
+  }
+}
+
+export async function removeDownload(id: string): Promise<boolean> {
+  // id may be the internal active id OR an nzbget NZBID (from the cache list).
+  const active = activeDownloads.get(id)
+  const nzbId = active?.nzbId ?? Number(id)
+
+  try {
+    await NzbgetService.deleteNzb(nzbId).catch(() => {})
+    await NzbgetService.historyDelete(nzbId).catch(() => {})
+    await deleteDownloadDirectory(nzbId)
     activeDownloads.delete(id)
     return true
   } catch {
+    return false
+  }
+}
+
+export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
+  try {
+    const fsPromises = await import('fs/promises')
+    const dir = path.dirname(filePath.replace(/^file:\/\//, ''))
+
+    // Find the nzbget history/group entry whose FinalDir/DestDir contains this
+    // file, then delete the whole folder + the matching history entry.
+    const candidates = [
+      ...(await NzbgetService.listGroups()),
+      ...(await NzbgetService.history()),
+    ]
+    const match = candidates.find((c: any) => {
+      const base = (c.FinalDir || c.DestDir || '').replace(/\/+$/, '')
+      return base && dir.startsWith(base)
+    })
+
+    if (match) {
+      const nzbId = match.NZBID
+      await NzbgetService.deleteNzb(nzbId).catch(() => {})
+      await NzbgetService.historyDelete(nzbId).catch(() => {})
+      await deleteDownloadDirectory(nzbId).catch(() => {})
+      // also remove any active entry keyed by this NZBID
+      for (const [k, v] of activeDownloads) {
+        if (v.nzbId === nzbId) activeDownloads.delete(k)
+      }
+    } else {
+      // No nzbget entry — just delete the folder on disk.
+      await fsPromises.rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+    return true
+  } catch (e: any) {
+    console.warn(`[UDB] deleteUsenetByPath failed for ${filePath}: ${e?.message}`)
     return false
   }
 }
@@ -368,6 +447,7 @@ export async function clearAllDownloads(): Promise<void> {
     const histItems = await NzbgetService.history()
     for (const h of histItems) {
       await NzbgetService.historyDelete(h.NZBID).catch(() => {})
+      await deleteDownloadDirectory(h.NZBID).catch(() => {})
     }
   } catch { /* ignore */ }
 }
@@ -398,6 +478,24 @@ function fuzzyMatch(search: string, target: string): boolean {
   return si >= searchNorm.length
 }
 
+// Extract an SxxExx (or x) token from a release name, returning {season,episode}.
+function parseEpisodeToken(name: string): { season: number; episode: number } | null {
+  const patterns = [
+    /[ ._\[]s(\d{1,2})[ ._]?e(\d{1,3})/i,
+    /[ ._\[](\d{1,2})x(\d{1,3})[ ._]/i,
+    /[ ._](\d{1,2})(\d{2})[ ._]/, // e.g. " 0102 " -> S01E02
+  ]
+  for (const p of patterns) {
+    const m = name.match(p)
+    if (m) {
+      const season = parseInt(m[1], 10)
+      const episode = parseInt(m[2], 10)
+      if (season >= 0 && season <= 99 && episode >= 0 && episode <= 999) return { season, episode }
+    }
+  }
+  return null
+}
+
 export async function searchDownloadCache(query: string, opts?: { title?: string; year?: number; type?: 'movie' | 'tv'; season?: number; episode?: number }): Promise<any[]> {
   try {
     const histItems = await NzbgetService.history()
@@ -405,7 +503,9 @@ export async function searchDownloadCache(query: string, opts?: { title?: string
     if (!searchLower) return []
 
     const yearStr = opts?.year ? String(opts.year) : ''
-    const results: any[] = []
+    const wantSeason = opts?.type === 'tv' ? opts?.season : undefined
+    const wantEpisode = opts?.type === 'tv' ? opts?.episode : undefined
+    const candidates: any[] = []
     for (const h of histItems) {
       const name = h.NZBNicename || h.NZBFilename
       if (!name) continue
@@ -421,14 +521,24 @@ export async function searchDownloadCache(query: string, opts?: { title?: string
       const entries = await fs.readdir(dir).catch(() => [])
       const videoFile = entries.find(e => /\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(e))
       if (videoFile) {
-        results.push({
+        let episodeMatch = -1
+        if (wantSeason != null && wantEpisode != null) {
+          const tok = parseEpisodeToken(name)
+          if (tok && tok.season === wantSeason && tok.episode === wantEpisode) episodeMatch = 1
+          else if (tok && tok.season === wantSeason) episodeMatch = 0 // right season, wrong episode
+        }
+        candidates.push({
           name,
           streamUrl: `file://${pathMod.join(dir, videoFile)}`,
           size: h.FileSizeMB * 1048576,
+          episodeScore: episodeMatch,
         })
       }
     }
-    return results
+    if (candidates.length === 0) return []
+    // Prefer an exact SxxExx match; then same-season; then any title match.
+    candidates.sort((a, b) => (b.episodeScore) - (a.episodeScore))
+    return candidates
   } catch {
     return []
   }

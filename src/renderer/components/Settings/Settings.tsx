@@ -60,6 +60,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [localNzbgetUsername, setLocalNzbgetUsername] = useState(store.nzbgetUsername)
   const [localNzbgetPassword, setLocalNzbgetPassword] = useState(store.nzbgetPassword)
   const [localNzbgetDownloadDir, setLocalNzbgetDownloadDir] = useState(store.nzbgetDownloadDir)
+  const [localAutoDeleteUsenet, setLocalAutoDeleteUsenet] = useState(store.autoDeleteUsenet)
   const [localEnabledUsenetIndexers, setLocalEnabledUsenetIndexers] = useState<string[]>(store.enabledUsenetIndexers)
   const [localCustomUsenetIndexers, setLocalCustomUsenetIndexers] = useState<any[]>(store.customUsenetIndexers)
   const [newUsenetCustom, setNewUsenetCustom] = useState({ name: '', url: '', apiKey: '' })
@@ -1334,6 +1335,7 @@ export default function Settings({ onClose }: SettingsProps) {
           store.setNzbgetUsername(localNzbgetUsername)
           store.setNzbgetPassword(localNzbgetPassword)
           store.setNzbgetDownloadDir(localNzbgetDownloadDir)
+          store.setAutoDeleteUsenet(localAutoDeleteUsenet)
           store.setEnabledUsenetIndexers(localEnabledUsenetIndexers)
           store.setCustomUsenetIndexers(localCustomUsenetIndexers)
           await store.saveToDisk()
@@ -1403,6 +1405,23 @@ export default function Settings({ onClose }: SettingsProps) {
                         onChange={(e) => setLocalNzbgetDownloadDir(e.target.value)}
                       />
                     </div>
+
+                    <label className={styles.indexerRow} style={{ marginTop: 10 }}>
+                      <input
+                        tabIndex={0}
+                        type="checkbox"
+                        checked={localAutoDeleteUsenet}
+                        onChange={(e) => setLocalAutoDeleteUsenet(e.target.checked)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setLocalAutoDeleteUsenet(!localAutoDeleteUsenet)
+                          }
+                        }}
+                      />
+                      <span>Automatically delete Usenet download after fully watching</span>
+                    </label>
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button

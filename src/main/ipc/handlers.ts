@@ -839,6 +839,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return UsenetService.searchWebdavCache(query.query, { title: query.title, year: query.year, type: query.type as 'movie' | 'tv' | undefined, season: query.season, episode: query.episode })
   })
 
+  handle('usenet:delete-by-path', async (_event, filePath: string) => {
+    return UsenetService.deleteUsenetByPath(filePath)
+  })
+
   handle('mpv:get-sub-action', async () => {
     return MpvService.getSubAction()
   })
