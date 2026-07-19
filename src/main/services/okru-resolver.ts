@@ -15,7 +15,7 @@ const CDN_HEADERS = {
   'Origin': 'https://ok.ru',
 }
 
-function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5, maxRetries = 3): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5, maxRetries = 3, timeoutMs = 30000): Promise<{ status: number; body: string; headers: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     let currentUrl = url
     const visited: string[] = []
@@ -84,7 +84,7 @@ function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5
       })
 
       req.on('error', retry)
-      req.setTimeout(30000, () => req.destroy(new Error('Request timeout')))
+      req.setTimeout(timeoutMs, () => req.destroy(new Error('Request timeout')))
       req.end()
     }
 
@@ -113,7 +113,10 @@ function htmlDecode(s: string): string {
   return s
     .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(parseInt(code, 10)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_m, code) => String.fromCharCode(parseInt(code, 16)))
-    .replace(/&(amp|lt|gt|quot|apos);/g, (_m, c) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[c] as string))
+    .replace(/&(amp|lt|gt|quot|apos);/g, (_m, c) => {
+      const m: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+      return m[c] ?? _m
+    })
     .replace(/\\\\u0026/g, '&')
     .replace(/\\u0026/g, '&')
     .replace(/\\\//g, '/')
@@ -179,18 +182,78 @@ function extractHlsFromJson(obj: any): string | null {
   return null
 }
 
+// ok.ru nests the playable URL inside flashvars.metadata (a JSON-encoded
+// string). The outer data-options blob is not valid JSON, and there is no
+// .m3u8 manifest embedded anymore — the metadata.videos[] array carries a
+// direct progressive URL (e.g. *.vkuser.net). Pull the metadata string out
+// surgically via brace-matching (resilient to ok.ru's escaping) and parse it.
+// Accepts the htmlDecoded data-options (literal " delimiters), not the raw
+// attribute value (which uses &quot;).
+function extractFromMetadata(decoded: string): string | null {
+  const key = '"metadata":"'
+  const start = decoded.indexOf(key)
+  if (start < 0) return null
+  // The metadata value is a JSON object string. Brace-match its top-level '{'
+  // so we can grab the whole object regardless of embedded quotes/escapes.
+  let i = start + key.length
+  if (decoded[i] !== '{') return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  let j = i
+  for (; j < decoded.length; j++) {
+    const c = decoded[j]
+    if (inStr) {
+      if (esc) { esc = false; continue }
+      if (c === '\\') { esc = true; continue }
+      if (c === '"') { inStr = false; continue }
+    } else {
+      if (c === '"') { inStr = true; continue }
+      if (c === '{') depth++
+      else if (c === '}') { depth--; if (depth === 0) break }
+    }
+  }
+  if (depth !== 0) return null
+  const closeQuote = j + 1
+  if (decoded[closeQuote] !== '"') return null
+  const metaStr = decoded.slice(i, closeQuote)
+  try {
+    const meta = JSON.parse(metaStr)
+    return extractHlsFromJson(meta)
+  } catch {
+    try {
+      const meta = JSON.parse(metaStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\'))
+      return extractHlsFromJson(meta)
+    } catch {
+      return null
+    }
+  }
+}
+
 async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<string, string>): Promise<OkruMetadata> {
-  const { body } = await fetchUrl(baseUrl, headers)
+  const { body } = await fetchUrl(baseUrl, headers, 5, 1, 12000)
   console.log('[okru-resolver] page size:', body.length, 'has data-options:', body.includes('data-options='))
 
   // Try extracting data-options value directly (any attribute)
   const dataOptionsMatch = body.match(/data-options="([^"]+)"/)
+  const raw = dataOptionsMatch ? dataOptionsMatch[1] : ''
+  let decoded = ''
   if (dataOptionsMatch) {
-    const raw = dataOptionsMatch[1]
-    const decoded = htmlDecode(raw)
+    decoded = htmlDecode(raw)
     console.log('[okru-resolver] data-options decoded length:', decoded.length, 'first 200 chars:', decoded.slice(0, 200))
+  } else {
+    console.log('[okru-resolver] no data-options found in page, body snippet:', body.slice(1000, 2000))
+  }
 
-    // Try JSON fields from the decoded object
+  // 1) Plaintext .m3u8 anywhere in body or decoded data-options (cheap, v1.3.3-style).
+  const reUrl = extractHlsManifestUrl(body) || extractHlsManifestUrl(decoded)
+  if (reUrl) {
+    console.log('[okru-resolver] extracted manifest URL via regex')
+    return { hlsManifestUrl: reUrl }
+  }
+
+  // 2) Whole-object parse (works when data-options is well-formed JSON).
+  if (decoded) {
     try {
       const parsed = JSON.parse(decoded)
       console.log('[okru-resolver] JSON keys:', Object.keys(parsed).join(', '))
@@ -201,20 +264,24 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
         return { hlsManifestUrl: jsonHls }
       }
     } catch (e) {
-      console.log('[okru-resolver] JSON parse failed:', (e as Error).message)
+      console.log('[okru-resolver] whole-object JSON parse failed:', (e as Error).message)
     }
-  } else {
-    console.log('[okru-resolver] no data-options found in page, body snippet:', body.slice(1000, 2000))
   }
 
-  // Fallback: regex on the decoded (but not JSON-parsed) data-options string
-  // Pattern: "hlsManifestUrl":"https://..." (after htmlDecode)
-  if (dataOptionsMatch) {
-    const decoded = htmlDecode(dataOptionsMatch[1])
+  // 3) Surgical nested metadata extraction (the common ok.ru case).
+  if (decoded) {
+    const metaHls = extractFromMetadata(decoded)
+    if (metaHls) {
+      console.log('[okru-resolver] extracted manifest URL from flashvars.metadata')
+      return { hlsManifestUrl: metaHls }
+    }
+  }
+
+  // 4) Fallback: regex for "hlsManifestUrl" key on decoded data-options.
+  if (decoded) {
     const hlsKeyMatch = decoded.match(/"hlsManifestUrl"\s*:\s*"((?:[^"\\]|\\.)*)"/)
     if (hlsKeyMatch) {
-      let url = hlsKeyMatch[1]
-      url = url.replace(/\\u0026/g, '&')
+      let url = hlsKeyMatch[1].replace(/\\u0026/g, '&')
       if (url.startsWith('http')) {
         console.log('[okru-resolver] extracted hlsManifestUrl via regex on decoded data-options')
         return { hlsManifestUrl: url }
@@ -222,23 +289,15 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     }
   }
 
-  // Targeted: extract hlsManifestUrl value from raw body with HTML entities
+  // 5) Targeted raw-body hlsManifestUrl with HTML entities.
   const hlsRawMatch = body.match(/hlsManifestUrl(?:&quot;)?\s*:\s*(?:&quot;)?([^&"]+\.m3u8[^&"]*)/i)
   if (hlsRawMatch) {
-    let url = hlsRawMatch[1]
-    url = url.replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
+    let url = hlsRawMatch[1].replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
     console.log('[okru-resolver] extracted hlsManifestUrl from raw body')
     return { hlsManifestUrl: url }
   }
 
-  // Regex on raw body for any .m3u8
-  const reUrl = extractHlsManifestUrl(body)
-  if (reUrl) {
-    console.log('[okru-resolver] extracted manifest URL via regex')
-    return { hlsManifestUrl: reUrl }
-  }
-
-  // Look for any data-config JSON in the page
+  // 6) data-config JSON in the page.
   const configMatch = body.match(/data-config="([^"]+)"/)
   if (configMatch) {
     const configDecoded = htmlDecode(configMatch[1])
@@ -261,22 +320,33 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
 }
 
 async function fetchEmbedMetadata(videoId: string): Promise<OkruMetadata> {
+  // ok.ru/video and ok.ru/videoembed serve the player config in data-options
+  // (the source of the manifest). m.ok.ru returns a static shell with no
+  // data-options, so it is only a last-resort fallback.
   const urls = [
-    `https://ok.ru/videoembed/${videoId}`,
     `https://ok.ru/video/${videoId}`,
+    `https://ok.ru/videoembed/${videoId}`,
     `https://m.ok.ru/video/${videoId}`,
   ]
   const mobileHeaders = { ...OKRU_HEADERS, 'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' }
 
   let lastError: Error | null = null
-  for (let i = 0; i < urls.length; i++) {
-    try {
-      console.log(`[okru-resolver] trying URL ${i + 1}/${urls.length}: ${urls[i]}`)
-      const headers = urls[i].includes('m.ok.ru') ? mobileHeaders : OKRU_HEADERS
-      return await fetchEmbedPage(videoId, urls[i], headers)
-    } catch (err) {
-      lastError = err as Error
-      console.log(`[okru-resolver] URL ${i + 1}/${urls.length} failed: ${(err as Error).message}`)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      // ok.ru rate-limits repeat hits from the same IP; pause so a transient
+      // block can clear before giving up.
+      console.log('[okru-resolver] retrying all endpoints after brief pause')
+      await new Promise((r) => setTimeout(r, 2500))
+    }
+    for (let i = 0; i < urls.length; i++) {
+      try {
+        console.log(`[okru-resolver] trying URL ${i + 1}/${urls.length} (attempt ${attempt + 1}): ${urls[i]}`)
+        const headers = urls[i].includes('m.ok.ru') ? mobileHeaders : OKRU_HEADERS
+        return await fetchEmbedPage(videoId, urls[i], headers)
+      } catch (err) {
+        lastError = err as Error
+        console.log(`[okru-resolver] URL ${i + 1}/${urls.length} failed: ${(err as Error).message}`)
+      }
     }
   }
 

@@ -128,3 +128,9 @@ export async function getEpisode(tvId: number, seasonNumber: number, episodeNumb
   const data = await fetchTmdb(`/tv/${tvId}/season/${seasonNumber}/episode/${episodeNumber}`)
   return mapKeys(data)
 }
+
+export async function getExternalIds(type: 'movie' | 'tv', id: number): Promise<{ imdbId?: string }> {
+  const data = await fetchTmdb(`/${type}/${id}/external_ids`)
+  const imdbId = data?.imdb_id
+  return imdbId ? { imdbId } : {}
+}

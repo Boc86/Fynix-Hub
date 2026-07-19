@@ -66,6 +66,7 @@ export default function App() {
   const autoPlayUsenetPromiseRef = useRef<Promise<void> | null>(null)
   const currentInfoHashRef = useRef<string | null>(null)
   const currentUsenetIdRef = useRef<string | null>(null)
+  const currentUsenetPathRef = useRef<string | null>(null)
   const lastStreamUrlRef = useRef<string | undefined>(undefined)
   const lastStreamRefererRef = useRef<string | undefined>(undefined)
   const resumePositionRef = useRef<number | undefined>(undefined)
@@ -295,6 +296,7 @@ export default function App() {
         window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
         currentUsenetIdRef.current = null
       }
+      currentUsenetPathRef.current = null
     }
   }, [view])
 
@@ -663,6 +665,7 @@ export default function App() {
         navigate('player')
         const audioLang = getAudioLang()
         try {
+          currentUsenetPathRef.current = cacheResults[0].streamUrl
           await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
           setPlayerLoading(false)
           return
@@ -726,13 +729,34 @@ export default function App() {
             if (stream?.url) {
               const audioLang = getAudioLang()
               try {
+                currentUsenetPathRef.current = stream.url
                 await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
               } catch (mpvErr: any) {
                 window.api.log('[App] mpv.start failed:', mpvErr?.message)
                 setStreamError(mpvErr?.message || 'Failed to start player')
               }
             } else {
-              setStreamError('Could not get stream URL for completed download')
+              // Fallback: the active entry may already be cleared; resolve the
+              // completed file directly from the nzbget history + disk cache.
+              window.api.log('[App] getStreamUrl null at 100%, trying WebDAV cache fallback')
+              const pi = playerInfoRef.current
+              const cacheResults = await window.api.usenet.searchWebdavCache(
+                result.title,
+                pi ? { title: result.title, type: pi.mediaType, season: pi.season, episode: pi.episode } : undefined,
+              )
+              if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
+                const audioLang = getAudioLang()
+                try {
+                  currentUsenetPathRef.current = cacheResults[0].streamUrl
+                  await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+                  setStreamError(null)
+                } catch (mpvErr: any) {
+                  window.api.log('[App] mpv.start (cache fallback) failed:', mpvErr?.message)
+                  setStreamError(mpvErr?.message || 'Failed to start player')
+                }
+              } else {
+                setStreamError('Could not get stream URL for completed download')
+              }
             }
             setPlayerLoading(false)
           } else if (s.status === 'failed') {
@@ -1215,8 +1239,13 @@ export default function App() {
             // If fully watched and Usenet download, clean up
             if (currentUsenetIdRef.current && p >= 0.9) {
               window.api.log('[App] Fully watched, cleaning up Usenet download:', currentUsenetIdRef.current)
-              window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
+              if (currentUsenetPathRef.current && useSettingsStore.getState().autoDeleteUsenet) {
+                window.api.usenet.deleteByPath(currentUsenetPathRef.current).catch(() => {})
+              } else {
+                window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
+              }
               currentUsenetIdRef.current = null
+              currentUsenetPathRef.current = null
             }
           }
         }
@@ -1229,29 +1258,13 @@ export default function App() {
     }
     currentInfoHashRef.current = null
     currentUsenetIdRef.current = null
+    currentUsenetPathRef.current = null
     setStreamUrl(undefined)
     setStreamError(null)
     setPlayerInfo(undefined)
     setPlayerLoading(false)
     goBack()
   }, [])
-
-  // Kodi-style live reconnect: re-open the same live/sports URL at its new edge
-  // when the stream dies or freezes — handled once by VideoPlayer before bailing.
-  const onRetryStream = useCallback(() => {
-    const url = lastStreamUrlRef.current
-    if (!url) return
-    const audioLang = getAudioLang()
-    setPlayerLoading(true)
-    setStreamError(null)
-    window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, lastStreamRefererRef.current)
-      .catch((err: any) => {
-        window.api.log('[App] onRetryStream failed:', err?.message || err)
-        setStreamError(err?.message || 'Failed to reconnect stream')
-        setPlayerLoading(false)
-      })
-    setPlayerLoading(false)
-  }, [accentColor])
 
   const handlePlayYouTubeVideo = useCallback(async (video: any) => {
     // Placeholder for the Webview approach
@@ -1384,19 +1397,23 @@ export default function App() {
         window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
         currentInfoHashRef.current = null
       }
-      // Delete Usenet download if fully watched
+      // Delete Usenet download if fully watched and auto-delete is enabled.
       const pi = playerInfoRef.current
-      if (currentUsenetIdRef.current && pi) {
+      const playedPath = currentUsenetPathRef.current
+      if (playedPath && pi && useSettingsStore.getState().autoDeleteUsenet) {
         window.api.watch.getProgress(pi.tmdbId, pi.mediaType, pi.season, pi.episode).then(progress => {
           if (progress !== null && progress >= 0.9) {
-            window.api.log('[App] Fully watched, cleaning up Usenet download:', currentUsenetIdRef.current)
-            window.api.usenet.removeDownload(currentUsenetIdRef.current!).catch(() => {})
+            window.api.log('[App] Fully watched, auto-deleting Usenet download:', playedPath)
+            window.api.usenet.deleteByPath(playedPath).catch(() => {})
           }
-          currentUsenetIdRef.current = null
+          currentUsenetPathRef.current = null
         }).catch(() => {
-          currentUsenetIdRef.current = null
+          currentUsenetPathRef.current = null
         })
+      } else {
+        currentUsenetPathRef.current = null
       }
+      currentUsenetIdRef.current = null
     })
     return unsub
   }, [])
@@ -1575,7 +1592,6 @@ export default function App() {
           onStreamError={onStreamError}
           onBack={handlePlayerBack}
           onNextEpisode={handleNextEpisode}
-          onRetryStream={onRetryStream}
         />
       )}
       {view === 'settings' && (
@@ -1605,8 +1621,9 @@ export default function App() {
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
                 lastStreamUrlRef.current = url
-                lastStreamRefererRef.current = 'https://cdnlivetv.is/'
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://cdnlivetv.is/')
+                const origin = new URL(url).origin + '/'
+                lastStreamRefererRef.current = origin
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, origin)
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] Replay playback failed:', err.message)
@@ -1635,8 +1652,9 @@ export default function App() {
                 resumePositionRef.current = undefined
                 const audioLang = getAudioLang()
                 lastStreamUrlRef.current = url
-                lastStreamRefererRef.current = 'https://cdnlivetv.is/'
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, 'https://cdnlivetv.is/')
+                const origin = new URL(url).origin + '/'
+                lastStreamRefererRef.current = origin
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, origin)
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] LiveTV playback failed:', err.message)

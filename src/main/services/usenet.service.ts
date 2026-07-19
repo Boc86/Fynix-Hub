@@ -9,6 +9,7 @@ import {
   searchDownloadCache,
   loadConfig as downloaderLoadConfig,
   clearAllDownloads as downloaderClearAll,
+  deleteUsenetByPath as downloaderDeleteByPath,
 } from './usenet-downloader.service'
 
 export interface DownloadStatus {
@@ -88,6 +89,10 @@ export async function removeDownload(id: string): Promise<boolean> {
 
 export async function checkConnection(): Promise<{ connected: boolean; error?: string }> {
   return downloaderCheckConnection()
+}
+
+export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
+  return downloaderDeleteByPath(filePath)
 }
 
 export async function searchWebdavCache(
