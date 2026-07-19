@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as YoutubeService from './youtube.service'
 import * as OkruResolver from './okru-resolver'
+import * as DailymotionResolver from './dailymotion-resolver'
 
 let mpvProcess: ChildProcess | null = null
 let ipcSocketPath = '/tmp/mpv-fynix.sock'
@@ -149,6 +150,8 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   }
 
   let playUrl: string = url
+  let isDailymotion = false
+  let dailymotionCookie: string | undefined
   if (OkruResolver.isOkruReplay(url)) {
     try {
       console.log('[MPV] Resolving ok.ru replay URL via custom resolver')
@@ -157,6 +160,21 @@ export async function startPlayback(url: string, resumePosition?: number, accent
       playUrl = resolved
     } catch (err: any) {
       console.error('[MPV] ok.ru resolution failed:', err?.message)
+      throw err
+    }
+  } else if (DailymotionResolver.isDailymotionUrl(url)) {
+    isDailymotion = true
+    try {
+      console.log('[MPV] Resolving Dailymotion URL via custom resolver')
+      const resolved = await DailymotionResolver.resolveDailymotionUrl(url)
+      if (resolved.cookie) {
+        console.log('[MPV] Dailymotion cookies captured for CDN auth')
+      }
+      console.log('[MPV] Resolved Dailymotion stream URL:', resolved.url)
+      playUrl = resolved.url
+      dailymotionCookie = resolved.cookie
+    } catch (err: any) {
+      console.error('[MPV] Dailymotion resolution failed:', err?.message)
       throw err
     }
   }
@@ -201,7 +219,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     // Local 127.0.0.1 / file:// streams (torrent + usenet cache) must NOT get a
     // network timeout — their server stalls while buffering and mpv would abort,
     // leaving --keep-open frozen on the first frame ("plays the same file").
-    if (!isLocalCache && !isOkCdn && !isVk) {
+    if (!isLocalCache && !isOkCdn && !isVk && !isDailymotion) {
       mpvArgs.push('--network-timeout=30')
       mpvArgs.push('--cache-secs=60')
     }
@@ -212,9 +230,15 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     } else if (isVk) {
       mpvArgs.push('--referrer=https://vk.com/')
       mpvArgs.push('--http-header-fields=Origin: https://vk.com')
+    } else if (isDailymotion) {
+      mpvArgs.push('--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0')
+      mpvArgs.push('--referrer=https://www.dailymotion.com/')
+      const fields = [`Origin: https://www.dailymotion.com`]
+      if (dailymotionCookie) fields.push(`Cookie: ${dailymotionCookie}`)
+      mpvArgs.push(`--http-header-fields=${fields.join(', ')}`)
     }
 
-    if (_referer && !isLocalCache && !isOkCdn && !isVk) {
+    if (_referer && !isLocalCache && !isOkCdn && !isVk && !isDailymotion) {
       mpvArgs.push(`--referrer=${_referer}`)
     }
   }

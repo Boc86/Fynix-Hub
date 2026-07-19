@@ -70,6 +70,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [schedulePage, setSchedulePage] = useState(1)
   const [scheduleStreams, setScheduleStreams] = useState<{ source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[]>([])
   const [scheduleStreamLoading, setScheduleStreamLoading] = useState(false)
+  const [scheduleStreamError, setScheduleStreamError] = useState<string | null>(null)
+  const [selectedReplay, setSelectedReplay] = useState<ReplayResult | null>(null)
+  const [sourcePlayError, setSourcePlayError] = useState<string | null>(null)
   const [viewKey, setViewKey] = useState(0)
   const [selectedCountry, setSelectedCountry] = useState<string>('')
   const [failedSportImages, setFailedSportImages] = useState<Set<string>>(new Set())
@@ -307,6 +310,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const loadScheduleStreams = useCallback(async (match: ScheduleMatch) => {
     setScheduleStreamLoading(true)
     setScheduleStreams([])
+    setScheduleStreamError(null)
     setFocusedIndex(0)
     try {
       const resolved = await Promise.all(match.sources
@@ -320,8 +324,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           return { source: s.source, streamNo: 1, language: 'Unknown', hd: true, embedUrl: url }
         }))
       const valid = resolved.filter(s => s.embedUrl)
-      setScheduleStreams(valid.length > 0 ? valid.map((s, i) => ({ ...s, streamNo: i + 1 })) : [])
-    } catch { setScheduleStreams([]) }
+      if (valid.length === 0) setScheduleStreamError('No playable streams found for this event')
+      else setScheduleStreams(valid.map((s, i) => ({ ...s, streamNo: i + 1 })))
+    } catch { setScheduleStreamError('Failed to resolve stream sources') }
     setScheduleStreamLoading(false)
   }, [])
 
@@ -346,9 +351,19 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     setReplaySearching(false)
   }, [store.selectedEvent, onPlay, isTeamEvent])
 
+  const handlePlaySource = useCallback(async (url: string) => {
+    setSourcePlayError(null)
+    try {
+      await onPlayUrl(url)
+    } catch (err: any) {
+      setSourcePlayError(err?.message ? `Playback failed: ${err.message}` : 'This source could not be played. Try another.')
+    }
+  }, [onPlayUrl])
+
   const goBack = useCallback(() => {
     if (showSchedule) {
       if (scheduleStreams.length > 0) setScheduleStreams([])
+      else if (scheduleStreamError) setScheduleStreamError(null)
       else setShowSchedule(false)
       setScheduleLoading(false)
       setScheduleStreamLoading(false)
@@ -376,9 +391,10 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       case 'detail':
         useSportsStore.setState({ view: 'events', selectedEvent: null, homeTeam: null, awayTeam: null })
         setReplayResults([]); setReplaySearching(false)
+        setSelectedReplay(null); setScheduleStreamError(null); setSourcePlayError(null)
         setFocusedIndex(0); break
     }
-  }, [onBack, showSchedule, scheduleStreams.length])
+  }, [onBack, showSchedule, scheduleStreams.length, scheduleStreamError])
 
   const getItems = useCallback((): any[] => {
     switch (store.view) {
@@ -406,8 +422,13 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         if (scheduleStreams.length > 0) {
           if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, scheduleStreams.length - 1)) }
           else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
-          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = scheduleStreams[focusedIndex]; if (s) onPlayUrl(s.embedUrl) }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = scheduleStreams[focusedIndex]; if (s) handlePlaySource(s.embedUrl) }
           else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setScheduleStreams([]); setFocusedIndex(0) }
+          return
+        }
+        if (scheduleStreamError) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setScheduleStreamError(null) }
+          else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setScheduleStreamError(null) }
           return
         }
         if (scheduleMatches.length > 0) {
@@ -436,10 +457,17 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       }
       const items = getItems()
       if (store.view === 'detail') {
+        if (selectedReplay) {
+          if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setReplayFocused((i: number) => Math.min(i + 1, selectedReplay.sources.length - 1)) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setReplayFocused((i: number) => Math.max(i - 1, 0)) }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = selectedReplay.sources[replayFocused]; if (s) handlePlaySource(s.url) }
+          else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setSelectedReplay(null); setReplayFocused(0); setSourcePlayError(null) }
+          return
+        }
         if (replayResults.length > 0) {
           if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setReplayFocused((i: number) => Math.min(i + 1, replayResults.length - 1)) }
           else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setReplayFocused((i: number) => Math.max(i - 1, 0)) }
-          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const r = replayResults[replayFocused]; if (r && r.sources[0]) onPlayUrl(r.sources[0].url) }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const r = replayResults[replayFocused]; if (r) setSelectedReplay(r); setReplayFocused(0); setSourcePlayError(null) }
           else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setReplayResults([]) }
           return
         }
@@ -480,7 +508,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     }
     el.addEventListener('keydown', handleKeyDown)
     return () => el.removeEventListener('keydown', handleKeyDown)
-  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, showSchedule, scheduleMatches, scheduleStreams, loadSchedule, loadScheduleStreams, onPlayUrl, totalPages, paginatedLeagues, paginationButtons, setLeaguesPage, paginatedScheduleMatches])
+  }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents, focusedIndex, loadLeagues, loadSeasons, loadEvents, loadEventDetail, goBack, handlePlayEvent, getItems, getGridCols, replayResults, replayFocused, selectedReplay, showSchedule, scheduleMatches, scheduleStreams, scheduleStreamError, loadSchedule, loadScheduleStreams, onPlayUrl, handlePlaySource, sourcePlayError, totalPages, paginatedLeagues, paginationButtons, setLeaguesPage, paginatedScheduleMatches])
 
   useEffect(() => { setFocusedIndex(0) }, [store.view, visibleSports, store.leagues, store.seasons, store.upcomingEvents, store.pastEvents])
 
@@ -563,6 +591,15 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     if (showSchedule) {
       if (scheduleLoading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Loading schedule...</div>
       if (scheduleStreamLoading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Loading stream sources...</div>
+      if (scheduleStreamError) return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 24 }}>
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>{scheduleStreamError}</div>
+          <button onClick={() => { setScheduleStreamError(null); setScheduleStreams([]) }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+            Back to schedule
+          </button>
+        </div>
+      )
       if (scheduleStreams.length > 0) {
         return (
           <div>
@@ -571,7 +608,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               {scheduleStreams.map((s, i) => (
                 <div key={i} data-focus-index={i} tabIndex={0}
                   style={eventCardStyle(isFocused(i, focusedIndex))}
-                  onClick={() => onPlayUrl(s.embedUrl)}
+                  onClick={() => handlePlaySource(s.embedUrl)}
                   onMouseEnter={() => setFocusedIndex(i)}
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, textAlign: 'center' }}>
@@ -581,6 +618,11 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 </div>
               ))}
             </div>
+            {sourcePlayError && (
+              <div style={{ fontSize: 13, color: '#ff6b6b', textAlign: 'center', marginTop: 12, padding: 8, background: 'rgba(255,0,0,0.08)', borderRadius: 6 }}>
+                {sourcePlayError}
+              </div>
+            )}
           </div>
         )
       }
@@ -924,14 +966,42 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               )}
             </div>
             {replaySearching && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Searching for replays...</div>}
-            {replayResults.length > 0 && (
+            {selectedReplay && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12, marginTop: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: 0 }}>Select Source</h3>
+                  <button onClick={() => { setSelectedReplay(null); setReplayFocused(0); setSourcePlayError(null) }}
+                    style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.7)', padding: '4px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>
+                    Back
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>{selectedReplay.title}</div>
+                {selectedReplay.sources.map((s, i) => (
+                  <div key={i} tabIndex={0}
+                    style={eventCardStyle(replayFocused === i)}
+                    onClick={() => handlePlaySource(s.url)}
+                    onMouseEnter={() => setReplayFocused(i)}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{s.label}{s.type ? ` (${s.type})` : ''}</div>
+                    </div>
+                  </div>
+                ))}
+                {sourcePlayError && (
+                  <div style={{ fontSize: 13, color: '#ff6b6b', textAlign: 'center', marginTop: 8, padding: 8, background: 'rgba(255,0,0,0.08)', borderRadius: 6 }}>
+                    {sourcePlayError}
+                  </div>
+                )}
+              </div>
+            )}
+            {replayResults.length > 0 && !selectedReplay && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12, marginTop: 16 }}>
                 <h3 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 12px 0' }}>Replays Found</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {replayResults.map((r, i) => (
                     <div key={i} tabIndex={0}
                       style={eventCardStyle(replayFocused === i)}
-                      onClick={() => { if (r.sources[0]) onPlayUrl(r.sources[0].url) }}
+                      onClick={() => { setSelectedReplay(r); setReplayFocused(0); setSourcePlayError(null) }}
                       onMouseEnter={() => setReplayFocused(i)}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, textAlign: 'center' }}>
