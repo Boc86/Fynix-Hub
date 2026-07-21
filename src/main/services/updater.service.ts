@@ -68,6 +68,9 @@ export async function checkForUpdates(): Promise<void> {
 export async function downloadUpdate(): Promise<boolean> {
   if (!isAppImage()) return false
   if (updateDownloaded) return true
+  // Immediately notify the renderer so the UpdateModal appears without waiting
+  // for the first download-progress event.
+  sendStatus({ status: 'downloading', percent: 0 })
   return new Promise((resolve) => {
     const onDownloaded = () => { cleanup(); resolve(true) }
     const onError = () => { cleanup(); resolve(false) }

@@ -3,6 +3,7 @@ import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import type { IntroSegment } from '../../types.d'
 import styles from './VideoPlayer.module.css'
+import ErrorModal from '../ErrorModal/ErrorModal'
 
 interface MediaInfo {
   tmdbId: number
@@ -22,6 +23,7 @@ interface VideoPlayerProps {
   onBack: () => void
   onNextEpisode: () => void
   onStreamError?: () => void
+  onRetryStream?: () => void
   streamUrl?: string
   streamError?: string | null
   mediaInfo?: MediaInfo
@@ -57,7 +59,7 @@ function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number,
   return { movies: [{ ids: { tmdb: tmdbId } }] }
 }
 
-export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, streamUrl, streamError, mediaInfo, playerLoading, hasNextEpisode, nextEpisodeTitle }: VideoPlayerProps) {
+export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRetryStream, streamUrl, streamError, mediaInfo, playerLoading, hasNextEpisode, nextEpisodeTitle }: VideoPlayerProps) {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const skipCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scrobbleThrottle = useRef(0)
@@ -79,6 +81,13 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   const prevPlayStateRef = useRef(false)
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
+  const retryCountRef = useRef(0)
+
+  // A live/sports stream has a streamUrl but no tmdbId. VOD/torrent have a
+  // tmdbId, so auto-replaying them from the start on a crash is undesirable.
+  const isReconnectableStream = useCallback(() => {
+    return !!streamUrl && !mediaInfo?.tmdbId
+  }, [streamUrl, mediaInfo])
 
   const saveProgress = useCallback(() => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -264,6 +273,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     let wasEnded = false
     let upNextShown = false
     let pollCount = 0
+    let failCount = 0
     let scrobbleCount = 0
 
     pollIntervalRef.current = setInterval(async () => {
@@ -280,6 +290,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         pos = poll[0]
         dur = poll[1]
         paused = poll[2]
+        failCount = 0
 
         // Hide splash on first valid time-pos
         if (pos > 0 && !splashHiddenRef.current) {
@@ -375,15 +386,39 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
         window.api.log('[VP] poll error:', e?.message || e)
         const running = await window.api.mpv.isRunning().catch(() => false)
         if (!running && !wasEnded && !playerLoading) {
-          // If the exit was already handled by the onExited handler, do nothing
           if (exitedRef.current) return
           wasEnded = true
           exitedRef.current = true
           const code = await window.api.mpv.getLastExitCode().catch(() => null)
           if (code === 42) {
             finishPlayback(true)
+          } else if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
+            retryCountRef.current++
+            window.api.log(`[VP] stream died, auto-reconnect attempt ${retryCountRef.current}`)
+            exitedRef.current = false
+            wasEnded = false
+            failCount = 0
+            onRetryStream()
           } else {
             finishPlayback(false)
+          }
+        } else if (running && !wasEnded && !playerLoading) {
+          failCount++
+          window.api.log(`[VP] mpv unresponsive (${failCount}/6)`)
+          if (failCount >= 6) {
+            wasEnded = true
+            exitedRef.current = true
+            await window.api.mpv.stop().catch(() => {})
+            if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
+              retryCountRef.current++
+              window.api.log(`[VP] stream frozen, auto-reconnect attempt ${retryCountRef.current}`)
+              exitedRef.current = false
+              wasEnded = false
+              failCount = 0
+              onRetryStream()
+            } else {
+              finishPlayback(false)
+            }
           }
         }
       }
@@ -392,7 +427,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [playerLoading, mediaInfo, scrobble, saveProgress, markAsWatched, onBack, onNextEpisode, finishPlayback])
+  }, [playerLoading, mediaInfo, scrobble, saveProgress, markAsWatched, onBack, onNextEpisode, finishPlayback, isReconnectableStream, onRetryStream])
 
   // Skip-intro detection — sends skip-intro to mpv Lua script
   useEffect(() => {
@@ -528,12 +563,11 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, stre
   if (streamError) {
     return (
       <div className={styles.player}>
-        <div className={styles.placeholder}>
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-          <p className={styles.errorText}>{streamError}</p>
-        </div>
+        <ErrorModal
+          message={streamError}
+          onBack={onBack}
+          onRetry={onStreamError}
+        />
       </div>
     )
   }

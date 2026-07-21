@@ -233,7 +233,12 @@ export function filterResults(results: TorrentResult[], resolutions?: string[], 
 
 async function searchYts(query: TorrentQuery): Promise<TorrentResult[]> {
   try {
-    const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
+  let searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
+  // For TV episodes, append SxxExx so indexers return episode-specific results
+  if (!query.query && query.type === 'episode' && query.season !== undefined && query.episode !== undefined) {
+    const epTag = `S${String(query.season).padStart(2, '0')}E${String(query.episode).padStart(2, '0')}`
+    searchTerm = `${query.title || ''} ${epTag}`.trim()
+  }
     if (!searchTerm) return []
     const res = await fetch(`https://yts.gg/api/v2/list_movies.json?query_term=${encodeURIComponent(searchTerm)}&limit=50&sort=seeds&order=desc`)
     if (!res.ok) return []
