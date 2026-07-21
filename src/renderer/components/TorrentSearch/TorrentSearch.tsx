@@ -93,9 +93,13 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   }, [])
 
   const combinedRiveResults = [...(rivestreamResults || []), ...localRiveResults]
-  const combinedUsenetResults = maxDownloadSize > 0
-    ? (usenetResults || []).filter(r => r.size <= maxDownloadSize * 1073741824)
-    : (usenetResults || [])
+  const combinedUsenetResults = (() => {
+    const filtered = maxDownloadSize > 0
+      ? (usenetResults || []).filter(r => r.size <= maxDownloadSize * 1073741824)
+      : (usenetResults || [])
+    // Cached (already downloaded) results first
+    return [...filtered].sort((a, b) => (b.streamUrl ? 1 : 0) - (a.streamUrl ? 1 : 0))
+  })()
   const overlayRef = useRef<HTMLDivElement>(null)
   const rivestreamCount = combinedRiveResults.length
   const usenetCount = combinedUsenetResults.length
@@ -156,6 +160,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
   const totalItems = rivestreamCount + usenetCount + scoredResults.length
 
   const cachedCountInList = scoredResults.filter(r => (cachedMap[r.infoHash.toLowerCase()]?.length ?? 0) > 0).length
+  const usenetCachedCount = combinedUsenetResults.filter(r => !!r.streamUrl).length
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -189,8 +194,13 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
         <div className={styles.header}>
           <h2 className={styles.title}>Select Torrent</h2>
           <p className={styles.subtitle}>{title}{year ? ` (${year})` : ''}</p>
-          {Object.keys(cachedMap).length > 0 && (
-            <p className={styles.cacheInfo}>{cachedCountInList} cached result{cachedCountInList !== 1 ? 's' : ''} available</p>
+          {(Object.keys(cachedMap).length > 0 || usenetCachedCount > 0) && (
+            <p className={styles.cacheInfo}>
+              {cachedCountInList > 0 && `${cachedCountInList} cached torrent${cachedCountInList !== 1 ? 's' : ''}`}
+              {cachedCountInList > 0 && usenetCachedCount > 0 && ' · '}
+              {usenetCachedCount > 0 && `${usenetCachedCount} cached Usenet result${usenetCachedCount !== 1 ? 's' : ''}`}
+              {' available'}
+            </p>
           )}
           <button className={styles.closeBtn} onClick={onClose}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -248,11 +258,12 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
                      onMouseEnter={() => setSelectedIdx(displayIdx)}
                    >
                      <div className={styles.resultTitle}>{r.title}</div>
-                     <div className={styles.resultMeta}>
-                       <span className={`${styles.badge} ${styles.quality}`}>{r.quality}</span>
-                       <span className={`${styles.badge} ${styles.indexer}`}>{r.indexer}</span>
-                       <span className={styles.size}>{usenetFormatSize(r.size)}</span>
-                     </div>
+                    <div className={styles.resultMeta}>
+                      <span className={`${styles.badge} ${styles.quality}`}>{r.quality}</span>
+                      <span className={`${styles.badge} ${styles.indexer}`}>{r.indexer}</span>
+                      <span className={styles.size}>{usenetFormatSize(r.size)}</span>
+                      {r.streamUrl && <span className={`${styles.badge} ${styles.cached}`}>Cached</span>}
+                    </div>
                    </div>
                  )
                })}
@@ -299,7 +310,7 @@ export default function TorrentSearch({ title, year, results, cachedMap, loading
 
         {totalItems > 0 && (
           <div className={styles.footer}>
-            <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{rivestreamCount > 0 ? ' · Direct Stream = instant play' : ''}{usenetCount > 0 ? ' · Usenet = streams via download client' : ''}{Object.keys(cachedMap).length > 0 ? ' · Cached = instant stream' : ''}</span>
+            <span className={styles.hint}>↑↓ navigate · Enter select · Esc close{rivestreamCount > 0 ? ' · Direct Stream = instant play' : ''}{usenetCount > 0 ? ' · Usenet = streams via download client' : ''}{(Object.keys(cachedMap).length > 0 || usenetCachedCount > 0) ? ' · Cached = instant stream' : ''}</span>
             {(prefLangs.length > 0 || prefRes.length > 0) && (
               <span className={styles.filterInfo}> · preferences boost results</span>
             )}

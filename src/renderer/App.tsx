@@ -541,7 +541,7 @@ export default function App() {
     // Run Usenet search in parallel (fire and forget)
     if (useSettingsStore.getState().usenetSearchEnabled && useSettingsStore.getState().usenetEnabled) {
       setUsenetSearching(true)
-      window.api.usenet.search({ query: query.title || query.query, title: query.title, year: query.year, type: query.type === 'episode' ? 'tv' : 'movie', season: query.season, episode: query.episode })
+      window.api.usenet.search({ query: query.title || query.query, title: query.title, year: query.year, type: query.type === 'episode' ? 'tv' : 'movie', season: query.season, episode: query.episode, tmdbId: query.tmdbId })
         .then((results: UsenetResult[]) => {
           setUsenetResults(results || [])
           setUsenetSearching(false)
@@ -1367,6 +1367,23 @@ export default function App() {
     }
   }, [tryAutoPlayResult])
 
+  // Kodi-style live reconnect: re-open the same live/sports URL at its new edge
+  // when the stream dies or freezes — handled once by VideoPlayer before bailing.
+  const onRetryStream = useCallback(() => {
+    const url = lastStreamUrlRef.current
+    if (!url) return
+    const audioLang = getAudioLang()
+    setPlayerLoading(true)
+    setStreamError(null)
+    window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, lastStreamRefererRef.current)
+      .catch((err: any) => {
+        window.api.log('[App] onRetryStream failed:', err?.message || err)
+        setStreamError(err?.message || 'Failed to reconnect stream')
+        setPlayerLoading(false)
+      })
+    setPlayerLoading(false)
+  }, [accentColor])
+
   const handleNextEpisode = useCallback(() => {
     const state = useMediaStore.getState()
     const { selectedSeason, selectedEpisode, seasonEpisodes } = state
@@ -1590,6 +1607,7 @@ export default function App() {
           mediaInfo={playerInfo}
           playerLoading={playerLoading}
           onStreamError={onStreamError}
+          onRetryStream={onRetryStream}
           onBack={handlePlayerBack}
           onNextEpisode={handleNextEpisode}
         />
