@@ -17,19 +17,44 @@ interface EPGProgramme {
   image: string
 }
 
+interface MappedChannel {
+  epgChannelId: string
+  liveTvChannelId: string
+  displayName: string
+  icon: string
+  liveTvName: string
+  liveTvLogo: string
+  liveTvCountryCode: string
+  liveTvCountryName: string
+  liveTvCountryFlag: string
+  liveTvPlayerUrl: string
+}
+
+interface LiveTvChannel {
+  id: string
+  name: string
+  image: string
+  logoImage: string
+  countryCode: string
+  countryName: string
+  countryFlag: string
+  playerUrl: string
+}
+
 const HOUR_MS = 3600
 const SLOT_WIDTH = 120
 const ROW_HEIGHT = 64
 const CHANNEL_WIDTH = 200
 const HEADER_HEIGHT = 50
-const NOW_NEXT_HEIGHT = 80
 const SCROLL_AMOUNT = 300
 
-export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) => Promise<void>; onBack: () => void }) {
-  const [channels, setChannels] = useState<EPGChannel[]>([])
+export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: (url: string) => Promise<void>; onBack: () => void; liveTvChannels?: LiveTvChannel[] }) {
+  const [channels, setChannels] = useState<MappedChannel[]>([])
   const [selectedChannelIdx, setSelectedChannelIdx] = useState(0)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [playing, setPlaying] = useState<string | null>(null)
+  const [playError, setPlayError] = useState<string | null>(null)
   const [nowNextMap, setNowNextMap] = useState<Record<string, { now: EPGProgramme | null; next: EPGProgramme | null }>>({})
   const [gridData, setGridData] = useState<Record<string, EPGProgramme[]>>({})
   const gridRef = useRef<HTMLDivElement>(null)
@@ -41,22 +66,22 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
 
   useEffect(() => {
     setLoading(true)
-    window.api.epg.getChannels().then(async (chs: EPGChannel[]) => {
+    window.api.epg.getChannels(liveTvChannels).then(async (chs: MappedChannel[]) => {
       setChannels(chs)
       if (chs.length === 0) { setLoading(false); return }
 
       const [nnMap, schedMap] = await Promise.all([
         Promise.all(chs.map(async (ch) => {
           try {
-            const nn = await window.api.epg.getNowNext(ch.id)
-            return [ch.id, nn] as const
-          } catch { return [ch.id, { now: null, next: null }] as const }
+            const nn = await window.api.epg.getNowNext(ch.epgChannelId)
+            return [ch.liveTvChannelId, nn] as const
+          } catch { return [ch.liveTvChannelId, { now: null, next: null }] as const }
         })),
         Promise.all(chs.map(async (ch) => {
           try {
-            const sched = await window.api.epg.getSchedule(ch.id, dateStr)
-            return [ch.id, sched] as const
-          } catch { return [ch.id, [] as EPGProgramme[]] as const }
+            const sched = await window.api.epg.getSchedule(ch.epgChannelId, dateStr)
+            return [ch.liveTvChannelId, sched] as const
+          } catch { return [ch.liveTvChannelId, [] as EPGProgramme[]] as const }
         })),
       ])
 
@@ -64,7 +89,7 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
       setGridData(Object.fromEntries(schedMap))
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [])
+  }, [liveTvChannels])
 
   useEffect(() => { containerRef.current?.focus() }, [loading])
 
@@ -106,11 +131,6 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
     return ((now - p.start) / total) * 100
   }
 
-  const programmeWidth = (p: EPGProgramme) => {
-    const dur = p.stop - p.start
-    return Math.max(SLOT_WIDTH, (dur / HOUR_MS) * SLOT_WIDTH)
-  }
-
   const programmeLeft = (p: EPGProgramme) => {
     return ((p.start - dayStart) / HOUR_MS) * SLOT_WIDTH
   }
@@ -120,12 +140,37 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
     gridRef.current.scrollBy({ left: dir === 'left' ? -SCROLL_AMOUNT : SCROLL_AMOUNT, behavior: 'smooth' })
   }
 
+  const playChannel = async (ch: MappedChannel) => {
+    setPlaying(ch.liveTvChannelId)
+    setPlayError(null)
+    try {
+      const result = await window.api.damiTv.extractUrl({
+        id: ch.liveTvChannelId,
+        name: ch.liveTvName,
+        countryCode: ch.liveTvCountryCode,
+        playerUrl: ch.liveTvPlayerUrl,
+      })
+      if (result?.hlsUrl) {
+        await onPlayUrl(result.hlsUrl)
+      } else {
+        setPlayError(`No playable source for ${ch.liveTvName}`)
+      }
+    } catch (err: any) {
+      setPlayError(`Failed to play ${ch.liveTvName}: ${err?.message || 'Unknown error'}`)
+    }
+    setPlaying(null)
+  }
+
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === 'Escape' || e.key === 'Backspace') { onBack(); return }
     if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedChannelIdx(i => Math.min(i + 1, channels.length - 1)); setSelectedChannelIdx(i => Math.min(i + 1, channels.length - 1)) }
     if (e.key === 'ArrowUp') { e.preventDefault(); setFocusedChannelIdx(i => Math.max(i - 1, 0)); setSelectedChannelIdx(i => Math.max(i - 1, 0)) }
     if (e.key === 'ArrowLeft') { e.preventDefault(); scrollGrid('left') }
     if (e.key === 'ArrowRight') { e.preventDefault(); scrollGrid('right') }
+    if (e.key === 'Enter') {
+      const ch = channels[focusedChannelIdx]
+      if (ch) playChannel(ch)
+    }
   }
 
   if (loading) {
@@ -140,7 +185,7 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
   if (channels.length === 0) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16 }}>
-        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No EPG data available</div>
+        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No EPG data available for your visible channels</div>
         <button onClick={() => { setLoading(true); window.api.epg.refresh().then(() => window.location.reload()).catch(() => setLoading(false)) }}
           style={{ padding: '8px 20px', borderRadius: 20, border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600 }}
         >Refresh EPG</button>
@@ -149,13 +194,19 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
   }
 
   const selCh = channels[selectedChannelIdx]
-  const selNN = selCh ? nowNextMap[selCh.id] : null
+  const selNN = selCh ? nowNextMap[selCh.liveTvChannelId] : null
 
   return (
     <div ref={containerRef} tabIndex={0} onKeyDown={handleKey} style={{ display: 'flex', flexDirection: 'column', height: '100%', outline: 'none' }}>
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border, #2a2a4a)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: 0 }}>TV Guide</h2>
       </div>
+
+      {playError && (
+        <div style={{ padding: '8px 16px', background: 'rgba(255,59,48,0.15)', color: '#ff3b30', fontSize: 12 }}>
+          {playError}
+        </div>
+      )}
 
       {selNN && (selNN.now || selNN.next) && (
         <div style={{ display: 'flex', gap: 12, padding: 12, background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border, #2a2a4a)' }}>
@@ -190,8 +241,9 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
           <div style={{ height: HEADER_HEIGHT, borderBottom: '1px solid var(--border, #2a2a4a)', padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>CHANNELS</div>
           <div ref={channelListRef} style={{ overflow: 'auto', height: `calc(100% - ${HEADER_HEIGHT}px)` }}>
             {channels.map((ch, i) => (
-              <div key={ch.id} data-ch-row={i}
+              <div key={ch.liveTvChannelId} data-ch-row={i}
                 onClick={() => { setFocusedChannelIdx(i); setSelectedChannelIdx(i) }}
+                onDoubleClick={() => playChannel(ch)}
                 style={{
                   height: ROW_HEIGHT, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', cursor: 'pointer',
                   background: i === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.18)' : (i === selectedChannelIdx ? 'rgba(255,255,255,0.06)' : 'transparent'),
@@ -200,8 +252,11 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
                 }}
                 onMouseEnter={() => setFocusedChannelIdx(i)}
               >
-                {ch.icon && <img src={ch.icon} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                <span style={{ fontSize: 12, fontWeight: 500, color: i === focusedChannelIdx ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.displayName}</span>
+                {ch.liveTvLogo
+                  ? <img src={ch.liveTvLogo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  : <span style={{ fontSize: 12, fontWeight: 500, color: i === focusedChannelIdx ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
+                }
+                {playing === ch.liveTvChannelId && <div style={{ width: 12, height: 12, border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
               </div>
             ))}
           </div>
@@ -217,28 +272,40 @@ export default function EPG({ onPlayUrl, onBack }: { onPlayUrl: (url: string) =>
           </div>
 
           {channels.map((ch, ci) => {
-            const progs = gridData[ch.id] || []
+            const raw = (gridData[ch.liveTvChannelId] || []).slice().sort((a, b) => a.start - b.start)
+            const progs: { p: EPGProgramme; clampedStop: number }[] = []
+            let lastEnd = 0
+            for (let ri = 0; ri < raw.length; ri++) {
+              const p = raw[ri]
+              if (p.start < lastEnd) continue
+              const nextStart = ri < raw.length - 1 ? raw[ri + 1].start : dayEnd
+              const clampedStop = Math.min(p.stop, nextStart)
+              progs.push({ p, clampedStop })
+              lastEnd = clampedStop
+            }
             const totalWidth = timeSlots.length * SLOT_WIDTH
             return (
-              <div key={ch.id} data-epg-row={ci} style={{ height: ROW_HEIGHT, position: 'relative', minWidth: totalWidth, borderBottom: '1px solid rgba(255,255,255,0.04)', background: ci === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.06)' : 'transparent' }}>
-                {progs.map((p, pi) => {
-                  const w = programmeWidth(p)
+              <div key={ch.liveTvChannelId} data-epg-row={ci} style={{ height: ROW_HEIGHT, position: 'relative', minWidth: totalWidth, borderBottom: '1px solid rgba(255,255,255,0.04)', background: ci === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.06)' : 'transparent' }}>
+                {progs.map(({ p, clampedStop }, pi) => {
+                  const dur = clampedStop - p.start
+                  const w = (dur / HOUR_MS) * SLOT_WIDTH
                   const left = programmeLeft(p)
                   const live = isLive(p)
                   return (
                     <div key={`${p.start}-${pi}`}
                       style={{
                         position: 'absolute', top: 4, left, width: w - 2, height: ROW_HEIGHT - 8, borderRadius: 6,
+                        boxSizing: 'border-box',
                         background: live ? 'rgba(var(--accent-rgb), 0.2)' : 'rgba(255,255,255,0.06)',
                         border: live ? '1px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)',
                         padding: '4px 8px', cursor: 'pointer', overflow: 'hidden',
                         display: 'flex', flexDirection: 'column',
                       }}
                       onClick={() => {
-                        // Select this channel when clicking a programme
                         setFocusedChannelIdx(ci)
                         setSelectedChannelIdx(ci)
                       }}
+                      onDoubleClick={() => playChannel(ch)}
                     >
                       <div style={{ fontSize: 11, fontWeight: 600, color: live ? 'var(--accent)' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
                       <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{formatTime(p.start)}</div>

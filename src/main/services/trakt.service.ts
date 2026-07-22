@@ -27,6 +27,7 @@ let clientId = ''
 let clientSecret = ''
 let accessToken: string | null = null
 let refreshToken: string | null = null
+let refreshLock: Promise<void> | null = null
 
 export function loadCredentials() {
   clientId = deobfuscate(OBFUSCATED_CLIENT_ID)
@@ -70,41 +71,59 @@ async function fetchTrakt(path: string, options: RequestInit = {}): Promise<any>
   const res = await fetch(`${TRAKT_BASE}${path}`, { ...options, headers })
 
   if (res.status === 401 && refreshToken) {
-    console.log(`[Trakt] 401 on ${path}, attempting token refresh... refreshToken=${!!refreshToken} clientId=${!!clientId} clientSecret=${!!clientSecret}`)
-    const refreshRes = await fetch(`${TRAKT_AUTH_BASE}/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': USER_AGENT,
-      },
-      body: JSON.stringify({
-        refresh_token: refreshToken,
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: 'refresh_token',
-        redirect_uri: 'urn:ietf:wg:oauth:2.0:oob',
-      }),
-    })
-    console.log(`[Trakt] Token refresh response: ${refreshRes.status}`)
-    if (refreshRes.ok) {
-      const data = await refreshRes.json()
-      accessToken = data.access_token
-      refreshToken = data.refresh_token
-      setTokens(data.access_token, data.refresh_token)
+    // If another concurrent request is already refreshing, wait for it
+    if (refreshLock) {
+      await refreshLock
+      // Retry with the refreshed token
       headers['Authorization'] = `Bearer ${accessToken}`
-      console.log('[Trakt] Token refreshed successfully, retrying request')
       const retryRes = await fetch(`${TRAKT_BASE}${path}`, { ...options, headers })
       if (retryRes.ok) return retryRes.json()
       const body = await retryRes.text().catch(() => '(could not read body)')
       throw new Error(`Trakt error: ${retryRes.status} - ${body.slice(0, 500)}`)
-    } else if (refreshRes.status === 403 || refreshRes.status === 429 || refreshRes.status >= 500) {
-      const errBody = await refreshRes.text().catch(() => 'unknown')
-      console.warn(`[Trakt] Token refresh blocked (${refreshRes.status}) - likely a transient network/WAF issue, keeping existing tokens. Body: ${errBody.slice(0, 300)}`)
-    } else {
-      const errBody = await refreshRes.text().catch(() => 'unknown')
-      console.warn(`[Trakt] Token refresh failed (${refreshRes.status}): ${errBody.slice(0, 300)}, clearing auth`)
-      setTokens(null, null)
+    }
+
+    console.log(`[Trakt] 401 on ${path}, attempting token refresh... refreshToken=${!!refreshToken} clientId=${!!clientId} clientSecret=${!!clientSecret}`)
+    let resolveLock: () => void
+    refreshLock = new Promise<void>(r => { resolveLock = r })
+    try {
+      const refreshRes = await fetch(`${TRAKT_AUTH_BASE}/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': USER_AGENT,
+        },
+        body: JSON.stringify({
+          refresh_token: refreshToken,
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: 'refresh_token',
+          redirect_uri: 'urn:ietf:wg:oauth:2.0:oob',
+        }),
+      })
+      console.log(`[Trakt] Token refresh response: ${refreshRes.status}`)
+      if (refreshRes.ok) {
+        const data = await refreshRes.json()
+        accessToken = data.access_token
+        refreshToken = data.refresh_token
+        setTokens(data.access_token, data.refresh_token)
+        headers['Authorization'] = `Bearer ${accessToken}`
+        console.log('[Trakt] Token refreshed successfully, retrying request')
+        const retryRes = await fetch(`${TRAKT_BASE}${path}`, { ...options, headers })
+        if (retryRes.ok) return retryRes.json()
+        const body = await retryRes.text().catch(() => '(could not read body)')
+        throw new Error(`Trakt error: ${retryRes.status} - ${body.slice(0, 500)}`)
+      } else if (refreshRes.status === 403 || refreshRes.status === 429 || refreshRes.status >= 500) {
+        const errBody = await refreshRes.text().catch(() => 'unknown')
+        console.warn(`[Trakt] Token refresh blocked (${refreshRes.status}) - likely a transient network/WAF issue, keeping existing tokens. Body: ${errBody.slice(0, 300)}`)
+      } else {
+        const errBody = await refreshRes.text().catch(() => 'unknown')
+        console.warn(`[Trakt] Token refresh failed (${refreshRes.status}): ${errBody.slice(0, 300)}, clearing auth`)
+        setTokens(null, null)
+      }
+    } finally {
+      refreshLock = null
+      resolveLock!()
     }
   }
 

@@ -232,10 +232,12 @@ const api = {
     extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => ipcRenderer.invoke('dami-tv:extract-url', ch),
   },
   epg: {
-    getChannels: () => ipcRenderer.invoke('epg:get-channels'),
+    getChannels: (liveTvChannels?: any[]) => ipcRenderer.invoke('epg:get-channels', liveTvChannels),
     getNowNext: (channelId: string) => ipcRenderer.invoke('epg:get-now-next', channelId),
     getSchedule: (channelId: string, date: string) => ipcRenderer.invoke('epg:get-schedule', channelId, date),
-    refresh: () => ipcRenderer.invoke('epg:refresh'),
+    refresh: (countryCodes?: string[]) => ipcRenderer.invoke('epg:refresh', countryCodes),
+    buildMap: (liveTvChannels: any[]) => ipcRenderer.invoke('epg:build-map', liveTvChannels),
+    ensureLoaded: () => ipcRenderer.invoke('epg:ensure-loaded'),
   },
   usenet: {
     search: (query: any) => ipcRenderer.invoke('usenet:search', query),

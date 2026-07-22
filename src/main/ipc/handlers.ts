@@ -746,7 +746,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return DamiTVService.extractChannelUrl(ch)
   })
 
-  handle('epg:get-channels', async () => {
+  handle('epg:get-channels', async (_event, liveTvChannels?: any[]) => {
+    if (liveTvChannels && liveTvChannels.length > 0) {
+      return EpgService.getMappedChannels(liveTvChannels)
+    }
     return EpgService.getChannels()
   })
 
@@ -758,8 +761,16 @@ export async function registerIpcHandlers(): Promise<void> {
     return EpgService.getSchedule(channelId, date)
   })
 
-  handle('epg:refresh', async () => {
-    await EpgService.refreshEpg()
+  handle('epg:refresh', async (_event, countryCodes?: string[]) => {
+    await EpgService.refreshEpg(countryCodes)
+  })
+
+  handle('epg:build-map', async (_event, liveTvChannels: any[]) => {
+    EpgService.buildChannelMap(liveTvChannels)
+  })
+
+  handle('epg:ensure-loaded', async () => {
+    await EpgService.ensureEpgLoaded()
   })
 
   handle('usenet:search', async (event, query) => {

@@ -47,6 +47,7 @@ export default function App() {
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null)
   const [virtualKeyboardOpen, setVirtualKeyboardOpen] = useState(false)
   const [addProfilePromptOpen, setAddProfilePromptOpen] = useState(false)
+  const [epgLiveTvChannels, setEpgLiveTvChannels] = useState<any[]>([])
   const [torrentResults, setTorrentResults] = useState<TorrentResult[]>([])
   const [torrentCachedMap, setTorrentCachedMap] = useState<Record<string, string[]>>({})
   const [rivestreamResults, setRivestreamResults] = useState<RivestreamResult[]>([])
@@ -323,6 +324,18 @@ export default function App() {
   useEffect(() => { torrentSearchOpenRef.current = torrentSearchOpen }, [torrentSearchOpen])
   useEffect(() => { viewRef.current = view }, [view])
   useEffect(() => { playerInfoRef.current = playerInfo }, [playerInfo])
+
+  const selectedLiveTvCountries = useSettingsStore((s) => s.selectedLiveTvCountries)
+  useEffect(() => {
+    if (view !== 'epg') return
+    window.api.damiTv.getChannels().then((chs: any[]) => {
+      let filtered = chs
+      if (selectedLiveTvCountries.length > 0) {
+        filtered = chs.filter((c: any) => selectedLiveTvCountries.includes(c.countryCode))
+      }
+      setEpgLiveTvChannels(filtered)
+    }).catch(() => setEpgLiveTvChannels([]))
+  }, [view, selectedLiveTvCountries])
 
   const navigate = useCallback((v: View) => {
     if (v === 'youtube') {
@@ -1681,6 +1694,36 @@ export default function App() {
               }
             }}
             onBack={() => goBack()}
+          />
+        </div>
+      )}
+      {view === 'epg' && (
+        <div className="animate-fade">
+          <EPG
+            onPlayUrl={async (url) => {
+              setTorrentSearchOpen(false)
+              setFreeSearchOpen(false)
+              setFreeSearchQuery('')
+              setPlayerLoading(true)
+              setStreamError(null)
+              navigate('player')
+              try {
+                currentInfoHashRef.current = null
+                resumePositionRef.current = undefined
+                const audioLang = getAudioLang()
+                lastStreamUrlRef.current = url
+                const origin = new URL(url).origin + '/'
+                lastStreamRefererRef.current = origin
+                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, origin)
+                setPlayerLoading(false)
+              } catch (err: any) {
+                window.api.log('[App] EPG playback failed:', err.message)
+                setStreamError(err?.message || 'Failed to start EPG playback')
+                setPlayerLoading(false)
+              }
+            }}
+            onBack={() => goBack()}
+            liveTvChannels={epgLiveTvChannels}
           />
         </div>
       )}

@@ -399,6 +399,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       // Sync trakt state with active profile
       const activeProfile = get().getActiveProfile();
+
+      // If top-level DB keys are fresher than the profile's tokens (e.g. after
+      // a token refresh while the app was running), update the profile so it
+      // doesn't overwrite the fresh tokens on next loadFromDisk.
+      if (activeProfile && settings.traktAccessToken && settings.traktAccessToken !== activeProfile.traktAccessToken) {
+        const updatedProfiles = get().profiles.map(p =>
+          p.id === activeProfile!.id
+            ? { ...p, traktAccessToken: settings.traktAccessToken as string, traktRefreshToken: (settings.traktRefreshToken as string) || p.traktRefreshToken }
+            : p
+        )
+        set({ profiles: updatedProfiles })
+        get().saveToDisk()
+      }
+
       if (activeProfile && activeProfile.traktAccessToken) {
         try {
           await window.api.trakt.setTokens(

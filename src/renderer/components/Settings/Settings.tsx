@@ -1802,7 +1802,7 @@ export default function Settings({ onClose }: SettingsProps) {
                           <button
                             key={country.code}
                             tabIndex={0}
-                            className={`${styles.toggle} ${selected || (localLiveTvCountries.length === 0) ? styles.toggleActive : ''}`}
+                            className={`${styles.toggle} ${selected ? styles.toggleActive : ''}`}
                             onClick={() => {
                               if (localLiveTvCountries.length === 0) {
                                 const next = [country.code]

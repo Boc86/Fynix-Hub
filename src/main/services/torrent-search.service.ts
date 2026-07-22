@@ -199,21 +199,27 @@ function matchesQuality(title: string, resolutions: string[]): boolean {
 function matchesLanguage(title: string, languages: string[]): boolean {
   if (!languages || languages.length === 0) return true
   const lower = title.toLowerCase()
+  const tags: Record<string, string[]> = {
+    english: ['english', 'eng', 'en'],
+    spanish: ['spanish', 'esp', 'es', 'castellano', 'latino'],
+    french: ['french', 'fr', 'fra', 'vf', 'vostfr'],
+    german: ['german', 'de', 'ger', 'deutsch'],
+    italian: ['italian', 'it', 'ita'],
+    portuguese: ['portuguese', 'pt', 'por', 'brazilian'],
+    japanese: ['japanese', 'jp', 'jap', 'jpn'],
+    korean: ['korean', 'kr', 'kor'],
+    chinese: ['chinese', 'cn', 'chi', 'mandarin', 'cantonese'],
+    russian: ['russian', 'ru', 'rus'],
+    hindi: ['hindi', 'hi'],
+    arabic: ['arabic', 'ar', 'ara'],
+  }
+  // Check if title contains ANY known language tag
+  const allKnownTags = Object.values(tags).flat()
+  const hasLangTag = allKnownTags.some(t => lower.includes(t))
+  // Untagged titles pass through (no info = could be any language)
+  if (!hasLangTag) return true
+  // Tagged titles must match one of the requested languages
   return languages.some(lang => {
-    const tags: Record<string, string[]> = {
-      english: ['english', 'eng', 'en'],
-      spanish: ['spanish', 'esp', 'es', 'castellano', 'latino'],
-      french: ['french', 'fr', 'fra', 'vf', 'vostfr'],
-      german: ['german', 'de', 'ger', 'deutsch'],
-      italian: ['italian', 'it', 'ita'],
-      portuguese: ['portuguese', 'pt', 'por', 'brazilian'],
-      japanese: ['japanese', 'jp', 'jap', 'jpn'],
-      korean: ['korean', 'kr', 'kor'],
-      chinese: ['chinese', 'cn', 'chi', 'mandarin', 'cantonese'],
-      russian: ['russian', 'ru', 'rus'],
-      hindi: ['hindi', 'hi'],
-      arabic: ['arabic', 'ar', 'ara'],
-    }
     const key = lang.toLowerCase()
     const patterns = tags[key] || [key]
     return patterns.some(p => lower.includes(p))
