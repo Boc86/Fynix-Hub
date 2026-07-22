@@ -470,10 +470,16 @@ function fuzzyMatch(search: string, target: string): boolean {
     if (matchCount >= Math.min(searchTokens.length, 2)) return true
   }
 
-  // Character subsequence (fuzzy): all chars of search appear in order
+  // Character subsequence (fuzzy): all chars of search appear in order,
+  // with max 5-char gap between consecutive matches
   let si = 0
+  let prevTi = -1
   for (let ti = 0; ti < targetNorm.length && si < searchNorm.length; ti++) {
-    if (targetNorm[ti] === searchNorm[si]) si++
+    if (targetNorm[ti] === searchNorm[si]) {
+      if (prevTi >= 0 && ti - prevTi > 5) break
+      prevTi = ti
+      si++
+    }
   }
   return si >= searchNorm.length
 }
@@ -483,13 +489,22 @@ function parseEpisodeToken(name: string): { season: number; episode: number } | 
   const patterns = [
     /[ ._\[]s(\d{1,2})[ ._]?e(\d{1,3})/i,
     /[ ._\[](\d{1,2})x(\d{1,3})[ ._]/i,
-    /[ ._](\d{1,2})(\d{2})[ ._]/, // e.g. " 0102 " -> S01E02
   ]
   for (const p of patterns) {
     const m = name.match(p)
     if (m) {
       const season = parseInt(m[1], 10)
       const episode = parseInt(m[2], 10)
+      if (season >= 0 && season <= 99 && episode >= 0 && episode <= 999) return { season, episode }
+    }
+  }
+  // 4-digit fallback (e.g. "0102" → S01E02), reject year-like values (1900-2099)
+  const m4 = name.match(/[ ._](\d{1,2})(\d{2})[ ._]/)
+  if (m4) {
+    const combined = parseInt(m4[1] + m4[2], 10)
+    if (combined < 1900 || combined > 2099) {
+      const season = parseInt(m4[1], 10)
+      const episode = parseInt(m4[2], 10)
       if (season >= 0 && season <= 99 && episode >= 0 && episode <= 999) return { season, episode }
     }
   }

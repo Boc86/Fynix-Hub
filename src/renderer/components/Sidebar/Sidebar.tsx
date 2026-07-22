@@ -4,7 +4,7 @@ import { useSettingsStore } from '../../store/settingsStore'
 
 export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'live-tv' | 'epg' | 'settings'
 
-export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'live-tv', 'settings']
+export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'live-tv', 'epg', 'settings']
 
 interface SidebarProps {
   open: boolean
@@ -43,6 +43,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
   const setActiveProfile = useSettingsStore((s) => s.setActiveProfile)
   const activeProfile = profiles.find((p) => p.id === activeProfileId)
   const liveTvEnabled = useSettingsStore((s) => s.liveTvEnabled)
+  const sportsEnabled = useSettingsStore((s) => s.sportsEnabled)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [profileMenuFocused, setProfileMenuFocused] = useState(0)
   const profileMenuItemsRef = useRef<HTMLButtonElement[]>([])
@@ -53,8 +54,9 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     { view: 'movies' as NavView, label: 'Movies', icon: 'movies' },
     { view: 'tv-shows' as NavView, label: 'TV Shows', icon: 'tv-shows' },
     { view: 'youtube' as NavView, label: 'YouTube', icon: 'youtube' },
-    { view: 'sports' as NavView, label: 'Sports', icon: 'sports' },
+    ...(sportsEnabled ? [{ view: 'sports' as NavView, label: 'Sports', icon: 'sports' }] : []),
     ...(liveTvEnabled ? [{ view: 'live-tv' as NavView, label: 'Live TV', icon: 'live-tv' }] : []),
+    ...(liveTvEnabled ? [{ view: 'epg' as NavView, label: 'EPG', icon: 'epg' }] : []),
   ]
 
   const bottomItems = [

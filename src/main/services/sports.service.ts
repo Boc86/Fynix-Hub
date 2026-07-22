@@ -186,6 +186,11 @@ export async function getSportsList(): Promise<SportarrSport[]> {
     const data = await http.get<SportarrSport>('/sports')
     let sports = data.items.filter(s => s.isActive)
     sports = await populateImages('sport', sports, 'iconUrl')
+    // Ensure iconUrl is always an absolute URL
+    sports = sports.map(s => ({
+      ...s,
+      iconUrl: s.iconUrl && !s.iconUrl.startsWith('http') ? `${SPORTARR_IMG_BASE}${s.iconUrl}` : s.iconUrl
+    }))
     console.log(`[Sports] getSportsList: ${sports.length} sports, with image count: ${sports.filter(s => s.iconUrl).length}`)
     CacheService.setCache(cacheKey, JSON.stringify(sports), 86400000)
     return sports
