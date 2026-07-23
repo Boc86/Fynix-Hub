@@ -529,6 +529,9 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     } else if (mediaInfo.mediaType === 'movie' && movie.productionCompanies && movie.productionCompanies.length > 0) {
       clearlogoText = movie.productionCompanies[0].name
     }
+    if (!clearlogoText) {
+      clearlogoText = (selectedMedia as any).title || (selectedMedia as any).name || ''
+    }
     if (clearlogoText) {
       window.api.mpv.setClearlogo(clearlogoText).catch(() => {})
     }

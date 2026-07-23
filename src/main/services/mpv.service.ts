@@ -267,6 +267,11 @@ export async function startPlayback(url: string, resumePosition?: number, accent
       mpvArgs.push(`--script=${scriptPath}`)
       console.log('[MPV] Loading custom OSC script:', scriptPath)
     }
+    const thumbfastPath = path.join(mpvDir, 'scripts', 'thumbfast.lua')
+    if (fs.existsSync(thumbfastPath)) {
+      mpvArgs.push(`--script=${thumbfastPath}`)
+      console.log('[MPV] Loading thumbfast script:', thumbfastPath)
+    }
   }
 
   const isReplayBypass = /^https?:\/\/.*okcdn\.ru/i.test(playUrl) || /vk\.com|vkvideo/i.test(playUrl)
@@ -285,6 +290,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   const scriptOpts = [
     `fynix-accent=${accent}`,
     'fynix-hide_timeout=3',
+    `thumbfast-mpv_path=${cmd}`,
   ].join(',')
   mpvArgs.push(`--script-opts=${scriptOpts}`)
 
