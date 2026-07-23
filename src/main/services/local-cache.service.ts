@@ -214,9 +214,30 @@ function serveTorrentStream(
 
   info.stream.pipe(res)
   info.stream.on('error', () => { if (!res.writableEnded) res.end() })
+
+  // If the torrent stalls (no data for 15s), end the response so mpv can
+  // reconnect. Without this, a paused torrent hangs the HTTP response
+  // forever, mpv's video output freezes, and the system monitor kills it.
+  let stallTimer: ReturnType<typeof setTimeout> | null = null
+  const STALL_TIMEOUT = 15000
+  const resetStall = () => {
+    if (stallTimer) clearTimeout(stallTimer)
+    stallTimer = setTimeout(() => {
+      debug('Torrent stream stalled, ending response')
+      info.stream.destroy()
+      if (!res.writableEnded) res.end()
+    }, STALL_TIMEOUT)
+  }
+  info.stream.on('data', resetStall)
+  resetStall()
+  res.on('close', () => { if (stallTimer) clearTimeout(stallTimer) })
 }
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+  // Prevent unhandled socket errors from crashing the Electron main process.
+  req.on('error', () => { if (!res.writableEnded) res.end() })
+  res.on('error', () => {})
+
   const url = req.url || '/'
 
   // Handle /webtorrent/<infoHash>/<fileIndex> — stream via WebTorrent in-memory
@@ -282,6 +303,9 @@ export function init(): void {
 
   if (server) return
   server = http.createServer(handleRequest)
+  server.requestTimeout = 300000
+  server.headersTimeout = 60000
+  server.keepAliveTimeout = 30000
   server.listen(0, '127.0.0.1', () => {
     const addr = server!.address()
     if (addr && typeof addr === 'object') {
@@ -293,7 +317,14 @@ export function init(): void {
 
 export function destroy(): void {
   if (server) {
+    // Force-close active connections so mpv's HTTP client doesn't hang.
+    // server.close() alone waits for keep-alive connections to drain.
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections()
+    }
     server.close()
     server = null
+    serverPort = 0
+    torrentStreamFactory = null
   }
 }
