@@ -518,18 +518,6 @@ export async function setAutoplayNext(autoplay: boolean): Promise<void> {
   } catch {}
 }
 
-export async function setClearlogo(text: string): Promise<void> {
-  try {
-    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'set-clearlogo', text] })
-  } catch {}
-}
-
-export async function clearClearlogo(): Promise<void> {
-  try {
-    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'clear-clearlogo'] })
-  } catch {}
-}
-
 export async function setPlot(text: string): Promise<void> {
   try {
     const truncated = text.length > 500 ? text.slice(0, 500) + '...' : text

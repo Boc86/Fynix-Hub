@@ -189,8 +189,6 @@ const api = {
       hideSplash: () => ipcRenderer.invoke('mpv:hide-splash'),
       setHasNext: (hasNext: boolean) => ipcRenderer.invoke('mpv:set-has-next', hasNext),
       setAutoplayNext: (autoplay: boolean) => ipcRenderer.invoke('mpv:set-auto-play-next', autoplay),
-      setClearlogo: (text: string) => ipcRenderer.invoke('mpv:set-clearlogo', text),
-      clearClearlogo: () => ipcRenderer.invoke('mpv:clear-clearlogo'),
       setPlot: (text: string) => ipcRenderer.invoke('mpv:set-plot', text),
       setUpNext: (opts: { title: string; subtitle: string; countdown: number }) =>
         ipcRenderer.invoke('mpv:set-up-next', opts),

@@ -528,25 +528,9 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     fetchSubtitles()
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
 
-  // Send clearlogo and plot to mpv
+  // Send plot to mpv
   useEffect(() => {
     if (!mediaInfo || mediaInfo.isTrailer || !selectedMedia) return
-
-    // Clearlogo: network name (TV) or production company (movie) or media title
-    const tv = selectedMedia as any
-    const movie = selectedMedia as any
-    let clearlogoText = ''
-    if (mediaInfo.mediaType === 'tv' && tv.networks && tv.networks.length > 0) {
-      clearlogoText = tv.networks[0].name
-    } else if (mediaInfo.mediaType === 'movie' && movie.productionCompanies && movie.productionCompanies.length > 0) {
-      clearlogoText = movie.productionCompanies[0].name
-    }
-    if (!clearlogoText) {
-      clearlogoText = (selectedMedia as any).title || (selectedMedia as any).name || ''
-    }
-    if (clearlogoText) {
-      window.api.mpv.setClearlogo(clearlogoText).catch(() => {})
-    }
 
     // Plot: movie overview or fetch episode overview
     const sendPlot = (text: string) => {

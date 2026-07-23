@@ -599,18 +599,6 @@ export async function registerIpcHandlers(): Promise<void> {
     await MpvService.setAutoplayNext(autoplay)
   })
 
-  handle('mpv:set-clearlogo', async (_event, text: string) => {
-    if (!text) {
-      await MpvService.clearClearlogo()
-      return
-    }
-    await MpvService.setClearlogo(text)
-  })
-
-  handle('mpv:clear-clearlogo', async () => {
-    await MpvService.clearClearlogo()
-  })
-
   handle('mpv:set-plot', async (_event, text: string) => {
     await MpvService.setPlot(text || '')
   })
