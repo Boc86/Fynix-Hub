@@ -6,11 +6,6 @@ local utils = require 'mp.utils'
 
 msg.info('fynix-osc.lua script starting...')
 
--- Register as 'fynix-osc' so script-message-to fynix-osc works from the main process.
--- mpv derives the default name from the filename (fynix-osc.lua -> fynix_osc),
--- but mpv.service.ts targets 'fynix-osc' with a hyphen.
-mp.register_script_name('fynix-osc')
-
 local config = {
     accent = 'FF6B00',
     hide_timeout = 3,

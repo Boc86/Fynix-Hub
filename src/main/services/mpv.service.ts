@@ -476,69 +476,69 @@ export async function addSubtitle(filePath: string): Promise<void> {
 
 export async function showSkipIntro(endMs: number): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'show-skip-intro', String(endMs)] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'show-skip-intro', String(endMs)] })
   } catch {}
 }
 
 export async function hideSkipIntro(): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'hide-skip-intro'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'hide-skip-intro'] })
   } catch {}
 }
 
 export async function showSplash(): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'show-splash'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'show-splash'] })
   } catch {}
 }
 
 export async function hideSplash(): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'hide-splash'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'hide-splash'] })
   } catch {}
 }
 
 export async function setHasNext(hasNext: boolean): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-has-next', hasNext ? 'true' : 'false'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'set-has-next', hasNext ? 'true' : 'false'] })
   } catch {}
 }
 
 export async function setAutoplayNext(autoplay: boolean): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-autoplay-next', autoplay ? 'true' : 'false'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'set-autoplay-next', autoplay ? 'true' : 'false'] })
   } catch {}
 }
 
 export async function setClearlogo(text: string): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-clearlogo', text] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'set-clearlogo', text] })
   } catch {}
 }
 
 export async function clearClearlogo(): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-clearlogo'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'clear-clearlogo'] })
   } catch {}
 }
 
 export async function setPlot(text: string): Promise<void> {
   try {
     const truncated = text.length > 500 ? text.slice(0, 500) + '...' : text
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'set-plot', truncated] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'set-plot', truncated] })
   } catch {}
 }
 
 export async function setUpNext(opts: { imagePath: string; title: string; subtitle: string; countdown: number }): Promise<void> {
   try {
-    const args = ['script-message-to', 'fynix-osc', 'set-up-next', opts.imagePath, opts.title, opts.subtitle, String(opts.countdown)]
+    const args = ['script-message-to', 'fynix_osc', 'set-up-next', opts.imagePath, opts.title, opts.subtitle, String(opts.countdown)]
     await sendCommand({ command: args })
   } catch {}
 }
 
 export async function clearUpNext(): Promise<void> {
   try {
-    await sendCommand({ command: ['script-message-to', 'fynix-osc', 'clear-up-next'] })
+    await sendCommand({ command: ['script-message-to', 'fynix_osc', 'clear-up-next'] })
   } catch {}
 }
 
