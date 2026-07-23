@@ -208,6 +208,7 @@ export async function startPlayback(url: string, resumePosition?: number, accent
     '--demuxer-max-back-bytes=50MiB',
     '--ytdl=no',
     '--log-file=/tmp/mpv-fynix.log',
+    '--msg-level=cplayer=v,demuxer=v,cache=v,stream=v',
   ]
 
   if (audioLanguage) {
@@ -312,6 +313,13 @@ export async function startPlayback(url: string, resumePosition?: number, accent
   const env = { ...process.env }
   if (ldLibPath) {
     env.LD_LIBRARY_PATH = ldLibPath
+  }
+
+  // Rotate the mpv log so each session's log is preserved (crash diagnosis).
+  const logPath = '/tmp/mpv-fynix.log'
+  if (fs.existsSync(logPath)) {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    try { fs.renameSync(logPath, `/tmp/mpv-fynix-${ts}.log`) } catch {}
   }
 
   mpvProcess = spawn(cmd, mpvArgs, {
