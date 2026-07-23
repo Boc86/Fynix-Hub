@@ -69,6 +69,9 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
   const [duration, setDuration] = useState(0)
   const currentTimeRef = useRef(0)
   const durationRef = useRef(0)
+  // Monotonically-advancing position — never resets to 0. Used for Trakt
+  // scrobble so a crash-induced pos=0 doesn't overwrite the real position.
+  const lastGoodPosRef = useRef(0)
   const [fallbackDuration, setFallbackDuration] = useState(0)
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
@@ -91,7 +94,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
 
   const saveProgress = useCallback(() => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    const t = currentTimeRef.current
+    const t = lastGoodPosRef.current
     const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
     if (!isFinite(d) || d <= 0 || !isFinite(t)) return
     const progress = Math.min(Math.max(t / d, 0), 1)
@@ -124,7 +127,9 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     if (!mediaInfo || mediaInfo.isTrailer) return
     const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
     if (!isFinite(d) || d <= 0) return
-    const progress = Math.min(Math.max(currentTimeRef.current / d, 0), 1)
+    // Use lastGoodPosRef (monotonic) instead of currentTimeRef which can be
+    // reset to 0 by a crash/demuxer error just before mpv exits.
+    const progress = Math.min(Math.max(lastGoodPosRef.current / d, 0), 1)
     if (!isFinite(progress)) return
     try {
       const now = Date.now()
@@ -147,7 +152,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     // Watched gating (Kodi-style): only mark watched when genuinely finished —
     // >=90% watched, or stopped within the final 8% (treated as completed).
     const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
-    const t = currentTimeRef.current
+    const t = lastGoodPosRef.current
     let progress = 0
     if (isFinite(d) && d > 0 && isFinite(t)) progress = Math.min(Math.max(t / d, 0), 1)
     if (progress < 0.90 && progress < 0.92) return
@@ -269,6 +274,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
 
     prevPlayStateRef.current = false
     startScrobbledRef.current = false
+    lastGoodPosRef.current = 0
 
     let wasEnded = false
     let upNextShown = false
@@ -315,6 +321,12 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
 
         currentTimeRef.current = pos
         durationRef.current = dur
+        // Advance lastGoodPosRef only forward (or within 30s) — a crash or
+        // demuxer reset can cause pos to jump back to 0, which would corrupt
+        // the Trakt scrobble position.
+        if (pos > lastGoodPosRef.current || Math.abs(pos - lastGoodPosRef.current) < 30) {
+          lastGoodPosRef.current = pos
+        }
         setCurrentTime(pos)
         if (dur > 0) setDuration(dur)
 

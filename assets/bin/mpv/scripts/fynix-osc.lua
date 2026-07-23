@@ -6,6 +6,11 @@ local utils = require 'mp.utils'
 
 msg.info('fynix-osc.lua script starting...')
 
+-- Register as 'fynix-osc' so script-message-to fynix-osc works from the main process.
+-- mpv derives the default name from the filename (fynix-osc.lua -> fynix_osc),
+-- but mpv.service.ts targets 'fynix-osc' with a hyphen.
+mp.register_script_name('fynix-osc')
+
 local config = {
     accent = 'FF6B00',
     hide_timeout = 3,
@@ -1051,8 +1056,13 @@ end)
 mp.register_script_message('thumbfast-info', function(json)
     local ok, info = pcall(function() return utils.parse_json(json) end)
     if ok and info then
-        state.thumbfast = info
-        msg.info('fynix-osc: thumbfast-info received: ' .. tostring(info.width) .. 'x' .. tostring(info.height))
+        if info.disabled then
+            state.thumbfast = nil
+            msg.info('fynix-osc: thumbfast disabled for this stream')
+        else
+            state.thumbfast = info
+            msg.info('fynix-osc: thumbfast-info received: ' .. tostring(info.width) .. 'x' .. tostring(info.height))
+        end
     end
 end)
 
