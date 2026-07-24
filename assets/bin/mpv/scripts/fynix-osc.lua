@@ -45,8 +45,6 @@ local state = {
     splash_dots = '',
     splash_timer = nil,
 
-    clearlogo = nil,
-
     up_next = nil,
     up_next_countdown = 10,
     up_next_timer = nil,
@@ -428,24 +426,6 @@ local function draw_splash(ass, w, h)
     ass:append('\u{25EF}')
 end
 
-local function draw_clearlogo(ass, w, h)
-    if not state.clearlogo then return end
-    local logo_x = w - 60
-    local logo_y = h - 320
-    -- Shadow
-    ass:new_event()
-    ass:append('{\\an9}')
-    ass:pos(logo_x + 2, logo_y + 2)
-    ass:append('{\\fs42\\1c&H000000&\\alpha&H80&\\b1}')
-    ass:append(state.clearlogo)
-    -- Main text
-    ass:new_event()
-    ass:append('{\\an9}')
-    ass:pos(logo_x, logo_y)
-    ass:append('{\\fs42\\1c' .. accent .. '\\b1}')
-    ass:append(state.clearlogo)
-end
-
 local function draw_up_next(ass, w, h)
     if not state.up_next then return end
     local box_w = 360
@@ -612,10 +592,6 @@ function render()
 
     if state.up_next then
         draw_up_next(ass, w, h)
-    end
-
-    if state.clearlogo then
-        draw_clearlogo(ass, w, h)
     end
 
     if not state.visible and not popup.active then
@@ -1006,18 +982,6 @@ mp.register_script_message('hide-skip-intro', function()
     render()
 end)
 
-mp.register_script_message('set-clearlogo', function(text)
-    msg.info('fynix-osc: set-clearlogo received: ' .. tostring(text))
-    state.clearlogo = text or nil
-    render()
-end)
-
-mp.register_script_message('clear-clearlogo', function()
-    msg.info('fynix-osc: clear-clearlogo received')
-    state.clearlogo = nil
-    render()
-end)
-
 mp.register_script_message('set-plot', function(text)
     local truncated = text and #text > 100 and text:sub(1, 100) .. '...' or text
     msg.info('fynix-osc: set-plot received: ' .. tostring(truncated))
@@ -1051,8 +1015,13 @@ end)
 mp.register_script_message('thumbfast-info', function(json)
     local ok, info = pcall(function() return utils.parse_json(json) end)
     if ok and info then
-        state.thumbfast = info
-        msg.info('fynix-osc: thumbfast-info received: ' .. tostring(info.width) .. 'x' .. tostring(info.height))
+        if info.disabled then
+            state.thumbfast = nil
+            msg.info('fynix-osc: thumbfast disabled for this stream')
+        else
+            state.thumbfast = info
+            msg.info('fynix-osc: thumbfast-info received: ' .. tostring(info.width) .. 'x' .. tostring(info.height))
+        end
     end
 end)
 

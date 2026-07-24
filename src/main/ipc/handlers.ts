@@ -18,6 +18,8 @@ import * as IndexerCatalogService from '../services/indexer-catalog.service'
 import * as IntroDBService from "../services/introdb.service";
 import * as YoutubeService from '../services/youtube.service'
 import * as LocalCacheService from '../services/local-cache.service'
+import * as FfmpegRemux from '../services/ffmpeg-remux.service'
+import * as PlayerService from '../services/player.service'
 import * as OpenSubtitlesService from '../services/opensubtitles.service'
 import * as SportsService from '../services/sports.service'
 import * as ReplayZoneService from '../services/replayzone.service'
@@ -39,6 +41,7 @@ export async function registerIpcHandlers(): Promise<void> {
   EpgService.ensureEpgLoaded().catch(err => console.error('[Handler] EPG init error:', err?.message))
   await WebTorrentService.init()
   LocalCacheService.init()
+  FfmpegRemux.init(() => LocalCacheService.getPort())
   if (IndexerCatalogService.shouldRefreshCatalog()) {
     IndexerCatalogService.refreshIndexerCatalog().catch(err => {
       console.error('[Handler] Background indexer catalog refresh failed:', err.message)
@@ -599,18 +602,6 @@ export async function registerIpcHandlers(): Promise<void> {
     await MpvService.setAutoplayNext(autoplay)
   })
 
-  handle('mpv:set-clearlogo', async (_event, text: string) => {
-    if (!text) {
-      await MpvService.clearClearlogo()
-      return
-    }
-    await MpvService.setClearlogo(text)
-  })
-
-  handle('mpv:clear-clearlogo', async () => {
-    await MpvService.clearClearlogo()
-  })
-
   handle('mpv:set-plot', async (_event, text: string) => {
     await MpvService.setPlot(text || '')
   })
@@ -665,6 +656,44 @@ export async function registerIpcHandlers(): Promise<void> {
       return { ok: false, status: 0, error: err?.message }
     }
   })
+
+  // ── HTML5 Player (Video.js + FFmpeg remux) ──────────────────────────────
+
+  handle('player:start', async (_event, url: string, resumePosition?: number, referer?: string) => {
+    try {
+      const result = await PlayerService.startPlayback(url, resumePosition, referer)
+      return result
+    } catch (err: any) {
+      console.error('[Handler] player:start failed:', err?.message)
+      throw err
+    }
+  })
+
+  handle('player:stop', async () => {
+    await PlayerService.stopPlayback()
+  })
+
+  handle('player:add-subtitle', async (_event, filePath: string) => {
+    // For the HTML5 player, subtitles are loaded as <track> elements.
+    // The renderer handles this directly — this IPC is just for
+    // compatibility. The filePath is returned to the renderer as-is.
+    return { filePath }
+  })
+
+  handle('player:verify-url', async (_event, url: string) => {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      const resp = await fetch(url, { method: 'HEAD', signal: controller.signal })
+      clearTimeout(timeout)
+      return { ok: resp.ok, status: resp.status }
+    } catch (err: any) {
+      console.error('[Handler] player:verify-url failed for', url.slice(0, 80), err?.message)
+      return { ok: false, status: 0, error: err?.message }
+    }
+  })
+
+  // ── Local Cache ─────────────────────────────────────────────────────────
 
   handle('local-cache:get-url', async (_event, infoHash) => {
     const url = LocalCacheService.getCacheUrl(infoHash)

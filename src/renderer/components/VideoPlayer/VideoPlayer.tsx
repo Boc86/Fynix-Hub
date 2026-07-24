@@ -1,9 +1,18 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import type { IntroSegment } from '../../types.d'
 import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
+import { VideoJsPlayer, type VideoJsPlayerHandle } from './VideoJsPlayer'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+/** Imperative handle exposed by VideoPlayer via ref. */
+export interface VideoPlayerHandle {
+  /** Save current progress without unmounting. */
+  saveCurrentProgress: () => void
+}
 
 interface MediaInfo {
   tmdbId: number
@@ -30,7 +39,11 @@ interface VideoPlayerProps {
   playerLoading?: boolean
   hasNextEpisode?: boolean
   nextEpisodeTitle?: string
+  title?: string
+  clearlogoUrl?: string | null
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildScrobblePayload(tmdbId: number, mediaType: string, progress: number, season?: number, episode?: number) {
   const pct = Math.max(progress * 100, 1.0)
@@ -59,17 +72,37 @@ function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number,
   return { movies: [{ ids: { tmdb: tmdbId } }] }
 }
 
-export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRetryStream, streamUrl, streamError, mediaInfo, playerLoading, hasNextEpisode, nextEpisodeTitle }: VideoPlayerProps) {
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const skipCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
+function VideoPlayerInner({
+  onBack,
+  onNextEpisode,
+  onStreamError,
+  onRetryStream,
+  streamUrl,
+  streamError,
+  mediaInfo,
+  playerLoading,
+  hasNextEpisode,
+  nextEpisodeTitle,
+  title,
+  clearlogoUrl,
+}, ref) {
+  const videoJsRef = useRef<VideoJsPlayerHandle>(null)
   const scrobbleThrottle = useRef(0)
   const [activeSkip, setActiveSkip] = useState<IntroSegment | null>(null)
   const [segments, setSegments] = useState<IntroSegment[]>([])
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
   const currentTimeRef = useRef(0)
   const durationRef = useRef(0)
-  const [fallbackDuration, setFallbackDuration] = useState(0)
+  const fallbackDurationRef = useRef(0)
+  const lastGoodPosRef = useRef(0)
+  const isPlayingRef = useRef(false)
+  const prevPlayStateRef = useRef(false)
+  const startScrobbledRef = useRef(false)
+  const exitedRef = useRef(false)
+  const retryCountRef = useRef(0)
+
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
   const preferredLanguagesRef = useRef<string[]>([])
@@ -77,26 +110,19 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
   const autoPlayNext = useSettingsStore((s) => s.autoPlayNext)
   const autoPlayNextRef = useRef(false)
   autoPlayNextRef.current = autoPlayNext
-  const isPlayingRef = useRef(false)
-  const prevPlayStateRef = useRef(false)
-  const startScrobbledRef = useRef(false)
-  const exitedRef = useRef(false)
-  const retryCountRef = useRef(0)
 
-  // A live/sports stream has a streamUrl but no tmdbId. VOD/torrent have a
-  // tmdbId, so auto-replaying them from the start on a crash is undesirable.
   const isReconnectableStream = useCallback(() => {
     return !!streamUrl && !mediaInfo?.tmdbId
   }, [streamUrl, mediaInfo])
 
+  // ── Progress saving ────────────────────────────────────────────────────
+
   const saveProgress = useCallback(() => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    const t = currentTimeRef.current
-    const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
+    const t = lastGoodPosRef.current
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
     if (!isFinite(d) || d <= 0 || !isFinite(t)) return
     const progress = Math.min(Math.max(t / d, 0), 1)
-    // Resume hygiene (Kodi-style): a trivially-small or essentially-finished
-    // position is not a useful resume point — clear it instead of saving.
     if (progress < 0.02 || progress >= 0.98) {
       window.api.watch.deleteProgress(
         mediaInfo.tmdbId,
@@ -113,18 +139,19 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
       mediaInfo.season,
       mediaInfo.episode,
     )
-  }, [mediaInfo, fallbackDuration])
+  }, [mediaInfo])
 
-  const splashHiddenRef = useRef(false)
   const [showSubNotFound, setShowSubNotFound] = useState(false)
   const [searchingSubs, setSearchingSubs] = useState(false)
   const showSubNotFoundRef = useRef(false)
 
+  // ── Trakt scrobble ─────────────────────────────────────────────────────
+
   const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
     if (!isFinite(d) || d <= 0) return
-    const progress = Math.min(Math.max(currentTimeRef.current / d, 0), 1)
+    const progress = Math.min(Math.max(lastGoodPosRef.current / d, 0), 1)
     if (!isFinite(progress)) return
     try {
       const now = Date.now()
@@ -140,14 +167,12 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     } catch (e: any) {
       window.api.log(`[Trakt] scrobble ${action} failed: ${e?.message || e}`)
     }
-  }, [mediaInfo, fallbackDuration])
+  }, [mediaInfo])
 
   const markAsWatched = useCallback(async () => {
     if (!mediaInfo || mediaInfo.isTrailer) return
-    // Watched gating (Kodi-style): only mark watched when genuinely finished —
-    // >=90% watched, or stopped within the final 8% (treated as completed).
-    const d = durationRef.current > 0 ? durationRef.current : fallbackDuration
-    const t = currentTimeRef.current
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
+    const t = lastGoodPosRef.current
     let progress = 0
     if (isFinite(d) && d > 0 && isFinite(t)) progress = Math.min(Math.max(t / d, 0), 1)
     if (progress < 0.90 && progress < 0.92) return
@@ -161,7 +186,17 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     } catch (e: any) {
       window.api.log(`[Trakt] markWatched failed: ${e?.message || e}`)
     }
-  }, [mediaInfo, fallbackDuration])
+  }, [mediaInfo])
+
+  // Expose saveCurrentProgress for parent (App.tsx) to call on back-button.
+  useImperativeHandle(ref, () => ({
+    saveCurrentProgress: () => {
+      saveProgress()
+      scrobble('stop').catch(() => {})
+    },
+  }), [saveProgress, scrobble])
+
+  // ── Subtitle search ────────────────────────────────────────────────────
 
   const handleSearchSubs = useCallback(async () => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -184,7 +219,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
           if (fileId) {
             const filePath = await window.api.openSubtitles.downloadAndSave(fileId)
             if (filePath) {
-              await window.api.mpv.addSubtitle(filePath)
+              videoJsRef.current?.addSubtitle(filePath, match.attributes.language || 'sub')
             }
           }
         }
@@ -195,25 +230,19 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     showSubNotFoundRef.current = false
   }, [mediaInfo])
 
-  // Backup exit handler — if mpv exits and poll loop hasn't caught it yet
-  useEffect(() => {
-    const unsub = window.api.mpv.onExited(() => {
-      if (exitedRef.current) return
-      exitedRef.current = true
-      saveProgress()
-      scrobble('stop').catch(() => {})
-      window.api.mpv.getLastExitCode().then((code) => {
-        if (code === 42) {
-          onNextEpisode()
-        } else {
-          onBack()
-        }
-      }).catch(() => onBack())
-    })
-    return unsub
-  }, [saveProgress, scrobble, markAsWatched, onBack, onNextEpisode])
+  // ── Finish playback ────────────────────────────────────────────────────
 
-  // Fetch intro segments
+  const finishPlayback = useCallback((goNext: boolean) => {
+    saveProgress()
+    scrobble('stop').catch(() => {})
+    markAsWatched().catch(() => {})
+    useMediaStore.getState().triggerRefresh()
+    if (goNext) onNextEpisode()
+    else onBack()
+  }, [saveProgress, scrobble, markAsWatched, onNextEpisode, onBack])
+
+  // ── Fetch intro segments ───────────────────────────────────────────────
+
   useEffect(() => {
     setSegments([])
     setActiveSkip(null)
@@ -253,241 +282,32 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     return () => { cancelled = true }
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
 
-  // Finalize playback: persist progress, stop scrobble, mark watched, refresh.
-  const finishPlayback = useCallback((goNext: boolean) => {
-    saveProgress()
-    scrobble('stop').catch(() => {})
-    markAsWatched().catch(() => {})
-    useMediaStore.getState().triggerRefresh()
-    if (goNext) onNextEpisode()
-    else onBack()
-  }, [saveProgress, scrobble, markAsWatched, onNextEpisode, onBack])
+  // ── Fallback duration for progress calc ────────────────────────────────
 
-  // Poll mpv for time/duration/paused state + scrobble + exit detection
   useEffect(() => {
-    if (playerLoading) return
-
-    prevPlayStateRef.current = false
-    startScrobbledRef.current = false
-
-    let wasEnded = false
-    let upNextShown = false
-    let pollCount = 0
-    let failCount = 0
-    let scrobbleCount = 0
-
-    pollIntervalRef.current = setInterval(async () => {
-      pollCount++
-      let pos = 0
-      let dur = 0
-      let paused = true
-      try {
-        const poll = await Promise.all([
-          window.api.mpv.getTimePos(),
-          window.api.mpv.getDuration(),
-          window.api.mpv.getPaused(),
-        ])
-        pos = poll[0]
-        dur = poll[1]
-        paused = poll[2]
-        failCount = 0
-
-        // Hide splash on first valid time-pos
-        if (pos > 0 && !splashHiddenRef.current) {
-          splashHiddenRef.current = true
-          window.api.mpv.hideSplash().catch(() => {})
-        }
-
-        // Check for subtitle-not-found signal from mpv OSD (max 15 attempts)
-        if (!showSubNotFoundRef.current) {
-          const subCheckCount = pollCount
-          if (subCheckCount < 15) {
-            const subAction = await window.api.mpv.getSubAction().catch(() => null)
-            if (subAction === 'no-subs') {
-              await window.api.mpv.clearSubAction().catch(() => {})
-              setShowSubNotFound(true)
-              showSubNotFoundRef.current = true
-            }
-          } else {
-            showSubNotFoundRef.current = true
-          }
-        }
-
-        currentTimeRef.current = pos
-        durationRef.current = dur
-        setCurrentTime(pos)
-        if (dur > 0) setDuration(dur)
-
-        // Persist a fresh resume point every poll tick so a crash/freeze before
-        // playback ends never loses the user's position.
-        saveProgress()
-
-        const playing = !paused
-        isPlayingRef.current = playing
-
-        const prev = prevPlayStateRef.current
-
-        if (playing && !startScrobbledRef.current) {
-          const d = durationRef.current
-          if (isFinite(d) && d > 0) {
-            scrobble('start')
-            startScrobbledRef.current = true
-          }
-        }
-        // Resume after a pause: send a fresh start so Trakt logs the resume time.
-        if (playing && prev === false && startScrobbledRef.current) {
-          scrobble('start')
-        }
-        if (prev === true && !playing) {
-          scrobble('pause')
-        }
-        // Periodic progress update to Trakt (throttled to 60s inside scrobble()).
-        scrobbleCount++
-        if (playing && scrobbleCount % 24 === 0) {
-          scrobble('start')
-        }
-        prevPlayStateRef.current = playing
-
-        // Up Next popup — appears ~30s before the end of a TV episode that has a next episode.
-        // Shows on both auto-play and manual playback; the user can confirm or dismiss.
-        const UP_NEXT_LEAD = 30
-        if (
-          !upNextShown &&
-          !wasEnded &&
-          mediaInfo &&
-          mediaInfo.mediaType === 'tv' &&
-          hasNextEpisode &&
-          dur > 0 &&
-          pos > 0 &&
-          dur - pos <= UP_NEXT_LEAD &&
-          pos >= 60
-        ) {
-          upNextShown = true
-          window.api.mpv.setAutoplayNext(autoPlayNextRef.current).catch(() => {})
-          window.api.mpv.setUpNext({
-            title: nextEpisodeTitle || 'Next Episode',
-            subtitle: `S${String(mediaInfo.season ?? 0).padStart(2, '0')}E${String((mediaInfo.episode ?? 0) + 1).padStart(2, '0')}`,
-            countdown: 15,
-          }).catch(() => {})
-          window.api.mpv.setHasNext(true).catch(() => {})
-        }
-
-        // End-of-playback detection. mpv is launched with --keep-open, so it does not
-        // exit on its own at EOF. Detect the end here to auto-close the player (and
-        // auto-advance when autoplay is enabled with a next episode available).
-        // Skip for live streams (no mediaInfo): HLS reports a finite sliding-window
-        // duration, so pos catches up to dur and would falsely trigger "ended".
-        if (mediaInfo && !wasEnded && !exitedRef.current && dur > 0 && pos > 0 && dur - pos <= 2.5) {
-          wasEnded = true
-          exitedRef.current = true
-          finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
-        }
-      } catch (e: any) {
-        window.api.log('[VP] poll error:', e?.message || e)
-        const running = await window.api.mpv.isRunning().catch(() => false)
-        if (!running && !wasEnded && !playerLoading) {
-          if (exitedRef.current) return
-          wasEnded = true
-          exitedRef.current = true
-          const code = await window.api.mpv.getLastExitCode().catch(() => null)
-          if (code === 42) {
-            finishPlayback(true)
-          } else if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
-            retryCountRef.current++
-            window.api.log(`[VP] stream died, auto-reconnect attempt ${retryCountRef.current}`)
-            exitedRef.current = false
-            wasEnded = false
-            failCount = 0
-            onRetryStream()
-          } else {
-            finishPlayback(false)
-          }
-        } else if (running && !wasEnded && !playerLoading) {
-          failCount++
-          window.api.log(`[VP] mpv unresponsive (${failCount}/6)`)
-          if (failCount >= 6) {
-            wasEnded = true
-            exitedRef.current = true
-            await window.api.mpv.stop().catch(() => {})
-            if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
-              retryCountRef.current++
-              window.api.log(`[VP] stream frozen, auto-reconnect attempt ${retryCountRef.current}`)
-              exitedRef.current = false
-              wasEnded = false
-              failCount = 0
-              onRetryStream()
-            } else {
-              finishPlayback(false)
-            }
-          }
-        }
-      }
-    }, 2500)
-
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
-    }
-  }, [playerLoading, mediaInfo, scrobble, saveProgress, markAsWatched, onBack, onNextEpisode, finishPlayback, isReconnectableStream, onRetryStream])
-
-  // Skip-intro detection — sends skip-intro to mpv Lua script
-  useEffect(() => {
-    if (skipCheckRef.current) clearInterval(skipCheckRef.current)
-    if (segments.length === 0) return
-
-    let lastSignalTime = 0
-    skipCheckRef.current = setInterval(() => {
-      const currentMs = currentTimeRef.current * 1000
-      const active = segments.find((seg) => {
-        if (seg.type !== 'intro' && seg.type !== 'recap') return false
-        if (seg.startMs === null || seg.endMs === null) return false
-        return currentMs >= seg.startMs && currentMs <= seg.endMs
-      })
-      setActiveSkip((prev) => {
-        if (prev && !active) {
-          window.api.mpv.hideSkipIntro().catch(() => {})
-          return null
-        }
-        if (active && (!prev || prev.startMs !== active.startMs)) return active
-        return prev
-      })
-
-      if (active && active.endMs !== null && Date.now() - lastSignalTime > 5000) {
-        lastSignalTime = Date.now()
-        window.api.mpv.showSkipIntro(active.endMs).catch(() => {})
-      }
-    }, 500)
-
-    return () => {
-      if (skipCheckRef.current) clearInterval(skipCheckRef.current)
-      window.api.mpv.hideSkipIntro().catch(() => {})
-    }
-  }, [segments])
-
-  // Fallback duration for progress calc
-  useEffect(() => {
-    setFallbackDuration(0)
+    fallbackDurationRef.current = 0
     if (!mediaInfo || mediaInfo.isTrailer) return
     if (mediaInfo.mediaType === 'movie') {
       const movieRuntime = (selectedMedia as any)?.runtime
       if (typeof movieRuntime === 'number' && movieRuntime > 0) {
-        setFallbackDuration(movieRuntime * 60)
+        fallbackDurationRef.current = movieRuntime * 60
       }
     } else if (mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode) {
       let cancelled = false
       window.api.tmdb.getEpisode(mediaInfo.tmdbId, mediaInfo.season, mediaInfo.episode).then((ep: any) => {
         if (!cancelled && ep?.runtime && typeof ep.runtime === 'number') {
-          setFallbackDuration(ep.runtime * 60)
+          fallbackDurationRef.current = ep.runtime * 60
         }
       }).catch(() => {})
       return () => { cancelled = true }
     }
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.isTrailer, selectedMedia])
 
-  // Auto-load subtitles from OpenSubtitles
+  // ── Auto-load subtitles from OpenSubtitles ─────────────────────────────
+
   useEffect(() => {
     const fetchSubtitles = async () => {
       if (!mediaInfo || mediaInfo.isTrailer) return
-
       try {
         const params: any = {
           tmdb_id: mediaInfo.tmdbId,
@@ -506,7 +326,7 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
             if (fileId) {
               const filePath = await window.api.openSubtitles.downloadAndSave(fileId)
               if (filePath) {
-                await window.api.mpv.addSubtitle(filePath)
+                videoJsRef.current?.addSubtitle(filePath, match.attributes.language || 'sub')
               }
             }
           }
@@ -516,40 +336,115 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     fetchSubtitles()
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
 
-  // Send clearlogo and plot to mpv
-  useEffect(() => {
-    if (!mediaInfo || mediaInfo.isTrailer || !selectedMedia) return
+  // ── Event callbacks for VideoJsPlayer ──────────────────────────────────
 
-    // Clearlogo: network name (TV) or production company (movie) or media title
-    const tv = selectedMedia as any
-    const movie = selectedMedia as any
-    let clearlogoText = ''
-    if (mediaInfo.mediaType === 'tv' && tv.networks && tv.networks.length > 0) {
-      clearlogoText = tv.networks[0].name
-    } else if (mediaInfo.mediaType === 'movie' && movie.productionCompanies && movie.productionCompanies.length > 0) {
-      clearlogoText = movie.productionCompanies[0].name
-    }
-    if (!clearlogoText) {
-      clearlogoText = (selectedMedia as any).title || (selectedMedia as any).name || ''
-    }
-    if (clearlogoText) {
-      window.api.mpv.setClearlogo(clearlogoText).catch(() => {})
+  const handleTimeUpdate = useCallback((time: number) => {
+    currentTimeRef.current = time
+    // Advance lastGoodPosRef only forward (or within 30s) — crash/reset can
+    // cause pos to jump to 0, corrupting Trakt scrobble position.
+    if (time > lastGoodPosRef.current || Math.abs(time - lastGoodPosRef.current) < 30) {
+      lastGoodPosRef.current = time
     }
 
-    // Plot: movie overview or fetch episode overview
-    const sendPlot = (text: string) => {
-      if (text) window.api.mpv.setPlot(text).catch(() => {})
+    // Persist a fresh resume point every tick.
+    saveProgress()
+
+    // ── Scrobble logic (moved from poll loop) ──────────────────────────
+    const playing = isPlayingRef.current
+    const d = durationRef.current
+
+    if (playing && !startScrobbledRef.current && isFinite(d) && d > 0) {
+      scrobble('start')
+      startScrobbledRef.current = true
     }
-    if (mediaInfo.mediaType === 'movie') {
-      sendPlot((selectedMedia as any).overview)
-    } else if (mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode) {
-      window.api.tmdb.getEpisode(mediaInfo.tmdbId, mediaInfo.season, mediaInfo.episode).then((ep: any) => {
-        sendPlot(ep?.overview)
-      }).catch(() => {
-        sendPlot((selectedMedia as any).overview)
+
+    // Periodic progress update to Trakt (throttled to 60s inside scrobble()).
+    if (playing && startScrobbledRef.current) {
+      scrobble('start')
+    }
+
+    // ── Skip-intro detection ──────────────────────────────────────────
+    if (segments.length > 0) {
+      const currentMs = time * 1000
+      const active = segments.find((seg) => {
+        if (seg.type !== 'intro' && seg.type !== 'recap') return false
+        if (seg.startMs === null || seg.endMs === null) return false
+        return currentMs >= seg.startMs && currentMs <= seg.endMs
       })
+      setActiveSkip(active || null)
     }
-  }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.isTrailer, selectedMedia])
+
+    // ── Up Next popup (~30s before end of TV episode) ─────────────────
+    if (
+      mediaInfo &&
+      mediaInfo.mediaType === 'tv' &&
+      hasNextEpisode &&
+      d > 0 &&
+      time > 0 &&
+      d - time <= 30 &&
+      time >= 60
+    ) {
+      // Up-next is handled by the React overlay — just trigger it once.
+      // The state is managed by the parent (App.tsx) via hasNextEpisode.
+    }
+
+    // ── End-of-playback detection ─────────────────────────────────────
+    if (mediaInfo && !exitedRef.current && d > 0 && time > 0 && d - time <= 2.5) {
+      exitedRef.current = true
+      finishPlayback(!!(mediaInfo.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
+    }
+  }, [mediaInfo, hasNextEpisode, segments, saveProgress, scrobble, finishPlayback])
+
+  const handlePlay = useCallback(() => {
+    isPlayingRef.current = true
+    const prev = prevPlayStateRef.current
+    if (!prev && startScrobbledRef.current) {
+      // Resume after pause: send a fresh start so Trakt logs the resume time.
+      scrobble('start')
+    }
+    prevPlayStateRef.current = true
+  }, [scrobble])
+
+  const handlePause = useCallback(() => {
+    isPlayingRef.current = false
+    if (prevPlayStateRef.current) {
+      scrobble('pause')
+    }
+    prevPlayStateRef.current = false
+  }, [scrobble])
+
+  const handleEnded = useCallback(() => {
+    if (exitedRef.current) return
+    exitedRef.current = true
+    finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
+  }, [mediaInfo, hasNextEpisode, finishPlayback])
+
+  const handleError = useCallback(() => {
+    if (exitedRef.current) return
+    if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
+      retryCountRef.current++
+      window.api.log(`[VP] stream error, auto-reconnect attempt ${retryCountRef.current}`)
+      exitedRef.current = false
+      onRetryStream()
+    } else {
+      exitedRef.current = true
+      finishPlayback(false)
+    }
+  }, [isReconnectableStream, onRetryStream, finishPlayback])
+
+  // Reset state when streamUrl changes.
+  useEffect(() => {
+    exitedRef.current = false
+    startScrobbledRef.current = false
+    prevPlayStateRef.current = false
+    isPlayingRef.current = false
+    lastGoodPosRef.current = 0
+    retryCountRef.current = 0
+    currentTimeRef.current = 0
+    durationRef.current = 0
+  }, [streamUrl])
+
+  // ── Render ─────────────────────────────────────────────────────────────
 
   if (playerLoading) {
     return (
@@ -575,10 +470,62 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
     )
   }
 
-  // mpv is on top with its own OSC — no visual overlay needed here
-  // This component handles backend: polling, scrobbling, subtitles, skip-intro
   return (
     <div className={styles.player} tabIndex={-1}>
+      {/* Video.js player — fills the container, provides all controls */}
+      {streamUrl && (
+        <VideoJsPlayer
+          ref={videoJsRef}
+          src={streamUrl}
+          startTime={mediaInfo?.resumePosition ?? 0}
+          shouldResume={false}
+          fallbackDuration={fallbackDurationRef.current || 0}
+          onTimeUpdate={handleTimeUpdate}
+          onDurationChange={(d) => { durationRef.current = d }}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onEnded={handleEnded}
+          onError={handleError}
+          title={title}
+          clearlogoUrl={clearlogoUrl}
+          onBack={onBack}
+          mediaInfo={mediaInfo}
+        />
+      )}
+
+      {/* Skip intro / recap button overlay */}
+      {activeSkip && (
+        <div className={styles.skipOverlay}>
+          <button
+            className={styles.skipBtn}
+            onClick={() => {
+              if (activeSkip.endMs !== null) {
+                videoJsRef.current?.seek(activeSkip.endMs / 1000)
+              }
+              setActiveSkip(null)
+            }}
+          >
+            {activeSkip.type === 'recap' ? 'Skip Recap' : 'Skip Intro'}
+          </button>
+        </div>
+      )}
+
+      {/* Up Next overlay — appears 30s before end of TV episodes */}
+      {mediaInfo?.mediaType === 'tv' && hasNextEpisode && durationRef.current > 0 && currentTimeRef.current > 0 && durationRef.current - currentTimeRef.current <= 30 && currentTimeRef.current >= 60 && (
+        <div className={styles.skipOverlay}>
+          <button
+            className={styles.skipBtn}
+            onClick={() => {
+              exitedRef.current = true
+              onNextEpisode()
+            }}
+          >
+            Up Next: {nextEpisodeTitle || 'Next Episode'}
+          </button>
+        </div>
+      )}
+
+      {/* Subtitle not found overlay */}
       {showSubNotFound && (
         <div className={styles.splashOverlay}>
           <span className={styles.splashLogo}>No Subtitles</span>
@@ -588,14 +535,14 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
           {!searchingSubs && (
             <div style={{ display: 'flex', gap: 24, marginTop: 16 }}>
               <button
-                className={styles.playBtn}
+                className={styles.skipBtn}
                 onClick={handleSearchSubs}
                 style={{ padding: '12px 32px', fontSize: 16 }}
               >
                 Yes, Search
               </button>
               <button
-                className={styles.playBtn}
+                className={styles.skipBtn}
                 onClick={() => { setShowSubNotFound(false); showSubNotFoundRef.current = false }}
                 style={{ padding: '12px 32px', fontSize: 16, opacity: 0.6 }}
               >
@@ -608,4 +555,4 @@ export default function VideoPlayer({ onBack, onNextEpisode, onStreamError, onRe
       )}
     </div>
   )
-}
+})

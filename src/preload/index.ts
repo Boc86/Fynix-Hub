@@ -189,8 +189,6 @@ const api = {
       hideSplash: () => ipcRenderer.invoke('mpv:hide-splash'),
       setHasNext: (hasNext: boolean) => ipcRenderer.invoke('mpv:set-has-next', hasNext),
       setAutoplayNext: (autoplay: boolean) => ipcRenderer.invoke('mpv:set-auto-play-next', autoplay),
-      setClearlogo: (text: string) => ipcRenderer.invoke('mpv:set-clearlogo', text),
-      clearClearlogo: () => ipcRenderer.invoke('mpv:clear-clearlogo'),
       setPlot: (text: string) => ipcRenderer.invoke('mpv:set-plot', text),
       setUpNext: (opts: { title: string; subtitle: string; countdown: number }) =>
         ipcRenderer.invoke('mpv:set-up-next', opts),
@@ -205,6 +203,13 @@ const api = {
         return () => { ipcRenderer.removeListener('mpv-exited', callback) }
       },
     },
+  player: {
+    start: (url: string, resumePosition?: number, referer?: string) =>
+      ipcRenderer.invoke('player:start', url, resumePosition, referer),
+    stop: () => ipcRenderer.invoke('player:stop'),
+    addSubtitle: (filePath: string) => ipcRenderer.invoke('player:add-subtitle', filePath),
+    verifyUrl: (url: string) => ipcRenderer.invoke('player:verify-url', url),
+  },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),
     status: () => ipcRenderer.invoke('local-cache:status'),
