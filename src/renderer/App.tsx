@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import Layout from './components/Layout/Layout'
 import Browser from './components/Browser/Browser'
 import DetailView from './components/DetailView/DetailView'
-import VideoPlayer from './components/VideoPlayer/VideoPlayer'
+import { VideoPlayer, type VideoPlayerHandle } from './components/VideoPlayer/VideoPlayer'
 import SearchModal from './components/SearchModal/SearchModal'
 import Settings from './components/Settings/Settings'
 import Sidebar from './components/Sidebar/Sidebar'
@@ -32,6 +32,8 @@ interface PlayerInfo {
   episode?: number
   resumePosition?: number
   isTrailer?: boolean
+  title?: string
+  clearlogoUrl?: string | null
 }
 
 export default function App() {
@@ -70,6 +72,7 @@ export default function App() {
   const currentUsenetPathRef = useRef<string | null>(null)
   const lastStreamUrlRef = useRef<string | undefined>(undefined)
   const lastStreamRefererRef = useRef<string | undefined>(undefined)
+  const videoPlayerRef = useRef<VideoPlayerHandle>(null)
   const resumePositionRef = useRef<number | undefined>(undefined)
   const resumeDurationRef = useRef<number>(3600) // default 1h estimate
   const searchSessionRef = useRef(0)
@@ -288,7 +291,7 @@ export default function App() {
   // Stop mpv and clean up torrent/usenet when leaving player view
   useEffect(() => {
     if (view !== 'player') {
-      window.api.mpv.stop().catch(() => {})
+      window.api.player.stop().catch(() => {})
       if (currentInfoHashRef.current) {
         window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
         currentInfoHashRef.current = null
@@ -656,7 +659,7 @@ export default function App() {
       const audioLang = getAudioLang()
       navigate('player')
       try {
-        await window.api.mpv.start(result.streamUrl, undefined, accentColor, false, audioLang)
+        await startPlayerUrl(result.streamUrl)
         setPlayerLoading(false)
       } catch (mpvErr: any) {
         window.api.log('[App] mpv.start failed:', mpvErr?.message)
@@ -679,7 +682,7 @@ export default function App() {
         const audioLang = getAudioLang()
         try {
           currentUsenetPathRef.current = cacheResults[0].streamUrl
-          await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+          await startPlayerUrl(cacheResults[0].streamUrl)
           setPlayerLoading(false)
           return
         } catch (mpvErr: any) {
@@ -703,7 +706,7 @@ export default function App() {
             streamed = true
             const audioLang = getAudioLang()
             try {
-              await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               window.api.log('[App] Early stream started')
             } catch (mpvErr: any) {
@@ -722,7 +725,7 @@ export default function App() {
               streamed = true
               const audioLang = getAudioLang()
               try {
-                await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+                await startPlayerUrl(stream.url)
                 setPlayerLoading(false)
                 window.api.log('[App] Early stream started')
               } catch (mpvErr: any) {
@@ -743,7 +746,7 @@ export default function App() {
               const audioLang = getAudioLang()
               try {
                 currentUsenetPathRef.current = stream.url
-                await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+                await startPlayerUrl(stream.url)
               } catch (mpvErr: any) {
                 window.api.log('[App] mpv.start failed:', mpvErr?.message)
                 setStreamError(mpvErr?.message || 'Failed to start player')
@@ -761,7 +764,7 @@ export default function App() {
                 const audioLang = getAudioLang()
                 try {
                   currentUsenetPathRef.current = cacheResults[0].streamUrl
-                  await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+                  await startPlayerUrl(cacheResults[0].streamUrl)
                   setStreamError(null)
                 } catch (mpvErr: any) {
                   window.api.log('[App] mpv.start (cache fallback) failed:', mpvErr?.message)
@@ -787,7 +790,7 @@ export default function App() {
               if (cached.streamUrl) {
                 const audioLang = getAudioLang()
                 try {
-                  await window.api.mpv.start(cached.streamUrl, undefined, accentColor, false, audioLang)
+                  await startPlayerUrl(cached.streamUrl)
                   setPlayerLoading(false)
                   return
                 } catch (mpvErr: any) {
@@ -831,7 +834,7 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
-      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang, playerInfo)
+      await startPlayerUrl(url, rp)
       setPlayerLoading(false)
     } catch (err: any) {
       window.api.log('[App] Playback failed:', err.message)
@@ -883,7 +886,7 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
-      await window.api.mpv.start(url, rp, accentColor, playerInfo?.mediaType === 'tv', audioLang, playerInfo)
+      await startPlayerUrl(url, rp)
       setPlayerLoading(false)
     } catch (err: any) {
       window.api.log(`[App] Auto-play attempt ${index + 1} failed: ${err.message}`)
@@ -902,7 +905,7 @@ export default function App() {
       if (result.streamUrl) {
         const audioLang = getAudioLang()
         try {
-          await window.api.mpv.start(result.streamUrl, undefined, accentColor, false, audioLang)
+          await startPlayerUrl(result.streamUrl)
           setPlayerLoading(false)
           return
         } catch (mpvErr: any) {
@@ -922,7 +925,7 @@ export default function App() {
           window.api.log(`[App] Auto-play Usenet: found in WebDAV cache: ${cacheResults[0].name}`)
           const audioLang = getAudioLang()
           try {
-            await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+            await startPlayerUrl(cacheResults[0].streamUrl)
             setPlayerLoading(false)
             return
           } catch (mpvErr: any) {
@@ -946,7 +949,7 @@ export default function App() {
             streamed = true
             const audioLang = getAudioLang()
             try {
-              await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               window.api.log('[App] Auto-play early stream started')
             } catch (mpvErr: any) {
@@ -965,7 +968,7 @@ export default function App() {
               streamed = true
               const audioLang = getAudioLang()
               try {
-                await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+                await startPlayerUrl(stream.url)
                 setPlayerLoading(false)
                 window.api.log('[App] Auto-play early stream started')
               } catch (mpvErr: any) {
@@ -979,7 +982,7 @@ export default function App() {
             const stream = await window.api.usenet.getStreamUrl(status.id)
             if (stream?.url) {
               const audioLang = getAudioLang()
-              await window.api.mpv.start(stream.url, undefined, accentColor, false, audioLang)
+              await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               return
             }
@@ -996,7 +999,7 @@ export default function App() {
             if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
               const audioLang = getAudioLang()
               try {
-                await window.api.mpv.start(cacheResults[0].streamUrl, undefined, accentColor, false, audioLang)
+                await startPlayerUrl(cacheResults[0].streamUrl)
                 setPlayerLoading(false)
                 return
               } catch (mpvErr: any) {
@@ -1022,6 +1025,14 @@ export default function App() {
     setFreeSearchOpen(false)
     setFreeSearchQuery('')
     window.api.embed.show(result.embedUrl)
+  }, [])
+
+  // Helper: call player.start() and wire the returned HLS URL into the player UI.
+  const startPlayerUrl = useCallback(async (url: string, resumePosition?: number, referer?: string) => {
+    const result = await window.api.player.start(url, resumePosition, referer)
+    const hlsUrl = result?.streamUrl ?? url
+    setStreamUrl(hlsUrl)
+    return result
   }, [])
 
   const handlePlay = useCallback(async (resumePosition?: number) => {
@@ -1058,7 +1069,14 @@ export default function App() {
       season: episode ? season : undefined,
       episode: episode ?? undefined,
       resumePosition,
+      title: selected.title,
     })
+
+    // Fetch clearlogo in background for player OSD.
+    const piType = selected.mediaType || 'movie'
+    window.api.fanart.getImages(selected.id, piType).then((res: any) => {
+      setPlayerInfo((prev) => prev ? { ...prev, clearlogoUrl: res?.clearlogo || res?.clearart || null } : prev)
+    }).catch(() => {})
 
     const { autoPlayTorrent, maxDownloadSize, torrentSearchEnabled, vylaSearchEnabled, usenetSearchEnabled, usenetEnabled } = useSettingsStore.getState()
 
@@ -1076,7 +1094,7 @@ export default function App() {
           setStreamUrl(undefined)
           setStreamError(null)
           navigate('player')
-          await window.api.mpv.start(cacheResults[0].streamUrl, resumePosition, accentColor, false, undefined)
+          await startPlayerUrl(cacheResults[0].streamUrl, resumePosition)
           setPlayerLoading(false)
           return
         }
@@ -1160,30 +1178,19 @@ export default function App() {
 
       async function tryPlayVyla(result: RivestreamResult): Promise<void> {
         const audioLang = getAudioLang()
-        const check = await window.api.mpv.verifyUrl(result.embedUrl)
+        const check = await window.api.player.verifyUrl(result.embedUrl)
         if (!check.ok) {
           throw new Error(`Vyla URL returned ${check.status} (${check.error || 'unreachable'})`)
         }
-        await window.api.mpv.start(result.embedUrl, undefined, ac, pi?.mediaType === 'tv', audioLang, undefined)
-        // Poll for time-pos > 0 to confirm real playback
-        for (let i = 0; i < 8; i++) {
-          await new Promise(r => setTimeout(r, 500))
-          const pos = await window.api.mpv.getTimePos().catch(() => 0)
-          if (pos > 0) {
-            const quality = await window.api.mpv.verifyPlaybackQuality()
-            if (!quality.isRealContent) {
-              await window.api.mpv.stop().catch(() => {})
-              throw new Error(`Bot video detected: ${quality.reasons.join(', ')}`)
-            }
-            window.api.log(`[App] Vyla playback confirmed (pos=${pos}s)`)
-            vylaDone = true
-            setPlayerLoading(false)
-            autoPlayResultsRef.current = []
-            return
-          }
-        }
-        await window.api.mpv.stop().catch(() => {})
-        throw new Error('Vyla stream stuck (no progress)')
+        await startPlayerUrl(result.embedUrl)
+        // Give the browser a moment to start playback.
+        // If the URL is invalid, VideoPlayer's onError will fire.
+        await new Promise(r => setTimeout(r, 2000))
+        window.api.log('[App] Vyla playback started')
+        vylaDone = true
+        setPlayerLoading(false)
+        autoPlayResultsRef.current = []
+        return
       }
 
       async function processVylaQueue(): Promise<void> {
@@ -1239,32 +1246,8 @@ export default function App() {
   }, [navigate, playTorrent])
 
   const handlePlayerBack = useCallback(() => {
-    const pi = playerInfoRef.current
-    if (pi) {
-      Promise.all([
-        window.api.mpv.getTimePos().catch(() => 0),
-        window.api.mpv.getDuration().catch(() => 0),
-      ]).then(([pos, dur]) => {
-        if (pos > 0 && dur > 0) {
-          const p = pos / dur
-          if (isFinite(p) && p > 0) {
-            window.api.watch.updateProgress(pi.tmdbId, pi.mediaType, p, pi.season, pi.episode)
-            // If fully watched and Usenet download, clean up
-            if (currentUsenetIdRef.current && p >= 0.9) {
-              window.api.log('[App] Fully watched, cleaning up Usenet download:', currentUsenetIdRef.current)
-              if (currentUsenetPathRef.current && useSettingsStore.getState().autoDeleteUsenet) {
-                window.api.usenet.deleteByPath(currentUsenetPathRef.current).catch(() => {})
-              } else {
-                window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
-              }
-              currentUsenetIdRef.current = null
-              currentUsenetPathRef.current = null
-            }
-          }
-        }
-      })
-      window.api.mpv.stop().catch(() => {})
-    }
+    videoPlayerRef.current?.saveCurrentProgress()
+    window.api.player.stop().catch(() => {})
     autoPlayResultsRef.current = []
     if (currentInfoHashRef.current) {
       window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
@@ -1388,7 +1371,7 @@ export default function App() {
     const audioLang = getAudioLang()
     setPlayerLoading(true)
     setStreamError(null)
-    window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, lastStreamRefererRef.current)
+    startPlayerUrl(url, undefined, lastStreamRefererRef.current)
       .catch((err: any) => {
         window.api.log('[App] onRetryStream failed:', err?.message || err)
         setStreamError(err?.message || 'Failed to reconnect stream')
@@ -1416,37 +1399,6 @@ export default function App() {
     }
     navigate('detail')
   }, [navigate, handlePlay])
-
-  // When mpv exits (killed by user), clean up immediately
-  useEffect(() => {
-    const unsub = window.api.mpv.onExited(() => {
-      console.log('[App] mpv exited, cleaning up')
-      autoPlayResultsRef.current = []
-      autoPlayIndexRef.current = 0
-      if (currentInfoHashRef.current) {
-        window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
-        currentInfoHashRef.current = null
-      }
-      // Delete Usenet download if fully watched and auto-delete is enabled.
-      const pi = playerInfoRef.current
-      const playedPath = currentUsenetPathRef.current
-      if (playedPath && pi && useSettingsStore.getState().autoDeleteUsenet) {
-        window.api.watch.getProgress(pi.tmdbId, pi.mediaType, pi.season, pi.episode).then(progress => {
-          if (progress !== null && progress >= 0.9) {
-            window.api.log('[App] Fully watched, auto-deleting Usenet download:', playedPath)
-            window.api.usenet.deleteByPath(playedPath).catch(() => {})
-          }
-          currentUsenetPathRef.current = null
-        }).catch(() => {
-          currentUsenetPathRef.current = null
-        })
-      } else {
-        currentUsenetPathRef.current = null
-      }
-      currentUsenetIdRef.current = null
-    })
-    return unsub
-  }, [])
 
   // Global keyboard handler
   useEffect(() => {
@@ -1615,6 +1567,7 @@ export default function App() {
       )}
       {view === 'player' && (
         <VideoPlayer
+          ref={videoPlayerRef}
           streamUrl={streamUrl}
           streamError={streamError}
           mediaInfo={playerInfo}
@@ -1623,6 +1576,8 @@ export default function App() {
           onRetryStream={onRetryStream}
           onBack={handlePlayerBack}
           onNextEpisode={handleNextEpisode}
+          title={playerInfo?.title}
+          clearlogoUrl={playerInfo?.clearlogoUrl}
         />
       )}
       {view === 'settings' && (
@@ -1654,7 +1609,7 @@ export default function App() {
                 lastStreamUrlRef.current = url
                 const origin = new URL(url).origin + '/'
                 lastStreamRefererRef.current = origin
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, origin)
+                await startPlayerUrl(url, undefined, origin)
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] Replay playback failed:', err.message)
@@ -1685,7 +1640,7 @@ export default function App() {
                 lastStreamUrlRef.current = url
                 const origin = new URL(url).origin + '/'
                 lastStreamRefererRef.current = origin
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, origin)
+                await startPlayerUrl(url, undefined, origin)
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] LiveTV playback failed:', err.message)
@@ -1714,7 +1669,7 @@ export default function App() {
                 lastStreamUrlRef.current = url
                 const origin = new URL(url).origin + '/'
                 lastStreamRefererRef.current = origin
-                await window.api.mpv.start(url, undefined, accentColor, false, audioLang, undefined, origin)
+                await startPlayerUrl(url, undefined, origin)
                 setPlayerLoading(false)
               } catch (err: any) {
                 window.api.log('[App] EPG playback failed:', err.message)

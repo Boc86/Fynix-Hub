@@ -4,6 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as fsp from 'fs/promises'
 import { Readable } from 'stream'
+import * as FfmpegRemux from './ffmpeg-remux.service'
 
 export interface TorrentStreamInfo {
   stream: Readable
@@ -239,6 +240,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   res.on('error', () => {})
 
   const url = req.url || '/'
+
+  // Handle /remux/<sessionId>/<filename> — FFmpeg HLS remux output
+  const remuxMatch = url.match(/^\/remux\/([a-zA-Z0-9]+)\/(playlist\.m3u8|init\.mp4|segment\d{5}\.m4s)$/)
+  if (remuxMatch) {
+    FfmpegRemux.handleRemuxRequest(remuxMatch[1], remuxMatch[2], req, res)
+    return
+  }
 
   // Handle /webtorrent/<infoHash>/<fileIndex> — stream via WebTorrent in-memory
   const wtMatch = url.match(/^\/webtorrent\/([a-fA-F0-9]+)\/(\d+)/)

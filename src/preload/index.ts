@@ -203,6 +203,13 @@ const api = {
         return () => { ipcRenderer.removeListener('mpv-exited', callback) }
       },
     },
+  player: {
+    start: (url: string, resumePosition?: number, referer?: string) =>
+      ipcRenderer.invoke('player:start', url, resumePosition, referer),
+    stop: () => ipcRenderer.invoke('player:stop'),
+    addSubtitle: (filePath: string) => ipcRenderer.invoke('player:add-subtitle', filePath),
+    verifyUrl: (url: string) => ipcRenderer.invoke('player:verify-url', url),
+  },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),
     status: () => ipcRenderer.invoke('local-cache:status'),
