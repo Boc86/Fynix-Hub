@@ -100,7 +100,7 @@ function getContentType(filename: string): string {
 
 // ─── Session Management ──────────────────────────────────────────────────────
 
-function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = []): string[] {
+function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false): string[] {
   const args = [
     '-hide_banner',
     '-loglevel', 'info',
@@ -113,20 +113,34 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
   ]
 
   // Add headers as a separate FFmpeg option if provided
-      if (headers.length > 0) {
-        // FFmpeg -headers expects \r\n terminated lines with a blank line at the end.
-        const headerStr = headers.map(h => h.trim()).join('\r\n') + '\r\n\r\n';
-        args.push('-headers', headerStr);
-      }
+  if (headers.length > 0) {
+    // FFmpeg -headers expects \r\n terminated lines with a blank line at the end.
+    const headerStr = headers.map(h => h.trim()).join('\r\n') + '\r\n\r\n'
+    args.push('-headers', headerStr)
+  }
 
   args.push(
     '-i', inputUrl,
     // Only map first video + first audio — skip subtitles and other streams
     // that would generate extra HLS playlists the local cache server doesn't serve.
     '-map', '0:v:0', '-map', '0:a:0',
-    '-c:v', 'copy',
-    // Tag HEVC as hvc1 so Chromium MSE can decode it (required for hls.js).
-    '-tag:v', 'hvc1',
+  )
+
+  if (transcodeVideo) {
+    // HEVC → H.264 transcode for Chromium MSE compatibility.
+    debug('Transcoding video to H.264 for browser compatibility')
+    args.push(
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+    )
+  } else {
+    // Copy video bitstream (fast, lossless for the container).
+    args.push('-c:v', 'copy')
+  }
+
+  args.push(
     // Always transcode audio to AAC — browser MSE doesn't support AC-3, DTS,
     // TrueHD, etc. AAC is lightweight and universally supported.
     '-c:a', 'aac',
@@ -145,6 +159,21 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
   )
 
   return args
+}
+
+/** Probe the input file to detect HEVC video codec. */
+function probeIsHevc(inputUrl: string): boolean {
+  try {
+    const result = require('child_process').execSync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${inputUrl}"`,
+      { timeout: 10000, stdio: ['pipe', 'pipe', 'ignore'] },
+    )
+    const codec = result.toString().trim().toLowerCase()
+    debug('Video codec detected:', codec)
+    return codec === 'hevc' || codec === 'h265'
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -167,7 +196,9 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
    if (resumePosition > 0) {
      args.push('-ss', String(resumePosition))
    }
-   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers))
+   // Detect HEVC and transcode to H.264 for Chromium MSE compatibility.
+   const needsTranscode = probeIsHevc(inputUrl)
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, needsTranscode))
 
    debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 
