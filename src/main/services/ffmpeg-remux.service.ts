@@ -125,6 +125,8 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
     // that would generate extra HLS playlists the local cache server doesn't serve.
     '-map', '0:v:0', '-map', '0:a:0',
     '-c:v', 'copy',
+    // Tag HEVC as hvc1 so Chromium MSE can decode it (required for hls.js).
+    '-tag:v', 'hvc1',
     // Always transcode audio to AAC — browser MSE doesn't support AC-3, DTS,
     // TrueHD, etc. AAC is lightweight and universally supported.
     '-c:a', 'aac',
