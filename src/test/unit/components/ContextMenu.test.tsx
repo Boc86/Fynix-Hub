@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import ContextMenu from '@/renderer/components/ContextMenu/ContextMenu'
+import ContextMenu, { type ContextTarget } from '@/renderer/components/ContextMenu/ContextMenu'
 
 const baseTarget = { type: 'movie' as const, tmdbId: 1, title: 'Test Movie' }
 const tvTarget = { type: 'tv' as const, tmdbId: 2, title: 'Test Show' }
@@ -17,8 +17,8 @@ const handlers = {
   onDropShow: vi.fn(),
 }
 
-function renderMenu(target = baseTarget) {
-  return render(<ContextMenu target={target} {...handlers} />)
+function renderMenu(target: ContextTarget = baseTarget) {
+  return render(<ContextMenu target={target} {...handlers} />);
 }
 
 describe('ContextMenu', () => {

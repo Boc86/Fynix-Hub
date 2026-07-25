@@ -100,8 +100,8 @@ function getContentType(filename: string): string {
 
 // ─── Session Management ──────────────────────────────────────────────────────
 
-function buildFFmpegArgs(inputUrl: string, outputDir: string): string[] {
-  return [
+function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = []): string[] {
+  const args = [
     '-hide_banner',
     '-loglevel', 'info',
     '-err_detect', 'ignore_err',
@@ -110,6 +110,16 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string): string[] {
     '-analyzeduration', '60000000',
     '-probesize', '100000000',
     '-rw_timeout', '60000000',
+  ]
+
+  // Add headers as a separate FFmpeg option if provided
+      if (headers.length > 0) {
+        // FFmpeg -headers expects \r\n terminated lines with a blank line at the end.
+        const headerStr = headers.map(h => h.trim()).join('\r\n') + '\r\n\r\n';
+        args.push('-headers', headerStr);
+      }
+
+  args.push(
     '-i', inputUrl,
     '-c:v', 'copy',
     // Always transcode audio to AAC — browser MSE doesn't support AC-3, DTS,
@@ -127,107 +137,111 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string): string[] {
     '-hls_flags', 'independent_segments+append_list',
     '-hls_segment_filename', path.join(outputDir, 'segment%05d.m4s'),
     path.join(outputDir, 'playlist.m3u8'),
-  ]
+  )
+
+  return args
 }
 
 /**
- * Start an FFmpeg HLS remux session.
- * Returns { sessionId, streamUrl } or null on failure.
- */
-export function createSession(
-  inputUrl: string,
-  resumePosition = 0,
-): { sessionId: string; streamUrl: string } | null {
-  const id = generateId()
-  const outputDir = getSessionDir(id)
+ /**
+  * Start an FFmpeg HLS remux session.
+  * Returns { sessionId, streamUrl } or null on failure.
+  */
+ export function createSession(
+   inputUrl: string,
+   resumePosition = 0,
+   headers: string[] = [],
+ ): { sessionId: string; streamUrl: string } | null {
+   const id = generateId()
+   const outputDir = getSessionDir(id)
 
-  fs.mkdirSync(outputDir, { recursive: true })
+   fs.mkdirSync(outputDir, { recursive: true })
 
-  // If resume position specified, add -ss before -i for fast seek.
-  const args: string[] = []
-  if (resumePosition > 0) {
-    args.push('-ss', String(resumePosition))
-  }
-  args.push(...buildFFmpegArgs(inputUrl, outputDir))
+   // If resume position specified, add -ss before -i for fast seek.
+   const args: string[] = []
+   if (resumePosition > 0) {
+     args.push('-ss', String(resumePosition))
+   }
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers))
 
-  debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
+   debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 
-  let proc: ChildProcess
-  try {
-    proc = spawn('ffmpeg', args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch (err: any) {
-    debug('FFmpeg spawn failed:', err?.message)
-    try { fs.rmSync(outputDir, { recursive: true, force: true }) } catch {}
-    return null
-  }
+   let proc: ChildProcess
+   try {
+     proc = spawn('ffmpeg', args, {
+       stdio: ['ignore', 'pipe', 'pipe'],
+     })
+   } catch (err: any) {
+     debug('FFmpeg spawn failed:', err?.message)
+     try { fs.rmSync(outputDir, { recursive: true, force: true }) } catch {}
+     return null
+   }
 
-  let readyResolve!: () => void
-  const ready = new Promise<void>((r) => { readyResolve = r })
+   let readyResolve!: () => void
+   const ready = new Promise<void>((r) => { readyResolve = r })
 
-  const session: RemuxSession = {
-    id,
-    process: proc,
-    inputUrl,
-    outputDir,
-    startedAt: Date.now(),
-    ready,
-    readyResolve,
-  }
+   const session: RemuxSession = {
+     id,
+     process: proc,
+     inputUrl,
+     outputDir,
+     startedAt: Date.now(),
+     ready,
+     readyResolve,
+   }
 
-  sessions.set(id, session)
+   sessions.set(id, session)
 
-  // Write placeholder playlist immediately so the first HLS request succeeds.
-  fs.writeFileSync(path.join(outputDir, 'playlist.m3u8'), PLACEHOLDER_PLAYLIST)
+   // Write placeholder playlist immediately so the first HLS request succeeds.
+   fs.writeFileSync(path.join(outputDir, 'playlist.m3u8'), PLACEHOLDER_PLAYLIST)
 
-  // Monitor FFmpeg output for logging.
-  proc.stdout?.on('data', (chunk: Buffer) => {
-    const line = chunk.toString().trim()
-    if (line) debug(`[ffmpeg stdout] ${line}`)
-  })
-  proc.stderr?.on('data', (chunk: Buffer) => {
-    const line = chunk.toString().trim()
-    if (line) debug(`[ffmpeg stderr] ${line}`)
-  })
+   // Monitor FFmpeg output for logging.
+   proc.stdout?.on('data', (chunk: Buffer) => {
+     const line = chunk.toString().trim()
+     if (line) debug(`[ffmpeg stdout] ${line}`)
+   })
+   proc.stderr?.on('data', (chunk: Buffer) => {
+     const line = chunk.toString().trim()
+     if (line) debug(`[ffmpeg stderr] ${line}`)
+   })
 
-  proc.on('error', (err) => {
-    debug('FFmpeg process error:', err.message)
-    cleanupSession(id)
-  })
+   proc.on('error', (err) => {
+     debug('FFmpeg process error:', err.message)
+     cleanupSession(id)
+   })
 
-  proc.on('exit', (code, signal) => {
-    debug(`FFmpeg exited with code ${code} signal ${signal}`)
-    clearInterval(readyWatcher)
-    // Don't cleanup on normal completion (code 0) — segments are still
-    // being served to the player. Session is cleaned up on player.stop()
-    // or shutdown() instead.
-    if (code !== 0) {
-      cleanupSession(id)
-    } else {
-      // Mark session as complete so we don't wait for more segments.
-      readyResolve()
-    }
-  })
+   proc.on('exit', (code, signal) => {
+     debug(`FFmpeg exited with code ${code} signal ${signal}`)
+     clearInterval(readyWatcher)
+     // Don't cleanup on normal completion (code 0) — segments are still
+     // being served to the player. Session is cleaned up on player.stop()
+     // or shutdown() instead.
+     if (code !== 0) {
+       cleanupSession(id)
+     } else {
+       // Mark session as complete so we don't wait for more segments.
+       readyResolve()
+     }
+   })
 
-  // Watch for the first real playlist write to mark the session as ready.
-  const playlistPath = path.join(outputDir, 'playlist.m3u8')
-  const readyWatcher = setInterval(() => {
-    try {
-      const stat = fs.statSync(playlistPath)
-      // Real playlist is larger than the placeholder.
-      if (stat.size > PLACEHOLDER_PLAYLIST.length) {
-        clearInterval(readyWatcher)
-        readyResolve()
-      }
-    } catch {}
-  }, 300)
+   // Watch for the first real playlist write to mark the session as ready.
+   const playlistPath = path.join(outputDir, 'playlist.m3u8')
+   const readyWatcher = setInterval(() => {
+     try {
+       const stat = fs.statSync(playlistPath)
+       // Real playlist is larger than the placeholder.
+       if (stat.size > PLACEHOLDER_PLAYLIST.length) {
+         clearInterval(readyWatcher)
+         readyResolve()
+       }
+     } catch {}
+   }, 300)
 
-  const port = portGetter ? portGetter() : 0
-  const streamUrl = `http://127.0.0.1:${port}/remux/${id}/playlist.m3u8`
-  debug('Session created:', id, '→', streamUrl)
-  return { sessionId: id, streamUrl }
-}
+   const port = portGetter ? portGetter() : 0
+   const streamUrl = `http://127.0.0.1:${port}/remux/${id}/playlist.m3u8`
+   debug('Session created:', id, '→', streamUrl)
+   return { sessionId: id, streamUrl }
+ }
 
 function cleanupSession(id: string) {
   const session = sessions.get(id)
@@ -277,11 +291,13 @@ export async function handleRemuxRequest(
   res: ServerResponse,
 ): Promise<void> {
   const session = sessions.get(sessionId)
-  if (!session) {
-    res.writeHead(404)
-    res.end('Remux session not found')
-    return
-  }
+    if (!session) {
+      res.writeHead(404, {
+        'Access-Control-Allow-Origin': '*',
+      })
+      res.end('Remux session not found')
+      return
+    }
 
   // For playlist.m3u8: serve immediately (may be placeholder initially, refreshable).
   if (filename === 'playlist.m3u8') {
