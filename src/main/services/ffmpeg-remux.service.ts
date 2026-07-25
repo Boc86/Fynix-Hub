@@ -130,14 +130,13 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
     // HEVC → H.264 transcode for Chromium MSE compatibility.
     debug('Transcoding video to H.264 for browser compatibility')
     args.push(
+      // HDR→SDR tonemap: linearize PQ/HLG → hable tonemap → BT.709 output.
+      // Without this, Chromium MSE rejects streams with smpte2084 transfer.
+      '-vf', 'zscale=t=linear:npl=100,tonemap=hable,zscale=t=bt709:p=bt709:m=bt709:r=tv,format=yuv420p',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-crf', '23',
       '-pix_fmt', 'yuv420p',
-      // Force SDR color tagging — HDR10 (bt2020/smpte2084) causes MSE rejection.
-      '-color_primaries', 'bt709',
-      '-color_trc', 'bt709',
-      '-colorspace', 'bt709',
     )
   } else {
     // Copy video bitstream (fast, lossless for the container).
