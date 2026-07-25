@@ -121,6 +121,9 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
 
   args.push(
     '-i', inputUrl,
+    // Only map first video + first audio — skip subtitles and other streams
+    // that would generate extra HLS playlists the local cache server doesn't serve.
+    '-map', '0:v:0', '-map', '0:a:0',
     '-c:v', 'copy',
     // Always transcode audio to AAC — browser MSE doesn't support AC-3, DTS,
     // TrueHD, etc. AAC is lightweight and universally supported.
