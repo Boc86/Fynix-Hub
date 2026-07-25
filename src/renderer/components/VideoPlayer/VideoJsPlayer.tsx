@@ -950,6 +950,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         <Player.Provider>
           <Container className={styles.videoContainer}>
             <HlsJsVideo
+              key={src}
               ref={videoRef}
               className={styles.video}
               src={src}
