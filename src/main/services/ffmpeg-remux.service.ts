@@ -134,6 +134,10 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
       '-preset', 'veryfast',
       '-crf', '23',
       '-pix_fmt', 'yuv420p',
+      // Force SDR color tagging — HDR10 (bt2020/smpte2084) causes MSE rejection.
+      '-color_primaries', 'bt709',
+      '-color_trc', 'bt709',
+      '-colorspace', 'bt709',
     )
   } else {
     // Copy video bitstream (fast, lossless for the container).
