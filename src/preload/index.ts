@@ -204,8 +204,8 @@ const api = {
       },
     },
   player: {
-    start: (url: string, resumePosition?: number, referer?: string) =>
-      ipcRenderer.invoke('player:start', url, resumePosition, referer),
+    start: (url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) =>
+      ipcRenderer.invoke('player:start', url, resumePosition, referer, forceRemux),
     stop: () => ipcRenderer.invoke('player:stop'),
     addSubtitle: (filePath: string) => ipcRenderer.invoke('player:add-subtitle', filePath),
     verifyUrl: (url: string) => ipcRenderer.invoke('player:verify-url', url),

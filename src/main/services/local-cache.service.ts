@@ -1,10 +1,102 @@
 import { app } from 'electron'
 import * as http from 'http'
+import * as https from 'https'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as fsp from 'fs/promises'
 import { Readable } from 'stream'
 import * as FfmpegRemux from './ffmpeg-remux.service'
+
+// ─── Remote Stream Proxy State ────────────────────────────────────────────────────
+
+interface ProxySession {
+  id: string
+  url: string
+  headers: Record<string, string>
+}
+
+const proxySessions = new Map<string, ProxySession>()
+
+function generateProxyId(): string {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+}
+
+// Headers to inject for ok.ru and VK CDN streams (required for CORS/auth)
+function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): Record<string, string> {
+  const isOkCdn = /okcdn\.ru/i.test(url)
+  const isVkUser = /vkuser\.net/i.test(url)
+  const isVk = /vk\.com|vkvideo/i.test(url)
+  const isDailymotion = /dailymotion\.com/i.test(url)
+
+  if (isOkCdn || isVkUser || isVk) {
+    return {
+      ...baseHeaders,
+      'Referer': 'https://ok.ru/',
+      'Origin': 'https://ok.ru',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    }
+  }
+  if (isDailymotion) {
+    return {
+      ...baseHeaders,
+      'Referer': 'https://www.dailymotion.com/',
+      'Origin': 'https://www.dailymotion.com',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    }
+  }
+  return baseHeaders
+}
+
+function fetchRemoteUrl(url: string, headers: Record<string, string>): Promise<{ status: number; body: Buffer; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url)
+    const isHttps = u.protocol === 'https:'
+    const client = isHttps ? https : http
+
+    const req = client.request({
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers,
+    }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk) => chunks.push(chunk))
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          body: Buffer.concat(chunks),
+          contentType: res.headers['content-type'] || 'application/octet-stream',
+        })
+      })
+    })
+
+    req.on('error', reject)
+    req.setTimeout(30000, () => req.destroy(new Error('Request timeout')))
+    req.end()
+  })
+}
+
+// ─── Proxy Session Management ─────────────────────────────────────────────────────
+// ponytail: ok.ru/VK CDN requires Referer+Origin headers that browsers can't send
+// via hls.js XHR. We proxy the HLS stream through our local HTTP server which
+// injects the required headers on every request.
+
+export function createProxySession(remoteUrl: string): { proxyId: string; proxyUrl: string } {
+  const proxyId = generateProxyId()
+  const cdnHeaders = getCdnHeaders(remoteUrl)
+  proxySessions.set(proxyId, { id: proxyId, url: remoteUrl, headers: cdnHeaders })
+  const proxyUrl = `http://127.0.0.1:${serverPort}/proxy/${proxyId}/`
+  debug('Proxy session created:', proxyId, '→', proxyUrl, '(remote:', remoteUrl.slice(0, 60) + ')')
+  return { proxyId, proxyUrl }
+}
+
+export function removeProxySession(proxyId: string): void {
+  if (proxySessions.has(proxyId)) {
+    debug('Proxy session removed:', proxyId)
+    proxySessions.delete(proxyId)
+  }
+}
 
 export interface TorrentStreamInfo {
   stream: Readable
@@ -234,12 +326,216 @@ function serveTorrentStream(
   res.on('close', () => { if (stallTimer) clearTimeout(stallTimer) })
 }
 
+// ─── Remote HLS Proxy ─────────────────────────────────────────────────────────────
+// When hls.js fetches /proxy/<id>/, we serve the master playlist and rewrite
+// all variant/segment URLs to route through the proxy (so CDN headers are injected).
+//
+// URL scheme:
+//   /proxy/<id>/                    → fetch session.url (master playlist), rewrite
+//   /proxy/<id>/<encoded-remote-url> → fetch the decoded URL, rewrite if it's a playlist
+
+function rewriteHlsUrls(playlist: string, baseUrl: string, proxyId: string): string {
+  // In an HLS playlist, every non-empty, non-directive line is a URI
+  // (variant URL in master, segment URL in media). Some CDN URLs end with
+  // /video/ or other paths without standard extensions, so we match broadly.
+  return playlist.replace(
+    /^((?!#)[^\s\r\n]+)(.*)$/gm,
+    (_match, rawUrl, rest) => {
+      // Already rewritten? Skip.
+      if (rawUrl.startsWith('http://127.0.0.1:')) return _match
+      // Resolve relative URLs against the playlist's base URL
+      let absoluteUrl: string
+      try {
+        absoluteUrl = new URL(rawUrl, baseUrl).href
+      } catch {
+        absoluteUrl = rawUrl
+      }
+      const encoded = encodeURIComponent(absoluteUrl)
+      return `http://127.0.0.1:${serverPort}/proxy/${proxyId}/${encoded}${rest}`
+    },
+  )
+}
+
+async function serveRemotePlaylist(
+  remoteUrl: string, proxyId: string, req: http.IncomingMessage, res: http.ServerResponse,
+) {
+  try {
+    const cdnHeaders = getCdnHeaders(remoteUrl)
+    const { status, body, contentType } = await fetchRemoteUrl(remoteUrl, cdnHeaders)
+
+    if (status !== 200) {
+      debug('Remote playlist HTTP', status, 'for', remoteUrl.slice(0, 80))
+      res.writeHead(status)
+      res.end('Remote playlist fetch failed')
+      return
+    }
+
+    const content = body.toString('utf-8')
+    const rewritten = rewriteHlsUrls(content, remoteUrl, proxyId)
+
+    res.writeHead(200, {
+      'Content-Type': contentType || 'application/x-mpegURL; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': '*',
+    })
+    res.end(rewritten)
+  } catch (err: any) {
+    debug('Remote playlist error:', err.message)
+    res.writeHead(500)
+    res.end('Remote playlist proxy error')
+  }
+}
+
+async function serveRemoteFile(
+  remoteUrl: string, req: http.IncomingMessage, res: http.ServerResponse,
+) {
+  try {
+    const cdnHeaders = getCdnHeaders(remoteUrl)
+    const { status, body, contentType } = await fetchRemoteUrl(remoteUrl, cdnHeaders)
+
+    if (status !== 200) {
+      debug('Remote file HTTP', status, 'for', remoteUrl.slice(0, 80))
+      res.writeHead(status)
+      res.end('Remote file fetch failed')
+      return
+    }
+
+    const rangeHeader = req.headers.range
+    if (rangeHeader) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-')
+      const start = parseInt(parts[0], 10)
+      const end = parts[1] ? parseInt(parts[1], 10) : body.length - 1
+      const chunkSize = end - start + 1
+
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${body.length}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': contentType || 'video/mp4',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      })
+      res.end(body.slice(start, end + 1))
+    } else {
+      res.writeHead(200, {
+        'Content-Length': body.length,
+        'Content-Type': contentType || 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      })
+      res.end(body)
+    }
+  } catch (err: any) {
+    debug('Remote file error:', err.message)
+    res.writeHead(500)
+    res.end('Remote file proxy error')
+  }
+}
+
+// Fetch a proxied URL and decide whether it's a playlist (rewrite) or segment (serve).
+// CDN variant URLs like /expires/.../video/ don't have .m3u8 extensions,
+// so we check the Content-Type header from the upstream response.
+async function serveProxiedContent(
+  remoteUrl: string, proxyId: string, req: http.IncomingMessage, res: http.ServerResponse,
+) {
+  try {
+    const cdnHeaders = getCdnHeaders(remoteUrl)
+    const { status, body, contentType } = await fetchRemoteUrl(remoteUrl, cdnHeaders)
+
+    if (status !== 200) {
+      debug('Proxied content HTTP', status, 'for', remoteUrl.slice(0, 80))
+      res.writeHead(status)
+      res.end('Proxied fetch failed')
+      return
+    }
+
+    const isPlaylist = /mpegurl|x-mpegurl/i.test(contentType)
+      || /\.m3u8(\?|$)/i.test(remoteUrl)
+      || body.toString('utf-8').startsWith('#EXTM3U')
+
+    if (isPlaylist) {
+      // Rewrite the playlist's internal URLs to go through the proxy
+      const content = body.toString('utf-8')
+      const rewritten = rewriteHlsUrls(content, remoteUrl, proxyId)
+      res.writeHead(200, {
+        'Content-Type': contentType || 'application/x-mpegURL; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      })
+      res.end(rewritten)
+    } else {
+      // Serve raw segment bytes
+      const rangeHeader = req.headers.range
+      if (rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, '').split('-')
+        const start = parseInt(parts[0], 10)
+        const end = parts[1] ? parseInt(parts[1], 10) : body.length - 1
+        const chunkSize = end - start + 1
+
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${body.length}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': contentType || 'video/mp4',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(body.slice(start, end + 1))
+      } else {
+        res.writeHead(200, {
+          'Content-Length': body.length,
+          'Content-Type': contentType || 'video/mp4',
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(body)
+      }
+    }
+  } catch (err: any) {
+    debug('Proxied content error:', err.message)
+    res.writeHead(500)
+    res.end('Proxied content error')
+  }
+}
+
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   // Prevent unhandled socket errors from crashing the Electron main process.
   req.on('error', () => { if (!res.writableEnded) res.end() })
   res.on('error', () => {})
 
   const url = req.url || '/'
+
+  // Handle /proxy/<id>/<path> — fetch remote HLS stream with proper headers
+  //   /proxy/<id>/                    → master playlist (session.url)
+  //   /proxy/<id>/<encoded-remote-url> → decoded URL fetch (variant playlists, segments)
+  const proxyMatch = url.match(/^\/proxy\/([a-zA-Z0-9]+)\/?(.*)$/)
+  if (proxyMatch && proxySessions.has(proxyMatch[1])) {
+    const session = proxySessions.get(proxyMatch[1])!
+    const subPath = proxyMatch[2]
+
+    if (!subPath || subPath === 'master.m3u8') {
+      // First request: fetch the master playlist
+      serveRemotePlaylist(session.url, session.id, req, res)
+      return
+    }
+
+    // Subsequent requests: decode the URL from the path
+    let remoteUrl: string
+    try {
+      remoteUrl = decodeURIComponent(subPath)
+    } catch {
+      res.writeHead(400)
+      res.end('Bad proxy URL encoding')
+      return
+    }
+
+    // Fetch the remote URL first, then decide based on Content-Type
+    // whether it's a playlist (rewrite URLs) or a segment (serve raw).
+    serveProxiedContent(remoteUrl, session.id, req, res)
+    return
+  }
 
   // Handle /remux/<sessionId>/<filename> — FFmpeg HLS remux output
   const remuxMatch = url.match(/^\/remux\/([a-zA-Z0-9]+)\/(playlist\.m3u8|init\.mp4|segment\d{5}\.m4s)$/)

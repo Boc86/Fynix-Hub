@@ -232,6 +232,43 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     const videoRef = useRef<HTMLVideoElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const startTimeSeekedRef = useRef(false)
+
+    // ── Debug: log src changes and video element events ─────
+    useEffect(() => {
+      console.log('[VideoJsPlayer] src changed:', src?.slice(0, 120))
+    }, [src])
+
+    useEffect(() => {
+      const v = videoRef.current
+      if (!v) return
+      const logEvent = (name: string) => () => console.log(`[VideoJsPlayer] ${name}`)
+      const logError = () => {
+        const err = v.error
+        console.error('[VideoJsPlayer] video error:', {
+          code: err?.code,
+          message: err?.message,
+          src: v.currentSrc?.slice(0, 120),
+          readyState: v.readyState,
+          networkState: v.networkState,
+          paused: v.paused,
+          error: err ? { MEDIA_ERR_ABORTED: 1, MEDIA_ERR_NETWORK: 2, MEDIA_ERR_DECODE: 3, MEDIA_ERR_SRC_NOT_SUPPORTED: 4 }[err.code] : null,
+        })
+      }
+      v.addEventListener('play', logEvent('play'))
+      v.addEventListener('playing', logEvent('playing'))
+      v.addEventListener('waiting', logEvent('waiting'))
+      v.addEventListener('canplay', logEvent('canplay'))
+      v.addEventListener('loadeddata', logEvent('loadeddata'))
+      v.addEventListener('error', logError)
+      return () => {
+        v.removeEventListener('play', logEvent('play'))
+        v.removeEventListener('playing', logEvent('playing'))
+        v.removeEventListener('waiting', logEvent('waiting'))
+        v.removeEventListener('canplay', logEvent('canplay'))
+        v.removeEventListener('loadeddata', logEvent('loadeddata'))
+        v.removeEventListener('error', logError)
+      }
+    }, [])
     // ── OSD state ──────────────────────────────────────────────────────
     const [osdOpen, setOsdOpen] = useState(false)
     const [osdRow, setOsdRow] = useState(0) // 0 = scrub bar, 1 = buttons
@@ -913,6 +950,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         <Player.Provider>
           <Container className={styles.videoContainer}>
             <HlsJsVideo
+              key={src}
               ref={videoRef}
               className={styles.video}
               src={src}

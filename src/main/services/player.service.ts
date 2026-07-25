@@ -5,10 +5,14 @@
  * resolution (ok.ru, Dailymotion) and decides whether a URL needs
  * FFmpeg remuxing or can be played directly by hls.js.
  *
+ * For browser-playable streams that need custom CDN headers (ok.ru/VK),
+ * routes through local-cache proxy to inject Referer/Origin headers.
+ *
  * Replaces the mpv.service.ts API surface for the renderer process.
  */
 
 import * as FfmpegRemux from './ffmpeg-remux.service'
+import * as LocalCache from './local-cache.service'
 import * as OkruResolver from './okru-resolver'
 import * as DailymotionResolver from './dailymotion-resolver'
 
@@ -22,8 +26,8 @@ export interface StartPlaybackResult {
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
-
 let currentSessionId: string | null = null
+let currentProxyId: string | null = null
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -39,25 +43,37 @@ function isBrowserPlayable(url: string): boolean {
   return /\.(m3u8|mp4|webm|m4a|mp3|aac|ogg)(\?|$)/i.test(url)
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+/**
+ * Check if URL is a remote CDN stream that requires auth headers.
+ * These streams need proxying because the browser can't send custom
+ * Referer/Origin headers via hls.js XHR.
+ */
+function needsCdnProxy(url: string): boolean {
+  return /okcdn\.ru|vkuser\.net|vk\.com|vkvideo/i.test(url)
+    || /dailymotion\.com/i.test(url)
+}
+
+// ─── Public API ────────────────────────────────────────────────
 
 /**
  * Start playback of a URL.
  *
  * 1. Resolves ok.ru / Dailymotion URLs to direct stream URLs.
- * 2. If the URL is already browser-playable, passes it directly.
- * 3. Otherwise, spawns FFmpeg to remux to HLS fMP4.
+ * 2. If the URL is browser-playable AND doesn't need CDN headers, passes directly.
+ * 3. If the URL is browser-playable BUT needs CDN headers, routes through proxy.
+ * 4. Otherwise, spawns FFmpeg to remux to HLS fMP4.
  */
 export async function startPlayback(
   inputUrl: string,
   resumePosition?: number,
   referer?: string,
+  forceRemux?: boolean,
 ): Promise<StartPlaybackResult> {
   await stopPlayback()
 
   let resolvedUrl = inputUrl
 
-  // ── URL resolution ────────────────────────────────────────────────────
+  // ── URL resolution ────────────────────────────────────────
   if (OkruResolver.isOkruReplay(inputUrl)) {
     try {
       debug('Resolving ok.ru replay URL')
@@ -73,59 +89,58 @@ export async function startPlayback(
       const resolved = await DailymotionResolver.resolveDailymotionUrl(inputUrl)
       resolvedUrl = resolved.url
       debug('Resolved Dailymotion URL:', resolvedUrl.slice(0, 80))
-      // Dailymotion cookie is used for CDN auth; pass as referer.
-      if (resolved.cookie) {
-        referer = referer || 'https://www.dailymotion.com/'
-      }
     } catch (err: any) {
       debug('Dailymotion resolution failed:', err?.message)
       throw err
     }
   }
 
-  // ── Decide: direct play or remux ──────────────────────────────────────
-  if (isBrowserPlayable(resolvedUrl)) {
-    debug('URL is browser-playable, passing directly:', resolvedUrl.slice(0, 80))
-    currentSessionId = null
+  // ── Decide playback path ──────────────────────────────────
+  // ponytail: Chromium (Electron 42) decodes HEVC natively via VAAPI.
+  // Play HLS/.m3u8 directly; remux only for non-browser-playable streams.
+  if (isBrowserPlayable(resolvedUrl) && !forceRemux) {
+    const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(resolvedUrl)
+
+    if (needsCdnProxy(resolvedUrl)) {
+      // Browser-playable but needs CDN headers → route through local proxy.
+      // The proxy injects Referer/Origin headers that the browser can't send.
+      debug('CDN stream needs proxy for auth headers:', resolvedUrl.slice(0, 80))
+      const { proxyId, proxyUrl } = LocalCache.createProxySession(resolvedUrl)
+      currentProxyId = proxyId
+      return { streamUrl: proxyUrl, duration: null }
+    }
+
+    if (isLocal) {
+      debug('URL is local, passing directly:', resolvedUrl.slice(0, 80))
+    } else {
+      debug('URL is browser-playable, passing directly:', resolvedUrl.slice(0, 80))
+    }
     return { streamUrl: resolvedUrl, duration: null }
   }
 
-  // ── FFmpeg remux ──────────────────────────────────────────────────────
-  // For remote URLs that need custom headers, FFmpeg can accept them via
-  // -headers flag. We build the URL with headers appended.
-  let ffmpegInputUrl = resolvedUrl
-
-  const headers: string[] = []
-  // Standard Chrome user-agent for non-local streams.
-  const isLocal = /^https?:\/\/127\.0\.0\.1/.test(resolvedUrl) || /^https?:\/\/localhost/.test(resolvedUrl)
-  if (!isLocal) {
-    headers.push('User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
-  }
-  if (referer) {
-    headers.push(`Referer: ${referer}`)
-  }
-
-  // For ok.ru / VK / Dailymotion streams, add origin headers.
+  // ── FFmpeg remux (non-browser-playable formats) ──────────
+  const isLocal = /^(file:|https?:\/\/(127\.0\.0\.1|localhost))/.test(resolvedUrl)
   const isOkCdn = /okcdn\.ru/i.test(resolvedUrl)
   const isVk = /vk\.com|vkvideo|vkuser\.net/i.test(resolvedUrl)
   const isDailymotion = DailymotionResolver.isDailymotionUrl(inputUrl)
-  if (isOkCdn || isVk) {
-    headers.push('Referer: https://ok.ru/')
-    headers.push('Origin: https://ok.ru')
-  } else if (isDailymotion) {
-    headers.push('Referer: https://www.dailymotion.com/')
-    headers.push('Origin: https://www.dailymotion.com')
-  }
 
-  // Build FFmpeg input URL with headers if needed.
-  if (headers.length > 0) {
-    // FFmpeg -headers expects \r\n terminated lines.
-    const headerStr = headers.join('\r\n') + '\r\n'
-    ffmpegInputUrl = `${resolvedUrl}|headers=${headerStr}`
+  // Build headers for FFmpeg
+  const ffmpegHeaders: string[] = []
+  if (!isLocal) {
+    ffmpegHeaders.push('User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+  }
+  if (isOkCdn || isVk) {
+    ffmpegHeaders.push('Referer: https://ok.ru/')
+    ffmpegHeaders.push('Origin: https://ok.ru')
+  } else if (isDailymotion) {
+    ffmpegHeaders.push('Referer: https://www.dailymotion.com/')
+    ffmpegHeaders.push('Origin: https://www.dailymotion.com')
+  } else if (referer) {
+    ffmpegHeaders.push('Referer: ' + referer)
   }
 
   debug('Starting FFmpeg remux for:', resolvedUrl.slice(0, 80))
-  const result = FfmpegRemux.createSession(ffmpegInputUrl, resumePosition || 0)
+  const result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders)
   if (!result) {
     throw new Error('Failed to start FFmpeg remux session')
   }
@@ -141,19 +156,16 @@ export async function startPlayback(
  * Stop the current playback session.
  */
 export async function stopPlayback(): Promise<void> {
+  if (currentProxyId) {
+    debug('Removing proxy session:', currentProxyId)
+    LocalCache.removeProxySession(currentProxyId)
+    currentProxyId = null
+  }
   if (currentSessionId) {
     debug('Stopping session:', currentSessionId)
     FfmpegRemux.killSession(currentSessionId)
     currentSessionId = null
   }
-}
-
-/**
- * Check if a URL is a remote stream that FFmpeg should handle
- * with custom HTTP headers.
- */
-export function needsHttpHeaders(url: string): boolean {
-  return !/^https?:\/\/127\.0\.0\.1/.test(url) && !/^https?:\/\//.test(url) === false
 }
 
 /**

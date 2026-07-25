@@ -100,8 +100,8 @@ function getContentType(filename: string): string {
 
 // ─── Session Management ──────────────────────────────────────────────────────
 
-function buildFFmpegArgs(inputUrl: string, outputDir: string): string[] {
-  return [
+function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false): string[] {
+  const args = [
     '-hide_banner',
     '-loglevel', 'info',
     '-err_detect', 'ignore_err',
@@ -110,8 +110,42 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string): string[] {
     '-analyzeduration', '60000000',
     '-probesize', '100000000',
     '-rw_timeout', '60000000',
+  ]
+
+  // Add headers as a separate FFmpeg option if provided
+  if (headers.length > 0) {
+    // FFmpeg -headers expects \r\n terminated lines with a blank line at the end.
+    const headerStr = headers.map(h => h.trim()).join('\r\n') + '\r\n\r\n'
+    args.push('-headers', headerStr)
+  }
+
+  args.push(
     '-i', inputUrl,
-    '-c:v', 'copy',
+    // Only map first video + first audio — skip subtitles and other streams
+    // that would generate extra HLS playlists the local cache server doesn't serve.
+    '-map', '0:v:0', '-map', '0:a:0',
+  )
+
+  if (transcodeVideo) {
+    // HEVC → H.264 transcode for Chromium MSE compatibility.
+    debug('Transcoding video to H.264 for browser compatibility')
+    args.push(
+      // Downscale 4K→1080p + HDR→SDR tonemap in one pass.
+      // zscale does downscale first (fewer pixels to tonemap), then
+      // linearize PQ → hable tonemap → BT.709 TV-range output.
+      '-vf', 'scale=1920:1080:flags=lanczos,zscale=t=linear:npl=100,tonemap=hable,zscale=t=bt709:p=bt709:m=bt709:r=tv,format=yuv420p',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+    )
+  } else {
+    // Copy video bitstream (fast, lossless for the container).
+    // FFmpeg auto-detects the correct codec tag (hvc1 for HEVC, avc1 for H.264).
+    args.push('-c:v', 'copy')
+  }
+
+  args.push(
     // Always transcode audio to AAC — browser MSE doesn't support AC-3, DTS,
     // TrueHD, etc. AAC is lightweight and universally supported.
     '-c:a', 'aac',
@@ -124,110 +158,135 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string): string[] {
     '-hls_playlist_type', 'event',
     '-hls_segment_type', 'fmp4',
     '-hls_fmp4_init_filename', 'init.mp4',
-    '-hls_flags', 'independent_segments+append_list',
+    '-hls_flags', 'independent_segments',
     '-hls_segment_filename', path.join(outputDir, 'segment%05d.m4s'),
     path.join(outputDir, 'playlist.m3u8'),
-  ]
+  )
+
+  return args
+}
+
+/** Probe the input file to detect HEVC video codec. */
+function probeIsHevc(inputUrl: string): boolean {
+  try {
+    const result = require('child_process').execSync(
+      `ffprobe -v error -analyzeduration 20000000 -probesize 50000000 -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${inputUrl}"`,
+      { timeout: 20000, stdio: ['pipe', 'pipe', 'ignore'] },
+    )
+    const codec = result.toString().trim().toLowerCase()
+    debug('Video codec detected:', codec)
+    return codec === 'hevc' || codec === 'h265'
+  } catch {
+    // If ffprobe fails (e.g. torrent still buffering), assume HEVC
+    // and transcode to H.264 to be safe. Worst case: H.264 gets
+    // re-encoded (slight quality loss, still fast with -preset veryfast).
+    debug('ffprobe failed, assuming HEVC for safety — will transcode to H.264')
+    return true
+  }
 }
 
 /**
- * Start an FFmpeg HLS remux session.
- * Returns { sessionId, streamUrl } or null on failure.
- */
-export function createSession(
-  inputUrl: string,
-  resumePosition = 0,
-): { sessionId: string; streamUrl: string } | null {
-  const id = generateId()
-  const outputDir = getSessionDir(id)
+ /**
+  * Start an FFmpeg HLS remux session.
+  * Returns { sessionId, streamUrl } or null on failure.
+  */
+ export function createSession(
+   inputUrl: string,
+   resumePosition = 0,
+   headers: string[] = [],
+ ): { sessionId: string; streamUrl: string } | null {
+   const id = generateId()
+   const outputDir = getSessionDir(id)
 
-  fs.mkdirSync(outputDir, { recursive: true })
+   fs.mkdirSync(outputDir, { recursive: true })
 
-  // If resume position specified, add -ss before -i for fast seek.
-  const args: string[] = []
-  if (resumePosition > 0) {
-    args.push('-ss', String(resumePosition))
-  }
-  args.push(...buildFFmpegArgs(inputUrl, outputDir))
+   // If resume position specified, add -ss before -i for fast seek.
+   const args: string[] = []
+   if (resumePosition > 0) {
+     args.push('-ss', String(resumePosition))
+   }
+   // ponytail: Chromium (Electron 42) with VAAPI decodes HEVC natively.
+   // No transcode needed — just remux (copy) the video stream.
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false))
 
-  debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
+   debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 
-  let proc: ChildProcess
-  try {
-    proc = spawn('ffmpeg', args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch (err: any) {
-    debug('FFmpeg spawn failed:', err?.message)
-    try { fs.rmSync(outputDir, { recursive: true, force: true }) } catch {}
-    return null
-  }
+   let proc: ChildProcess
+   try {
+     proc = spawn('ffmpeg', args, {
+       stdio: ['ignore', 'pipe', 'pipe'],
+     })
+   } catch (err: any) {
+     debug('FFmpeg spawn failed:', err?.message)
+     try { fs.rmSync(outputDir, { recursive: true, force: true }) } catch {}
+     return null
+   }
 
-  let readyResolve!: () => void
-  const ready = new Promise<void>((r) => { readyResolve = r })
+   let readyResolve!: () => void
+   const ready = new Promise<void>((r) => { readyResolve = r })
 
-  const session: RemuxSession = {
-    id,
-    process: proc,
-    inputUrl,
-    outputDir,
-    startedAt: Date.now(),
-    ready,
-    readyResolve,
-  }
+   const session: RemuxSession = {
+     id,
+     process: proc,
+     inputUrl,
+     outputDir,
+     startedAt: Date.now(),
+     ready,
+     readyResolve,
+   }
 
-  sessions.set(id, session)
+   sessions.set(id, session)
 
-  // Write placeholder playlist immediately so the first HLS request succeeds.
-  fs.writeFileSync(path.join(outputDir, 'playlist.m3u8'), PLACEHOLDER_PLAYLIST)
+   // Write placeholder playlist immediately so the first HLS request succeeds.
+   fs.writeFileSync(path.join(outputDir, 'playlist.m3u8'), PLACEHOLDER_PLAYLIST)
 
-  // Monitor FFmpeg output for logging.
-  proc.stdout?.on('data', (chunk: Buffer) => {
-    const line = chunk.toString().trim()
-    if (line) debug(`[ffmpeg stdout] ${line}`)
-  })
-  proc.stderr?.on('data', (chunk: Buffer) => {
-    const line = chunk.toString().trim()
-    if (line) debug(`[ffmpeg stderr] ${line}`)
-  })
+   // Monitor FFmpeg output for logging.
+   proc.stdout?.on('data', (chunk: Buffer) => {
+     const line = chunk.toString().trim()
+     if (line) debug(`[ffmpeg stdout] ${line}`)
+   })
+   proc.stderr?.on('data', (chunk: Buffer) => {
+     const line = chunk.toString().trim()
+     if (line) debug(`[ffmpeg stderr] ${line}`)
+   })
 
-  proc.on('error', (err) => {
-    debug('FFmpeg process error:', err.message)
-    cleanupSession(id)
-  })
+   proc.on('error', (err) => {
+     debug('FFmpeg process error:', err.message)
+     cleanupSession(id)
+   })
 
-  proc.on('exit', (code, signal) => {
-    debug(`FFmpeg exited with code ${code} signal ${signal}`)
-    clearInterval(readyWatcher)
-    // Don't cleanup on normal completion (code 0) — segments are still
-    // being served to the player. Session is cleaned up on player.stop()
-    // or shutdown() instead.
-    if (code !== 0) {
-      cleanupSession(id)
-    } else {
-      // Mark session as complete so we don't wait for more segments.
-      readyResolve()
-    }
-  })
+   proc.on('exit', (code, signal) => {
+     debug(`FFmpeg exited with code ${code} signal ${signal}`)
+     clearInterval(readyWatcher)
+     // Don't cleanup on normal completion (code 0) — segments are still
+     // being served to the player. Session is cleaned up on player.stop()
+     // or shutdown() instead.
+     if (code !== 0) {
+       cleanupSession(id)
+     } else {
+       // Mark session as complete so we don't wait for more segments.
+       readyResolve()
+     }
+   })
 
-  // Watch for the first real playlist write to mark the session as ready.
-  const playlistPath = path.join(outputDir, 'playlist.m3u8')
-  const readyWatcher = setInterval(() => {
-    try {
-      const stat = fs.statSync(playlistPath)
-      // Real playlist is larger than the placeholder.
-      if (stat.size > PLACEHOLDER_PLAYLIST.length) {
-        clearInterval(readyWatcher)
-        readyResolve()
-      }
-    } catch {}
-  }, 300)
+   // Watch for the first real playlist write to mark the session as ready.
+   const playlistPath = path.join(outputDir, 'playlist.m3u8')
+   const readyWatcher = setInterval(() => {
+     try {
+       const stat = fs.statSync(playlistPath)
+       // Real playlist is larger than the placeholder.
+       if (stat.size > PLACEHOLDER_PLAYLIST.length) {
+         clearInterval(readyWatcher)
+         readyResolve()
+       }
+     } catch {}
+   }, 300)
 
-  const port = portGetter ? portGetter() : 0
-  const streamUrl = `http://127.0.0.1:${port}/remux/${id}/playlist.m3u8`
-  debug('Session created:', id, '→', streamUrl)
-  return { sessionId: id, streamUrl }
-}
+   const port = portGetter ? portGetter() : 0
+   const streamUrl = `http://127.0.0.1:${port}/remux/${id}/playlist.m3u8`
+   debug('Session created:', id, '→', streamUrl)
+   return { sessionId: id, streamUrl }
+ }
 
 function cleanupSession(id: string) {
   const session = sessions.get(id)
@@ -277,11 +336,13 @@ export async function handleRemuxRequest(
   res: ServerResponse,
 ): Promise<void> {
   const session = sessions.get(sessionId)
-  if (!session) {
-    res.writeHead(404)
-    res.end('Remux session not found')
-    return
-  }
+    if (!session) {
+      res.writeHead(404, {
+        'Access-Control-Allow-Origin': '*',
+      })
+      res.end('Remux session not found')
+      return
+    }
 
   // For playlist.m3u8: serve immediately (may be placeholder initially, refreshable).
   if (filename === 'playlist.m3u8') {
