@@ -130,11 +130,12 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
     // HEVC → H.264 transcode for Chromium MSE compatibility.
     debug('Transcoding video to H.264 for browser compatibility')
     args.push(
-      // HDR→SDR tonemap: linearize PQ/HLG → hable tonemap → BT.709 output.
-      // Without this, Chromium MSE rejects streams with smpte2084 transfer.
-      '-vf', 'zscale=t=linear:npl=100,tonemap=hable,zscale=t=bt709:p=bt709:m=bt709:r=tv,format=yuv420p',
+      // Downscale 4K→1080p + HDR→SDR tonemap in one pass.
+      // zscale does downscale first (fewer pixels to tonemap), then
+      // linearize PQ → hable tonemap → BT.709 TV-range output.
+      '-vf', 'zscale=w=1920:h=1080:flags=lanczos,t=linear:npl=100,tonemap=hable,zscale=t=bt709:p=bt709:m=bt709:r=tv,format=yuv420p',
       '-c:v', 'libx264',
-      '-preset', 'veryfast',
+      '-preset', 'ultrafast',
       '-crf', '23',
       '-pix_fmt', 'yuv420p',
     )
@@ -156,7 +157,7 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
     '-hls_playlist_type', 'event',
     '-hls_segment_type', 'fmp4',
     '-hls_fmp4_init_filename', 'init.mp4',
-    '-hls_flags', 'independent_segments+append_list',
+    '-hls_flags', 'independent_segments',
     '-hls_segment_filename', path.join(outputDir, 'segment%05d.m4s'),
     path.join(outputDir, 'playlist.m3u8'),
   )
