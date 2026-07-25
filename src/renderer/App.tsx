@@ -1021,8 +1021,8 @@ export default function App() {
   }, [navigate, accentColor])
 
   // Helper: call player.start() and wire the returned HLS URL into the player UI.
-  const startPlayerUrl = useCallback(async (url: string, resumePosition?: number, referer?: string) => {
-    const result = await window.api.player.start(url, resumePosition, referer)
+  const startPlayerUrl = useCallback(async (url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) => {
+    const result = await window.api.player.start(url, resumePosition, referer, forceRemux)
     const hlsUrl = result?.streamUrl ?? url
     setStreamUrl(hlsUrl)
     return result
@@ -1035,7 +1035,7 @@ export default function App() {
     setPlayerLoading(true)
     setStreamError(null)
     try {
-      await startPlayerUrl(result.embedUrl)
+      await startPlayerUrl(result.embedUrl, undefined, undefined, true)
       setView('player')
     } catch (err: any) {
       window.api.log('[App] Vyla manual play failed:', err?.message)
@@ -1192,7 +1192,7 @@ export default function App() {
         if (!check.ok) {
           throw new Error(`Vyla URL returned ${check.status} (${check.error || 'unreachable'})`)
         }
-        await startPlayerUrl(result.embedUrl)
+        await startPlayerUrl(result.embedUrl, undefined, undefined, true)
         // Give the browser a moment to start playback.
         // If the URL is invalid, VideoPlayer's onError will fire.
         await new Promise(r => setTimeout(r, 2000))

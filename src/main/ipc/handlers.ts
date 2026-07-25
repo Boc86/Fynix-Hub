@@ -659,9 +659,9 @@ export async function registerIpcHandlers(): Promise<void> {
 
   // ── HTML5 Player (Video.js + FFmpeg remux) ──────────────────────────────
 
-  handle('player:start', async (_event, url: string, resumePosition?: number, referer?: string) => {
+  handle('player:start', async (_event, url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) => {
     try {
-      const result = await PlayerService.startPlayback(url, resumePosition, referer)
+      const result = await PlayerService.startPlayback(url, resumePosition, referer, forceRemux)
       return result
     } catch (err: any) {
       console.error('[Handler] player:start failed:', err?.message)

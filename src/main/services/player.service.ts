@@ -67,6 +67,7 @@ export async function startPlayback(
   inputUrl: string,
   resumePosition?: number,
   referer?: string,
+  forceRemux?: boolean,
 ): Promise<StartPlaybackResult> {
   await stopPlayback()
 
@@ -96,7 +97,9 @@ export async function startPlayback(
 
   // ── Decide playback path ──────────────────────────────────
   // v1.3.9: Play HLS/.m3u8 directly; remux only for non-browser-playable streams.
-  if (isBrowserPlayable(resolvedUrl)) {
+  // forceRemux: skip direct playback and always go through FFmpeg remux (e.g. Vyla
+  // streams may contain HEVC that Chromium can't decode).
+  if (isBrowserPlayable(resolvedUrl) && !forceRemux) {
     const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(resolvedUrl)
 
     if (needsCdnProxy(resolvedUrl)) {
