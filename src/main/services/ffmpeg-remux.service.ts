@@ -165,14 +165,18 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
 function probeIsHevc(inputUrl: string): boolean {
   try {
     const result = require('child_process').execSync(
-      `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${inputUrl}"`,
-      { timeout: 10000, stdio: ['pipe', 'pipe', 'ignore'] },
+      `ffprobe -v error -analyzeduration 20000000 -probesize 50000000 -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${inputUrl}"`,
+      { timeout: 20000, stdio: ['pipe', 'pipe', 'ignore'] },
     )
     const codec = result.toString().trim().toLowerCase()
     debug('Video codec detected:', codec)
     return codec === 'hevc' || codec === 'h265'
   } catch {
-    return false
+    // If ffprobe fails (e.g. torrent still buffering), assume HEVC
+    // and transcode to H.264 to be safe. Worst case: H.264 gets
+    // re-encoded (slight quality loss, still fast with -preset veryfast).
+    debug('ffprobe failed, assuming HEVC for safety — will transcode to H.264')
+    return true
   }
 }
 
