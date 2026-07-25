@@ -1020,13 +1020,6 @@ export default function App() {
     setPlayerLoading(false)
   }, [navigate, accentColor])
 
-  const handlePlayEmbed = useCallback((result: RivestreamResult) => {
-    setTorrentSearchOpen(false)
-    setFreeSearchOpen(false)
-    setFreeSearchQuery('')
-    window.api.embed.show(result.embedUrl)
-  }, [])
-
   // Helper: call player.start() and wire the returned HLS URL into the player UI.
   const startPlayerUrl = useCallback(async (url: string, resumePosition?: number, referer?: string) => {
     const result = await window.api.player.start(url, resumePosition, referer)
@@ -1034,6 +1027,23 @@ export default function App() {
     setStreamUrl(hlsUrl)
     return result
   }, [])
+
+  const handlePlayEmbed = useCallback(async (result: RivestreamResult) => {
+    setTorrentSearchOpen(false)
+    setFreeSearchOpen(false)
+    setFreeSearchQuery('')
+    setPlayerLoading(true)
+    setStreamError(null)
+    try {
+      await startPlayerUrl(result.embedUrl)
+      setView('player')
+    } catch (err: any) {
+      window.api.log('[App] Vyla manual play failed:', err?.message)
+      setStreamError(err?.message || 'Failed to play Vyla stream')
+    } finally {
+      setPlayerLoading(false)
+    }
+  }, [startPlayerUrl])
 
   const handlePlay = useCallback(async (resumePosition?: number) => {
     // Guard: reject if a torrent search modal is already open or player is active
