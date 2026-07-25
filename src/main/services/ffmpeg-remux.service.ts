@@ -133,7 +133,7 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
       // Downscale 4K→1080p + HDR→SDR tonemap in one pass.
       // zscale does downscale first (fewer pixels to tonemap), then
       // linearize PQ → hable tonemap → BT.709 TV-range output.
-      '-vf', 'zscale=w=1920:h=1080:flags=lanczos,t=linear:npl=100,tonemap=hable,zscale=t=bt709:p=bt709:m=bt709:r=tv,format=yuv420p',
+      '-vf', 'scale=1920:1080:flags=lanczos,zscale=t=linear:npl=100,tonemap=hable,zscale=t=bt709:p=bt709:m=bt709:r=tv,format=yuv420p',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '23',
