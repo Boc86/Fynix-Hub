@@ -117,7 +117,7 @@ export async function startPlayback(
   }
 
   // ── FFmpeg remux (non-browser-playable formats) ──────────
-  const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(resolvedUrl)
+  const isLocal = /^(file:|https?:\/\/(127\.0\.0\.1|localhost))/.test(resolvedUrl)
   const isOkCdn = /okcdn\.ru/i.test(resolvedUrl)
   const isVk = /vk\.com|vkvideo|vkuser\.net/i.test(resolvedUrl)
   const isDailymotion = DailymotionResolver.isDailymotionUrl(inputUrl)
