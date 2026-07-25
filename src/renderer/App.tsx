@@ -1192,7 +1192,7 @@ export default function App() {
         if (!check.ok) {
           throw new Error(`Vyla URL returned ${check.status} (${check.error || 'unreachable'})`)
         }
-        await startPlayerUrl(result.embedUrl, undefined, undefined, true)
+        await startPlayerUrl(result.embedUrl)
         // Give the browser a moment to start playback.
         // If the URL is invalid, VideoPlayer's onError will fire.
         await new Promise(r => setTimeout(r, 2000))

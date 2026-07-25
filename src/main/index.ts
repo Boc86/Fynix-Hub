@@ -60,8 +60,48 @@ function setupAdBlock(webContents: any) {
 }
 
 
+// ─── VA-API / Hardware HEVC Decoding ─────────────────────────────────────────
+// Electron 42+ has built-in HEVC HW decoding via VAAPI on Linux.
+// Auto-detect GPU vendor and point libva at the right driver backend.
+// - NVIDIA: requires `libva-nvidia-driver` (LIBVA_DRIVER_NAME=nvidia)
+// - Intel:  `libva-intel-driver` (i965) or `intel-media-driver` (iHD)
+// - AMD:    `mesa-va-drivers-freeworld` (radeonsi)
+// Intel/AMD drivers register themselves in /usr/lib64/dri/ and libva
+// auto-detects them — no LIBVA_DRIVER_NAME override needed.
+import { execSync } from 'child_process'
+import { existsSync } from 'fs'
+
+function detectGpuVendor(): string | null {
+  try {
+    const lspci = execSync('lspci -nn 2>/dev/null', { encoding: 'utf-8', timeout: 3000 })
+    if (/vga.*nvidia|3d.*nvidia|display.*nvidia/i.test(lspci)) return 'nvidia'
+    if (/vga.*intel|3d.*intel/i.test(lspci)) return 'intel'
+    if (/vga.*amd|vga.*ati|display.*amd|display.*ati/i.test(lspci)) return 'amd'
+  } catch { /* lspci unavailable */ }
+  return null
+}
+
+const gpuVendor = detectGpuVendor()
+const DRI_PATH = '/usr/lib64/dri'
+
+if (gpuVendor === 'nvidia') {
+  // NVIDIA needs explicit driver name — libva can't auto-detect it.
+  if (!process.env.LIBVA_DRIVER_NAME) process.env.LIBVA_DRIVER_NAME = 'nvidia'
+  const hasDriver = existsSync(`${DRI_PATH}/nvidia_drv_video.so`)
+  console.log(`[VA-API] NVIDIA GPU detected. Driver: ${hasDriver ? '✓' : '✗ MISSING — install libva-nvidia-driver'}`)
+} else if (gpuVendor === 'intel') {
+  const hasIhd = existsSync(`${DRI_PATH}/iHD_drv_video.so`)
+  const hasI965 = existsSync(`${DRI_PATH}/i965_drv_video.so`)
+  console.log(`[VA-API] Intel GPU detected. iHD: ${hasIhd ? '✓' : '✗'} i965: ${hasI965 ? '✓' : '✗'}${!hasIhd && !hasI965 ? ' — install intel-media-driver or libva-intel-driver' : ''}`)
+} else if (gpuVendor === 'amd') {
+  const hasRadeonsi = existsSync(`${DRI_PATH}/radeonsi_drv_video.so`)
+  console.log(`[VA-API] AMD GPU detected. radeonsi: ${hasRadeonsi ? '✓' : '✗ MISSING — install mesa-va-drivers-freeworld'}`)
+} else {
+  console.log('[VA-API] GPU vendor unknown — VAAPI may not work')
+}
+
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
+app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,VaapiVideoDecodeLinuxGL')
 app.commandLine.appendSwitch('disable-software-rasterizer')
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined

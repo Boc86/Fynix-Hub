@@ -141,6 +141,7 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
     )
   } else {
     // Copy video bitstream (fast, lossless for the container).
+    // FFmpeg auto-detects the correct codec tag (hvc1 for HEVC, avc1 for H.264).
     args.push('-c:v', 'copy')
   }
 
@@ -204,9 +205,9 @@ function probeIsHevc(inputUrl: string): boolean {
    if (resumePosition > 0) {
      args.push('-ss', String(resumePosition))
    }
-   // Detect HEVC and transcode to H.264 for Chromium MSE compatibility.
-   const needsTranscode = probeIsHevc(inputUrl)
-   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, needsTranscode))
+   // ponytail: Chromium (Electron 42) with VAAPI decodes HEVC natively.
+   // No transcode needed — just remux (copy) the video stream.
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false))
 
    debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 

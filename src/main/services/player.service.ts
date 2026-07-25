@@ -96,9 +96,8 @@ export async function startPlayback(
   }
 
   // ── Decide playback path ──────────────────────────────────
-  // v1.3.9: Play HLS/.m3u8 directly; remux only for non-browser-playable streams.
-  // forceRemux: skip direct playback and always go through FFmpeg remux (e.g. Vyla
-  // streams may contain HEVC that Chromium can't decode).
+  // ponytail: Chromium (Electron 42) decodes HEVC natively via VAAPI.
+  // Play HLS/.m3u8 directly; remux only for non-browser-playable streams.
   if (isBrowserPlayable(resolvedUrl) && !forceRemux) {
     const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(resolvedUrl)
 
