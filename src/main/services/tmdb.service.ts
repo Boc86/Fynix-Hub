@@ -117,7 +117,7 @@ export async function getWatchProviders(type: 'movie' | 'tv') {
 export async function discoverByProvider(type: 'movie' | 'tv', providerId: number, page: number = 1) {
   const data = await fetchTmdb(`/discover/${type}`, {
     with_watch_providers: String(providerId),
-    watch_region: 'US',
+    watch_region: getWatchRegion(),
     page: String(page),
     sort_by: 'popularity.desc',
   })
@@ -148,4 +148,20 @@ export async function getExternalIds(type: 'movie' | 'tv', id: number): Promise<
   const data = await fetchTmdb(`/${type}/${id}/external_ids`)
   const imdbId = data?.imdb_id
   return imdbId ? { imdbId } : {}
+}
+
+export async function getMoviesByCategory(genreId: number, page: number = 1) {
+  return discoverByGenre('movie', genreId, page)
+}
+
+export async function getTvShowsByCategory(genreId: number, page: number = 1) {
+  return discoverByGenre('tv', genreId, page)
+}
+
+export async function getTvShowsGenres() {
+  return getTvGenres()
+}
+
+export function getWatchRegion() {
+  return CacheService.getSetting<string>('tmdbWatchRegion') || 'US'
 }

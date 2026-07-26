@@ -23,6 +23,7 @@ export interface DownloadStatus {
   eta: string
   nzbUrl?: string
   error?: string
+  nzbId?: number
 }
 
 const ACTIVE_DOWNLOADS = new Map<string, DownloadStatus>()

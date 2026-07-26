@@ -42,7 +42,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const [focusedHeroAction, setFocusedHeroAction] = useState(-1) // -1=rows, 0=Play, 1=More Info
   const [focusedProvider, setFocusedProvider] = useState(-2) // -2=not in provider bar, -1="All", 0+=provider index
   const hasProviderBar = !!mediaTypeFilter && watchProviders.length > 0
-  const [genreRows, setGenreRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
+  const [discoveryRows, setDiscoveryRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [providerRows, setProviderRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
 
@@ -56,7 +56,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           ? [{ items: continueMovies, label: 'continueMovies' }]
           : [{ items: upNextItems, label: 'upNext' }, { items: continueTv, label: 'continueTv' }]),
         { items: trending, label: 'trending' },
-        ...(selectedProvider ? providerRows : genreRows),
+        ...(selectedProvider ? providerRows : discoveryRows),
       ]
     : [
         { items: upNextItems, label: 'upNext' },
@@ -68,9 +68,9 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         { items: topRatedMovies, label: 'topRated' },
       ]
 
-  const getVisibleRows = useCallback(() =>
-    rowConfig.filter((r) => r.items.length > 0),
-    [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, genreRows, providerRows, selectedProvider]
+  const getVisibleRows = useCallback(() => {
+      rowConfig.filter((r) => r.items.length > 0);
+    }, [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, providerRows, selectedProvider])
   )
 
   const getRowItemCount = useCallback((rowIdx: number) => {
@@ -267,43 +267,85 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         if (popTv?.results) setPopularTvShows(popTv.results)
         if (topMovies?.results) setTopRatedMovies(topMovies.results)
 
-        // Load genre rows for filtered views (fetch pages 1+2 for more items per row)
-        if (mediaTypeFilter) {
-          try {
-            // Fetch watch providers for the provider filter bar
-            const providersData = await window.api.tmdb.getWatchProviders(mediaTypeFilter)
-            if (providersData?.results) {
-              const providers = providersData.results.map((p: any) => ({
-                providerId: p.providerId,
-                providerName: p.providerName,
-                logoPath: p.logoPath,
-              })).filter((p: any) => p.logoPath) // only include providers with logos
-              setWatchProviders(providers)
-            }
+        // Fetch genre list, popular, and top_rated for the media type (fetch pages 1+2 for more items per row)
+                if (mediaTypeFilter) {
+                  try {
+                    // Fetch watch providers for the provider filter bar
+                    const providersData = await window.api.tmdb.getWatchProviders(mediaTypeFilter)
+                    if (providersData?.results) {
+                      const providers = providersData.results.map((p: any) => ({
+                        providerId: p.providerId,
+                        providerName: p.providerName,
+                        logoPath: p.logoPath,
+                      })).filter((p: any) => p.logoPath) // only include providers with logos
+                      setWatchProviders(providers)
+                    }
 
-            const genreData = mediaTypeFilter === 'movie'
-              ? await window.api.tmdb.getMovieGenres()
-              : await window.api.tmdb.getTvGenres()
-            const genres: Array<{ id: number; name: string }> = genreData?.genres || []
-            const rows = await Promise.all(genres.map(async (g) => {
-              try {
-                // Fetch pages 1 and 2 for ~40 items per genre row
-                const [page1, page2] = await Promise.all([
-                  window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
-                  window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
-                ])
-                const allItems = [
-                  ...(page1?.results || []),
-                  ...(page2?.results || []),
-                ]
-                return { label: g.name, items: allItems }
-              } catch {
-                return { label: g.name, items: [] }
-              }
-            }))
-            setGenreRows(rows.filter(r => r.items.length > 0))
-          } catch { /* genre rows are optional */ }
-        }
+                    // Fetch genre list
+                    const genreData = mediaTypeFilter === 'movie'
+                      ? await window.api.tmdb.getMovieGenres()
+                      : await window.api.tmdb.getTvGenres()
+                    const genres: Array<{ id: number; name: string }> = genreData?.genres || []
+
+                    // Helper function to fetch and combine pages 1 and 2
+                    const fetchPaginatedResults = async <T>(fetchFn: (page: number) => Promise<any>) => {
+                      try {
+                        const [page1, page2] = await Promise.all([
+                          fetchFn(1),
+                          fetchFn(2),
+                        ])
+                        return [
+                          ...(page1?.results || []),
+                          ...(page2?.results || []),
+                        ]
+                      } catch {
+                        return []
+                      }
+                    }
+
+                    // Fetch popular and top_rated for the media type (pages 1 and 2)
+                    const [popularItems, topRatedItems, genreRows] = await Promise.all([
+                      fetchPaginatedResults((page) => window.api.tmdb.getPopular(mediaTypeFilter, page)),
+                      fetchPaginatedResults((page) => window.api.tmdb.getTopRated(mediaTypeFilter, page)),
+                      Promise.all(genres.map(async (g) => {
+                        try {
+                          // Fetch discover by genre (pages 1 and 2)
+                          const [page1, page2] = await Promise.all([
+                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
+                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
+                          ])
+                          const allItems = [
+                            ...(page1?.results || []),
+                            ...(page2?.results || []),
+                          ]
+                          return { label: g.name, items: allItems }
+                        } catch {
+                          return { label: g.name, items: [] }
+                        }
+                      }))
+                    ])
+
+                    // Populate discoveryRows with popular, top_rated, and genre rows
+                    const discoveryRows: Array<{ label: string; items: MediaItem[] }> = []
+            
+                    if (popularItems.length > 0) {
+                      discoveryRows.push({ label: 'Popular', items: popularItems })
+                    }
+            
+                    if (topRatedItems.length > 0) {
+                      discoveryRows.push({ label: 'Top Rated', items: topRatedItems })
+                    }
+            
+                    // Add genre rows (only those with items)
+                    genreRows.forEach(genreRow => {
+                      if (genreRow.items.length > 0) {
+                        discoveryRows.push(genreRow)
+                      }
+                    })
+            
+                    setDiscoveryRows(discoveryRows)
+                  } catch { /* genre/popular/top_rated rows are optional */ }
+                }
 
         await fetchTraktData()
       } catch (err: any) {
