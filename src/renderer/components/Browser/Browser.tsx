@@ -39,6 +39,8 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const [focusedRow, setFocusedRow] = useState(0)
   const [focusedCard, setFocusedCard] = useState(0)
   const [focusedHeroAction, setFocusedHeroAction] = useState(-1) // -1=rows, 0=Play, 1=More Info
+  const [focusedProvider, setFocusedProvider] = useState(-2) // -2=not in provider bar, -1="All", 0+=provider index
+  const hasProviderBar = !!mediaTypeFilter && watchProviders.length > 0
   const [genreRows, setGenreRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [providerRows, setProviderRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
@@ -392,11 +394,15 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()
     const inHero = focusedHeroAction >= 0
+    const inProviderBar = focusedProvider >= -1 && focusedProvider !== -2 && hasProviderBar
+    const providerCount = watchProviders.length + 1 // +1 for "All" button
 
     switch (e.key) {
       case 'ArrowRight': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          if (focusedProvider < providerCount - 1) setFocusedProvider((p) => p + 1)
+        } else if (inHero) {
           if (focusedHeroAction < 1) setFocusedHeroAction((a) => a + 1)
         } else {
           const count = getRowItemCount(focusedRow)
@@ -406,7 +412,9 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'ArrowLeft': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          if (focusedProvider > -1) setFocusedProvider((p) => p - 1)
+        } else if (inHero) {
           if (focusedHeroAction > 0) setFocusedHeroAction((a) => a - 1)
         } else {
           if (focusedCard > 0) setFocusedCard((c) => c - 1)
@@ -415,9 +423,15 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'ArrowDown': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          setFocusedProvider(-2)
+          setFocusedRow(0)
+          setFocusedCard(0)
+        } else if (inHero) {
           setFocusedHeroAction(-1)
-          if (rows.length > 0) {
+          if (hasProviderBar) {
+            setFocusedProvider(-1)
+          } else if (rows.length > 0) {
             setFocusedRow(0)
             setFocusedCard(0)
           }
@@ -429,11 +443,16 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'ArrowUp': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          setFocusedProvider(-2)
+          setFocusedHeroAction(0)
+        } else if (inHero) {
           // already at top, stay
         } else if (focusedRow > 0) {
           setFocusedRow((r) => r - 1)
           setFocusedCard(0)
+        } else if (hasProviderBar) {
+          setFocusedProvider(-1)
         } else {
           // Move to hero buttons
           setFocusedHeroAction(0)
@@ -442,6 +461,12 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'Enter': {
         e.preventDefault()
+        if (inProviderBar) {
+          // -1 = "All", 0+ = provider index
+          const provider = focusedProvider === -1 ? null : watchProviders[focusedProvider]?.providerId
+          setSelectedProvider(selectedProvider === provider ? null : provider)
+          return
+        }
         if (inHero) {
           if (focusedHeroAction === 0) {
             heroPlayRef.current?.click()
@@ -493,7 +518,12 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         break
       }
     }
-  }, [focusedRow, focusedCard, focusedHeroAction, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu])
+  }, [focusedRow, focusedCard, focusedHeroAction, focusedProvider, hasProviderBar, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu, watchProviders, selectedProvider, setSelectedProvider])
+
+  // Reset provider focus when bar disappears
+  useEffect(() => {
+    if (!hasProviderBar && focusedProvider >= -1) setFocusedProvider(-2)
+  }, [hasProviderBar])
 
   const visibleRows = getVisibleRows()
 
@@ -532,16 +562,16 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
             <div className={styles.providerTrack}>
               <button
                 tabIndex={-1}
-                className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''}`}
+                className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''} ${focusedProvider === -1 ? styles.providerFocused : ''}`}
                 onClick={() => setSelectedProvider(null)}
               >
                 All
               </button>
-              {watchProviders.slice(0, 30).map((p) => (
+              {watchProviders.slice(0, 30).map((p, pi) => (
                 <button
                   tabIndex={-1}
                   key={p.providerId}
-                  className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''}`}
+                  className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''} ${focusedProvider === pi ? styles.providerFocused : ''}`}
                   onClick={() => setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId)}
                   title={p.providerName}
                 >

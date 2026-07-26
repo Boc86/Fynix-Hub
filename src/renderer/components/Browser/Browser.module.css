@@ -71,6 +71,11 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.providerFocused {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .providerLogo {
   width: 100%;
   height: 100%;
