@@ -342,7 +342,9 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           ...(page2?.results || []),
         ]
         if (allItems.length > 0) {
-          setProviderRows([{ label: `provider-${providerId}`, items: allItems }])
+          const provider = watchProviders.find(p => p.providerId === providerId);
+            const label = provider ? provider.providerName : `provider-${providerId}`;
+            setProviderRows([{ label, items: allItems }]);
         } else {
           setProviderRows([])
         }

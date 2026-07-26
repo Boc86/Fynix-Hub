@@ -32,8 +32,25 @@
 
 .providerTrack {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+
+.providerTrack::-webkit-scrollbar {
+  height: 6px;
+}
+
+.providerTrack::-webkit-scrollbar-thumb {
+  background-color: var(--accent);
+  border-radius: 3px;
+}
+
+.providerTrack::-webkit-scrollbar-track {
+  background: transparent;
+}
   scroll-behavior: smooth;
   padding: 4px 0;
   -webkit-overflow-scrolling: touch;
