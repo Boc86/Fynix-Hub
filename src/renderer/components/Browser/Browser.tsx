@@ -36,6 +36,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const loadedRef = useRef(false)
   const browserRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const providerTrackRef = useRef<HTMLDivElement | null>(null)
   const [focusedRow, setFocusedRow] = useState(0)
   const [focusedCard, setFocusedCard] = useState(0)
   const [focusedHeroAction, setFocusedHeroAction] = useState(-1) // -1=rows, 0=Play, 1=More Info
@@ -520,10 +521,22 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     }
   }, [focusedRow, focusedCard, focusedHeroAction, focusedProvider, hasProviderBar, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu, watchProviders, selectedProvider, setSelectedProvider])
 
-  // Reset provider focus when bar disappears
+  // Scroll provider track ref when provider bar disappears
   useEffect(() => {
-    if (!hasProviderBar && focusedProvider >= -1) setFocusedProvider(-2)
+    if (!hasProviderBar) providerTrackRef.current = null
   }, [hasProviderBar])
+
+  // Scroll focused provider into view
+  useEffect(() => {
+    if (!hasProviderBar || focusedProvider < -1 || !providerTrackRef.current) return
+
+    const track = providerTrackRef.current
+    const btns = track.getElementsByClassName('providerBtn')
+    const btn = btns[focusedProvider + 1] // +1 to skip 'All' button at index 0
+    if (!btn) return
+
+    btn.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [focusedProvider, hasProviderBar])
 
   const visibleRows = getVisibleRows()
 
@@ -559,7 +572,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
         {mediaTypeFilter && watchProviders.length > 0 && (
           <div className={styles.providerBar}>
-            <div className={styles.providerTrack}>
+            <div
+              ref={providerTrackRef}
+              className={styles.providerTrack}
+            >
               <button
                 tabIndex={-1}
                 className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''} ${focusedProvider === -1 ? styles.providerFocused : ''}`}
@@ -572,7 +588,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                   tabIndex={-1}
                   key={p.providerId}
                   className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''} ${focusedProvider === pi ? styles.providerFocused : ''}`}
-                  onClick={() => setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId);
+                  }}
                   title={p.providerName}
                 >
                   <img
