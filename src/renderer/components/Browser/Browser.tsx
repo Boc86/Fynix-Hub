@@ -556,7 +556,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           </div>
         )}
 
-        <div className={styles.rows}>
+        <div className={styles.rows} style={mediaTypeFilter && watchProviders.length > 0 ? { marginTop: '-8px' } : undefined}>
           {error && <div className={styles.error}>{error}</div>}
 
           {visibleRows.map((row, idx) => {
