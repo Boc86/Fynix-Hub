@@ -529,16 +529,18 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   }, [hasProviderBar])
 
   // Scroll focused provider into view
-  useEffect(() => {
-    if (!hasProviderBar || focusedProvider < -1 || !providerTrackRef.current) return
+  // Scroll focused provider into view
+    useEffect(() => {
+      // Don't scroll if not in provider bar or ref not available
+      if (focusedProvider < -1 || !providerTrackRef.current) return
 
-    const track = providerTrackRef.current
-    const btns = track.getElementsByClassName('providerBtn')
-    const btn = btns[focusedProvider + 1] // +1 to skip 'All' button at index 0
-    if (!btn) return
-
-    btn.scrollIntoView({ block: 'nearest', inline: 'center' })
-  }, [focusedProvider, hasProviderBar])
+      const index = focusedProvider + 1
+      const btn = providerTrackRef.current?.children[index] as HTMLElement | undefined
+    
+      if (btn) {
+        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+      }
+    }, [focusedProvider, providerTrackRef])
 
   const visibleRows = getVisibleRows()
 

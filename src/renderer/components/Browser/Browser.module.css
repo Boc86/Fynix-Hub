@@ -37,6 +37,9 @@
   padding-bottom: 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
+  scroll-behavior: smooth;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .providerTrack::-webkit-scrollbar {
@@ -50,14 +53,6 @@
 
 .providerTrack::-webkit-scrollbar-track {
   background: transparent;
-}
-  scroll-behavior: smooth;
-  padding: 4px 0;
-  -webkit-overflow-scrolling: touch;
-}
-
-.providerTrack::-webkit-scrollbar {
-  height: 0;
 }
 
 .providerBtn {
