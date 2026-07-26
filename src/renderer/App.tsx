@@ -1293,9 +1293,9 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
@@ -1308,9 +1308,9 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markWatched(payload)
     } catch { /* ignore */ }
@@ -1322,9 +1322,9 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markUnwatched(payload)
     } catch { /* ignore */ }
