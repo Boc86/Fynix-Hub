@@ -339,7 +339,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           ...(page2?.results || []),
         ]
         if (allItems.length > 0) {
-          setProviderRows([{ label: '', items: allItems }])
+          setProviderRows([{ label: `provider-${providerId}`, items: allItems }])
         } else {
           setProviderRows([])
         }
@@ -531,6 +531,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           <div className={styles.providerBar}>
             <div className={styles.providerTrack}>
               <button
+                tabIndex={-1}
                 className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''}`}
                 onClick={() => setSelectedProvider(null)}
               >
@@ -538,6 +539,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
               </button>
               {watchProviders.slice(0, 30).map((p) => (
                 <button
+                  tabIndex={-1}
                   key={p.providerId}
                   className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''}`}
                   onClick={() => setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId)}
