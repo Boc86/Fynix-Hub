@@ -241,7 +241,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           <div style={{ height: HEADER_HEIGHT, borderBottom: '1px solid var(--border, #2a2a4a)', padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>CHANNELS</div>
           <div ref={channelListRef} style={{ overflow: 'auto', height: `calc(100% - ${HEADER_HEIGHT}px)` }}>
             {channels.map((ch, i) => (
-              <div key={ch.liveTvChannelId} data-ch-row={i}
+              <div key={`${ch.liveTvChannelId ?? i}`} data-ch-row={i}
                 onClick={() => { setFocusedChannelIdx(i); setSelectedChannelIdx(i) }}
                 onDoubleClick={() => playChannel(ch)}
                 style={{
@@ -285,7 +285,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
             }
             const totalWidth = timeSlots.length * SLOT_WIDTH
             return (
-              <div key={ch.liveTvChannelId} data-epg-row={ci} style={{ height: ROW_HEIGHT, position: 'relative', minWidth: totalWidth, borderBottom: '1px solid rgba(255,255,255,0.04)', background: ci === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.06)' : 'transparent' }}>
+              <div key={`${ch.liveTvChannelId ?? ci}`} data-epg-row={ci} style={{ height: ROW_HEIGHT, position: 'relative', minWidth: totalWidth, borderBottom: '1px solid rgba(255,255,255,0.04)', background: ci === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.06)' : 'transparent' }}>
                 {progs.map(({ p, clampedStop }, pi) => {
                   const dur = clampedStop - p.start
                   const w = (dur / HOUR_MS) * SLOT_WIDTH
