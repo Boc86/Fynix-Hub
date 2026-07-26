@@ -21,11 +21,11 @@ describe('UpdateModal', () => {
     expect(screen.getByText('-10%')).toBeInTheDocument()
   })
 
-  it('clamps percent > 100 bar width to 100', () => {
-    const { container } = render(<UpdateModal percent={150} onCancel={() => {}} />)
-    const bar = container.querySelectorAll('div')[3]
-    expect(bar.style.width).toBe('100%')
-    expect(screen.getByText('150%')).toBeInTheDocument()
+  it('shows Installing state when percent >= 100', () => {
+    render(<UpdateModal percent={150} onCancel={() => {}} />)
+    expect(screen.getByText('Installing Update…')).toBeInTheDocument()
+    expect(screen.getByText('Update complete — restarting…')).toBeInTheDocument()
+    expect(screen.queryByText('150%')).not.toBeInTheDocument()
   })
 
   it('renders Hide button', () => {

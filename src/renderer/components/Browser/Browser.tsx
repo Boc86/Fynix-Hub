@@ -25,19 +25,25 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const {
     trending, popularMovies, popularTvShows, topRatedMovies,
     continueWatching, upNext, isLoading, error, traktWatched,
+    watchProviders, selectedProvider,
     setTrending, setPopularMovies, setPopularTvShows,
     setTopRatedMovies, setContinueWatching, setUpNext,
     setTraktWatched, setTraktPlayback,
+    setWatchProviders, setSelectedProvider,
     setLoading, setError, refreshVersion, setEpisodeWatched
   } = useMediaStore()
 
   const loadedRef = useRef(false)
   const browserRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const providerTrackRef = useRef<HTMLDivElement | null>(null)
   const [focusedRow, setFocusedRow] = useState(0)
   const [focusedCard, setFocusedCard] = useState(0)
   const [focusedHeroAction, setFocusedHeroAction] = useState(-1) // -1=rows, 0=Play, 1=More Info
+  const [focusedProvider, setFocusedProvider] = useState(-2) // -2=not in provider bar, -1="All", 0+=provider index
+  const hasProviderBar = !!mediaTypeFilter && watchProviders.length > 0
   const [genreRows, setGenreRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
+  const [providerRows, setProviderRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
 
   const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !traktWatched.has(item.id))
@@ -50,7 +56,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           ? [{ items: continueMovies, label: 'continueMovies' }]
           : [{ items: upNextItems, label: 'upNext' }, { items: continueTv, label: 'continueTv' }]),
         { items: trending, label: 'trending' },
-        ...genreRows,
+        ...(selectedProvider ? providerRows : genreRows),
       ]
     : [
         { items: upNextItems, label: 'upNext' },
@@ -64,7 +70,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
   const getVisibleRows = useCallback(() =>
     rowConfig.filter((r) => r.items.length > 0),
-    [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, genreRows]
+    [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, genreRows, providerRows, selectedProvider]
   )
 
   const getRowItemCount = useCallback((rowIdx: number) => {
@@ -261,17 +267,36 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         if (popTv?.results) setPopularTvShows(popTv.results)
         if (topMovies?.results) setTopRatedMovies(topMovies.results)
 
-        // Load genre rows for filtered views
+        // Load genre rows for filtered views (fetch pages 1+2 for more items per row)
         if (mediaTypeFilter) {
           try {
+            // Fetch watch providers for the provider filter bar
+            const providersData = await window.api.tmdb.getWatchProviders(mediaTypeFilter)
+            if (providersData?.results) {
+              const providers = providersData.results.map((p: any) => ({
+                providerId: p.providerId,
+                providerName: p.providerName,
+                logoPath: p.logoPath,
+              })).filter((p: any) => p.logoPath) // only include providers with logos
+              setWatchProviders(providers)
+            }
+
             const genreData = mediaTypeFilter === 'movie'
               ? await window.api.tmdb.getMovieGenres()
               : await window.api.tmdb.getTvGenres()
             const genres: Array<{ id: number; name: string }> = genreData?.genres || []
             const rows = await Promise.all(genres.map(async (g) => {
               try {
-                const result = await window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1)
-                return { label: g.name, items: result?.results || [] }
+                // Fetch pages 1 and 2 for ~40 items per genre row
+                const [page1, page2] = await Promise.all([
+                  window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
+                  window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
+                ])
+                const allItems = [
+                  ...(page1?.results || []),
+                  ...(page2?.results || []),
+                ]
+                return { label: g.name, items: allItems }
               } catch {
                 return { label: g.name, items: [] }
               }
@@ -295,6 +320,41 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     if (!loadedRef.current) return
     fetchTraktData()
   }, [refreshVersion, fetchTraktData])
+
+  // Fetch provider-filtered content when a provider is selected
+  useEffect(() => {
+    if (!mediaTypeFilter || !selectedProvider) {
+      setProviderRows([])
+      return
+    }
+    let cancelled = false
+    const type = mediaTypeFilter as 'movie' | 'tv'
+    const providerId = selectedProvider as number
+    async function fetchProviderContent() {
+      try {
+        const [page1, page2] = await Promise.all([
+          window.api.tmdb.discoverByProvider(type, providerId, 1),
+          window.api.tmdb.discoverByProvider(type, providerId, 2),
+        ])
+        if (cancelled) return
+        const allItems = [
+          ...(page1?.results || []),
+          ...(page2?.results || []),
+        ]
+        if (allItems.length > 0) {
+          const provider = watchProviders.find(p => p.providerId === providerId);
+            const label = provider ? provider.providerName : `provider-${providerId}`;
+            setProviderRows([{ label, items: allItems }]);
+        } else {
+          setProviderRows([])
+        }
+      } catch {
+        if (!cancelled) setProviderRows([])
+      }
+    }
+    fetchProviderContent()
+    return () => { cancelled = true }
+  }, [selectedProvider, mediaTypeFilter])
 
   // Scroll to top when data loads (e.g. navigating back to Browser)
   useEffect(() => {
@@ -337,11 +397,15 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()
     const inHero = focusedHeroAction >= 0
+    const inProviderBar = focusedProvider >= -1 && focusedProvider !== -2 && hasProviderBar
+    const providerCount = watchProviders.length + 1 // +1 for "All" button
 
     switch (e.key) {
       case 'ArrowRight': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          if (focusedProvider < providerCount - 1) setFocusedProvider((p) => p + 1)
+        } else if (inHero) {
           if (focusedHeroAction < 1) setFocusedHeroAction((a) => a + 1)
         } else {
           const count = getRowItemCount(focusedRow)
@@ -351,7 +415,9 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'ArrowLeft': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          if (focusedProvider > -1) setFocusedProvider((p) => p - 1)
+        } else if (inHero) {
           if (focusedHeroAction > 0) setFocusedHeroAction((a) => a - 1)
         } else {
           if (focusedCard > 0) setFocusedCard((c) => c - 1)
@@ -360,9 +426,15 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'ArrowDown': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          setFocusedProvider(-2)
+          setFocusedRow(0)
+          setFocusedCard(0)
+        } else if (inHero) {
           setFocusedHeroAction(-1)
-          if (rows.length > 0) {
+          if (hasProviderBar) {
+            setFocusedProvider(-1)
+          } else if (rows.length > 0) {
             setFocusedRow(0)
             setFocusedCard(0)
           }
@@ -374,11 +446,16 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'ArrowUp': {
         e.preventDefault()
-        if (inHero) {
+        if (inProviderBar) {
+          setFocusedProvider(-2)
+          setFocusedHeroAction(0)
+        } else if (inHero) {
           // already at top, stay
         } else if (focusedRow > 0) {
           setFocusedRow((r) => r - 1)
           setFocusedCard(0)
+        } else if (hasProviderBar) {
+          setFocusedProvider(-1)
         } else {
           // Move to hero buttons
           setFocusedHeroAction(0)
@@ -387,6 +464,12 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'Enter': {
         e.preventDefault()
+        if (inProviderBar) {
+          // -1 = "All", 0+ = provider index
+          const provider = focusedProvider === -1 ? null : watchProviders[focusedProvider]?.providerId
+          setSelectedProvider(selectedProvider === provider ? null : provider)
+          return
+        }
         if (inHero) {
           if (focusedHeroAction === 0) {
             heroPlayRef.current?.click()
@@ -438,7 +521,26 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         break
       }
     }
-  }, [focusedRow, focusedCard, focusedHeroAction, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu])
+  }, [focusedRow, focusedCard, focusedHeroAction, focusedProvider, hasProviderBar, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu, watchProviders, selectedProvider, setSelectedProvider])
+
+  // Scroll provider track ref when provider bar disappears
+  useEffect(() => {
+    if (!hasProviderBar) providerTrackRef.current = null
+  }, [hasProviderBar])
+
+  // Scroll focused provider into view
+  // Scroll focused provider into view
+    useEffect(() => {
+      // Don't scroll if not in provider bar or ref not available
+      if (focusedProvider < -1 || !providerTrackRef.current) return
+
+      const index = focusedProvider + 1
+      const btn = providerTrackRef.current?.children[index] as HTMLElement | undefined
+    
+      if (btn) {
+        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+      }
+    }, [focusedProvider, providerTrackRef])
 
   const visibleRows = getVisibleRows()
 
@@ -472,7 +574,42 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           />
         )}
 
-        <div className={styles.rows}>
+        {mediaTypeFilter && watchProviders.length > 0 && (
+          <div className={styles.providerBar}>
+            <div
+              ref={providerTrackRef}
+              className={styles.providerTrack}
+            >
+              <button
+                tabIndex={-1}
+                className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''} ${focusedProvider === -1 ? styles.providerFocused : ''}`}
+                onClick={() => setSelectedProvider(null)}
+              >
+                All
+              </button>
+              {watchProviders.slice(0, 30).map((p, pi) => (
+                <button
+                  tabIndex={-1}
+                  key={p.providerId}
+                  className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''} ${focusedProvider === pi ? styles.providerFocused : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId);
+                  }}
+                  title={p.providerName}
+                >
+                  <img
+                    src={`https://image.tmdb.org/t/p/original${p.logoPath}`}
+                    alt={p.providerName}
+                    className={styles.providerLogo}
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className={styles.rows} style={mediaTypeFilter && watchProviders.length > 0 ? { marginTop: '-8px' } : undefined}>
           {error && <div className={styles.error}>{error}</div>}
 
           {visibleRows.map((row, idx) => {

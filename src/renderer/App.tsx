@@ -62,6 +62,7 @@ export default function App() {
   const [playerLoading, setPlayerLoading] = useState(false)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updatePercent, setUpdatePercent] = useState(0)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const [genreType, setGenreType] = useState<'movie' | 'tv' | undefined>()
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
   const autoPlayIndexRef = useRef(0)
@@ -101,21 +102,25 @@ export default function App() {
     })
   }, [view])
 
-  useEffect(() => {
-    return window.api.embed.onHide(() => {
-      window.api.embed.hide()
-    })
-  }, [])
-
   // Listen for update download progress to show modal feedback
   useEffect(() => {
     return window.api.onUpdateStatus((data) => {
       if (data.status === 'downloading') {
         setUpdateDownloading(true)
         setUpdatePercent(data.percent ?? 0)
-      } else if (data.status === 'downloaded' || data.status === 'error' || data.status === 'not-available') {
+        setUpdateError(null)
+      } else if (data.status === 'downloaded') {
+        // Briefly show 100% before quitAndInstall fires
+        setUpdateDownloading(true)
+        setUpdatePercent(100)
+      } else if (data.status === 'error') {
+        setUpdateDownloading(true)
+        setUpdatePercent(0)
+        setUpdateError(data.message || 'Download failed')
+      } else if (data.status === 'not-available') {
         setUpdateDownloading(false)
         setUpdatePercent(0)
+        setUpdateError(null)
       }
     })
   }, [])
@@ -288,7 +293,7 @@ export default function App() {
     }
   }, [playerInfo?.resumePosition])
 
-  // Stop mpv and clean up torrent/usenet when leaving player view
+  // Clean up torrent/usenet when leaving player view
   useEffect(() => {
     if (view !== 'player') {
       window.api.player.stop().catch(() => {})
@@ -661,9 +666,9 @@ export default function App() {
       try {
         await startPlayerUrl(result.streamUrl)
         setPlayerLoading(false)
-      } catch (mpvErr: any) {
-        window.api.log('[App] mpv.start failed:', mpvErr?.message)
-        setStreamError(mpvErr?.message || 'Failed to start player')
+      } catch (playerErr: any) {
+        window.api.log('[App] player.start failed:', playerErr?.message)
+        setStreamError(playerErr?.message || 'Failed to start player')
         setPlayerLoading(false)
       }
       return
@@ -685,9 +690,9 @@ export default function App() {
           await startPlayerUrl(cacheResults[0].streamUrl)
           setPlayerLoading(false)
           return
-        } catch (mpvErr: any) {
-          window.api.log('[App] mpv.start failed:', mpvErr?.message)
-          setStreamError(mpvErr?.message || 'Failed to start player')
+        } catch (playerErr: any) {
+          window.api.log('[App] player.start failed:', playerErr?.message)
+          setStreamError(playerErr?.message || 'Failed to start player')
           setPlayerLoading(false)
           return
         }
@@ -709,8 +714,8 @@ export default function App() {
               await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               window.api.log('[App] Early stream started')
-            } catch (mpvErr: any) {
-              window.api.log('[App] Early stream failed:', mpvErr?.message)
+            } catch (playerErr: any) {
+              window.api.log('[App] Early stream failed:', playerErr?.message)
             }
           }
         })()
@@ -728,8 +733,8 @@ export default function App() {
                 await startPlayerUrl(stream.url)
                 setPlayerLoading(false)
                 window.api.log('[App] Early stream started')
-              } catch (mpvErr: any) {
-                window.api.log('[App] Early stream failed:', mpvErr?.message)
+              } catch (playerErr: any) {
+                window.api.log('[App] Early stream failed:', playerErr?.message)
               }
             }
           }
@@ -737,7 +742,7 @@ export default function App() {
             clearInterval(poll)
             currentUsenetIdRef.current = null
             if (streamed) {
-              window.api.log('[App] Already streaming, skipping duplicate mpv.start at 100%')
+              window.api.log('[App] Already streaming, skipping duplicate player.start at 100%')
               setPlayerLoading(false)
               return
             }
@@ -747,9 +752,9 @@ export default function App() {
               try {
                 currentUsenetPathRef.current = stream.url
                 await startPlayerUrl(stream.url)
-              } catch (mpvErr: any) {
-                window.api.log('[App] mpv.start failed:', mpvErr?.message)
-                setStreamError(mpvErr?.message || 'Failed to start player')
+              } catch (playerErr: any) {
+                window.api.log('[App] player.start failed:', playerErr?.message)
+                setStreamError(playerErr?.message || 'Failed to start player')
               }
             } else {
               // Fallback: the active entry may already be cleared; resolve the
@@ -766,9 +771,9 @@ export default function App() {
                   currentUsenetPathRef.current = cacheResults[0].streamUrl
                   await startPlayerUrl(cacheResults[0].streamUrl)
                   setStreamError(null)
-                } catch (mpvErr: any) {
-                  window.api.log('[App] mpv.start (cache fallback) failed:', mpvErr?.message)
-                  setStreamError(mpvErr?.message || 'Failed to start player')
+                } catch (playerErr: any) {
+                  window.api.log('[App] player.start (cache fallback) failed:', playerErr?.message)
+                  setStreamError(playerErr?.message || 'Failed to start player')
                 }
               } else {
                 setStreamError('Could not get stream URL for completed download')
@@ -793,8 +798,8 @@ export default function App() {
                   await startPlayerUrl(cached.streamUrl)
                   setPlayerLoading(false)
                   return
-                } catch (mpvErr: any) {
-                  window.api.log('[App] mpv.start failed:', mpvErr?.message)
+                } catch (playerErr: any) {
+                  window.api.log('[App] player.start failed:', playerErr?.message)
                 }
               }
             }
@@ -908,8 +913,8 @@ export default function App() {
           await startPlayerUrl(result.streamUrl)
           setPlayerLoading(false)
           return
-        } catch (mpvErr: any) {
-          window.api.log('[App] Auto-play Usenet mpv.start failed:', mpvErr?.message)
+        } catch (playerErr: any) {
+          window.api.log('[App] Auto-play Usenet player.start failed:', playerErr?.message)
           continue
         }
       }
@@ -928,8 +933,8 @@ export default function App() {
             await startPlayerUrl(cacheResults[0].streamUrl)
             setPlayerLoading(false)
             return
-          } catch (mpvErr: any) {
-            window.api.log('[App] Auto-play Usenet mpv.start failed:', mpvErr?.message)
+          } catch (playerErr: any) {
+            window.api.log('[App] Auto-play Usenet player.start failed:', playerErr?.message)
             continue
           }
         }
@@ -952,8 +957,8 @@ export default function App() {
               await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               window.api.log('[App] Auto-play early stream started')
-            } catch (mpvErr: any) {
-              window.api.log('[App] Auto-play early stream failed:', mpvErr?.message)
+            } catch (playerErr: any) {
+              window.api.log('[App] Auto-play early stream failed:', playerErr?.message)
             }
           }
         })()
@@ -971,8 +976,8 @@ export default function App() {
                 await startPlayerUrl(stream.url)
                 setPlayerLoading(false)
                 window.api.log('[App] Auto-play early stream started')
-              } catch (mpvErr: any) {
-                window.api.log('[App] Auto-play early stream failed:', mpvErr?.message)
+              } catch (playerErr: any) {
+                window.api.log('[App] Auto-play early stream failed:', playerErr?.message)
               }
             }
           }
@@ -1002,8 +1007,8 @@ export default function App() {
                 await startPlayerUrl(cacheResults[0].streamUrl)
                 setPlayerLoading(false)
                 return
-              } catch (mpvErr: any) {
-                window.api.log('[App] Auto-play Usenet mpv.start failed:', mpvErr?.message)
+              } catch (playerErr: any) {
+                window.api.log('[App] Auto-play Usenet player.start failed:', playerErr?.message)
               }
             }
             // Reached the end of this poll — the outer loop will try the next result
@@ -1288,9 +1293,9 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
@@ -1303,9 +1308,9 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markWatched(payload)
     } catch { /* ignore */ }
@@ -1317,9 +1322,9 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.trakt.markUnwatched(payload)
     } catch { /* ignore */ }
@@ -1537,7 +1542,7 @@ export default function App() {
           <VirtualKeyboard inputElement={keyboardInputRef.current as HTMLInputElement | HTMLTextAreaElement | null} onClose={() => setVirtualKeyboardOpen(false)} />
         )}
         {updateDownloading && (
-          <UpdateModal percent={updatePercent} onCancel={() => setUpdateDownloading(false)} />
+          <UpdateModal percent={updatePercent} error={updateError} onCancel={() => setUpdateDownloading(false)} />
         )}
       </>
     )

@@ -478,7 +478,7 @@ function VideoPlayerInner({
           ref={videoJsRef}
           src={streamUrl}
           startTime={mediaInfo?.resumePosition ?? 0}
-          shouldResume={false}
+          shouldResume={!!mediaInfo?.resumePosition}
           fallbackDuration={fallbackDurationRef.current || 0}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={(d) => { durationRef.current = d }}

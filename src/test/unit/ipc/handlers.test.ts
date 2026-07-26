@@ -27,7 +27,7 @@ vi.mock('@/main/services/torrent-search.service', () => svc({ searchTorrents: vi
 vi.mock('@/main/services/debrid.service', () => svc({ isConfigured: vi.fn().mockReturnValue(false), getServices: vi.fn().mockReturnValue([]), checkAccountStatus: vi.fn(), checkBatchCached: vi.fn(), addAndWait: vi.fn(), realDebridGetDeviceCode: vi.fn(), realDebridPollForCredentials: vi.fn(), torboxGetDeviceCode: vi.fn(), torboxPollForToken: vi.fn(), premiumizeGetDeviceCode: vi.fn(), premiumizePollForToken: vi.fn(), alldebridGetDevicePin: vi.fn(), alldebridPollForToken: vi.fn() }))
 vi.mock('@/main/services/intros.service', () => svc())
 vi.mock('@/main/services/cache.service', () => svc({ getCache: vi.fn(), setCache: vi.fn(), getSetting: vi.fn(), setSetting: vi.fn(), getAllSettings: vi.fn().mockReturnValue({}), updateWatchProgress: vi.fn(), getWatchProgress: vi.fn(), deleteWatchProgress: vi.fn(), clearImageCache: vi.fn() }))
-vi.mock('@/main/services/mpv.service', () => svc({ startPlayback: vi.fn(), stopPlayback: vi.fn(), getTimePos: vi.fn(), getDuration: vi.fn(), getPaused: vi.fn(), isRunning: vi.fn().mockReturnValue(false), addSubtitle: vi.fn(), showSkipIntro: vi.fn(), hideSkipIntro: vi.fn(), showSplash: vi.fn(), hideSplash: vi.fn(), setHasNext: vi.fn(), setAutoplayNext: vi.fn(), setPlot: vi.fn(), setUpNext: vi.fn(), clearUpNext: vi.fn(), getLastExitCode: vi.fn(), getProperty: vi.fn(), getSubAction: vi.fn(), clearSubAction: vi.fn(), setOnExitCallback: vi.fn() }))
+
 vi.mock('@/main/services/fanart.service', () => svc({ getImages: vi.fn() }))
 vi.mock('@/main/services/indexer-catalog.service', () => svc({ getStoredCatalog: vi.fn().mockReturnValue([]), getCatalogLastUpdated: vi.fn(), refreshIndexerCatalog: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/main/services/introdb.service', () => svc({ getSegments: vi.fn() }))
@@ -49,7 +49,6 @@ vi.mock('@/main/services/extractor.service', () => svc({ searchStreams: vi.fn().
 import * as CacheService from '@/main/services/cache.service'
 import * as TmdbService from '@/main/services/tmdb.service'
 import * as DebridService from '@/main/services/debrid.service'
-import * as MpvService from '@/main/services/mpv.service'
 import * as UsenetService from '@/main/services/usenet.service'
 import * as UsenetSearchService from '@/main/services/usenet-search.service'
 import { registerIpcHandlers } from '@/main/ipc/handlers'
@@ -108,63 +107,6 @@ describe('IPC handlers', () => {
       const DamiTVService = await import('@/main/services/dami-tv.service')
       await h('settings:set')(fakeEvent(), 'liveTvUser', 'user@test.com')
       expect(DamiTVService.clearChannelsCache).toHaveBeenCalled()
-    })
-  })
-
-  describe('mpv:verify-playback-quality', () => {
-    it('reports real content for good quality', async () => {
-      vi.mocked(MpvService.getProperty).mockImplementation(async (prop: string) => {
-        if (prop.includes('samplerate')) return 48000
-        if (prop.includes('channel-count')) return 6
-        if (prop.includes('/w')) return 1920
-        if (prop.includes('/h')) return 1080
-      })
-      const result = await h('mpv:verify-playback-quality')(fakeEvent())
-      expect(result.isRealContent).toBe(true)
-      expect(result.reasons).toEqual([])
-    })
-
-    it('flags low samplerate', async () => {
-      vi.mocked(MpvService.getProperty).mockImplementation(async (prop: string) => {
-        if (prop.includes('samplerate')) return 22050
-        if (prop.includes('channel-count')) return 2
-        if (prop.includes('/w')) return 1920
-        if (prop.includes('/h')) return 1080
-      })
-      const result = await h('mpv:verify-playback-quality')(fakeEvent())
-      expect(result.isRealContent).toBe(false)
-      expect(result.reasons[0]).toContain('samplerate')
-    })
-
-    it('flags mono audio', async () => {
-      vi.mocked(MpvService.getProperty).mockImplementation(async (prop: string) => {
-        if (prop.includes('samplerate')) return 48000
-        if (prop.includes('channel-count')) return 1
-        if (prop.includes('/w')) return 1920
-        if (prop.includes('/h')) return 1080
-      })
-      const result = await h('mpv:verify-playback-quality')(fakeEvent())
-      expect(result.isRealContent).toBe(false)
-      expect(result.reasons[0]).toContain('mono')
-    })
-
-    it('flags low video width', async () => {
-      vi.mocked(MpvService.getProperty).mockImplementation(async (prop: string) => {
-        if (prop.includes('samplerate')) return 48000
-        if (prop.includes('channel-count')) return 2
-        if (prop.includes('/w')) return 320
-        if (prop.includes('/h')) return 240
-      })
-      const result = await h('mpv:verify-playback-quality')(fakeEvent())
-      expect(result.isRealContent).toBe(false)
-      expect(result.reasons[0]).toContain('video width')
-    })
-
-    it('returns error on mpv failure', async () => {
-      vi.mocked(MpvService.getProperty).mockRejectedValue(new Error('mpv not running'))
-      const result = await h('mpv:verify-playback-quality')(fakeEvent())
-      expect(result.isRealContent).toBe(false)
-      expect(result.reasons[0]).toContain('mpv not running')
     })
   })
 

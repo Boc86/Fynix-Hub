@@ -10,7 +10,7 @@
       Fynix Hub provides access to movies, TV shows, YouTube, sports replays,
       and other user-configured media sources through a beautiful unified
       interface. Browse trending and popular content, search across torrent
-      indexers and Usenet providers, and stream with high-quality mpv playback.
+      indexers and Usenet providers, and stream with high-quality HTML5 playback.
     </p>
   </description>
   <launchable type="desktop-id">fynix-hub.desktop</launchable>

@@ -23,3 +23,74 @@
   padding: 20px 60px;
   font-size: 14px;
 }
+
+.providerBar {
+  padding: 12px 60px 8px;
+  position: relative;
+  z-index: 3;
+}
+
+.providerTrack {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+  scroll-behavior: smooth;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.providerTrack::-webkit-scrollbar {
+  height: 6px;
+}
+
+.providerTrack::-webkit-scrollbar-thumb {
+  background-color: var(--accent);
+  border-radius: 3px;
+}
+
+.providerTrack::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.providerBtn {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.providerBtn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  transform: scale(1.08);
+}
+
+.providerActive {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.providerFocused {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.providerLogo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}

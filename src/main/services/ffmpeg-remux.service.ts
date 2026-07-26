@@ -32,6 +32,10 @@ interface RemuxSession {
   /** Resolves once the first real (non-placeholder) playlist is written. */
   ready: Promise<void>
   readyResolve: () => void
+  /** Last error message from the FFmpeg process, if any. */
+  lastError: string | null
+  /** Collects stderr lines for error reporting. */
+  stderrBuffer: string[]
 }
 
 interface RemuxRequest {
@@ -186,15 +190,14 @@ function probeIsHevc(inputUrl: string): boolean {
 }
 
 /**
- /**
-  * Start an FFmpeg HLS remux session.
-  * Returns { sessionId, streamUrl } or null on failure.
-  */
+ * Start an FFmpeg HLS remux session.
+ * Returns { sessionId, streamUrl }. Throws on failure.
+ */
  export function createSession(
    inputUrl: string,
    resumePosition = 0,
    headers: string[] = [],
- ): { sessionId: string; streamUrl: string } | null {
+ ): { sessionId: string; streamUrl: string } {
    const id = generateId()
    const outputDir = getSessionDir(id)
 
@@ -219,7 +222,7 @@ function probeIsHevc(inputUrl: string): boolean {
    } catch (err: any) {
      debug('FFmpeg spawn failed:', err?.message)
      try { fs.rmSync(outputDir, { recursive: true, force: true }) } catch {}
-     return null
+     throw new Error(`FFmpeg not found or failed to start: ${err?.message || err}`)
    }
 
    let readyResolve!: () => void
@@ -233,6 +236,8 @@ function probeIsHevc(inputUrl: string): boolean {
      startedAt: Date.now(),
      ready,
      readyResolve,
+     lastError: null,
+     stderrBuffer: [],
    }
 
    sessions.set(id, session)
@@ -240,24 +245,36 @@ function probeIsHevc(inputUrl: string): boolean {
    // Write placeholder playlist immediately so the first HLS request succeeds.
    fs.writeFileSync(path.join(outputDir, 'playlist.m3u8'), PLACEHOLDER_PLAYLIST)
 
-   // Monitor FFmpeg output for logging.
+   // Monitor FFmpeg output for logging and error capture.
    proc.stdout?.on('data', (chunk: Buffer) => {
      const line = chunk.toString().trim()
      if (line) debug(`[ffmpeg stdout] ${line}`)
    })
    proc.stderr?.on('data', (chunk: Buffer) => {
      const line = chunk.toString().trim()
-     if (line) debug(`[ffmpeg stderr] ${line}`)
+     if (line) {
+       debug(`[ffmpeg stderr] ${line}`)
+       // Keep last 20 stderr lines for error reporting.
+       session.stderrBuffer.push(line)
+       if (session.stderrBuffer.length > 20) session.stderrBuffer.shift()
+     }
    })
 
    proc.on('error', (err) => {
      debug('FFmpeg process error:', err.message)
+     session.lastError = `FFmpeg process error: ${err.message}`
      cleanupSession(id)
    })
 
    proc.on('exit', (code, signal) => {
      debug(`FFmpeg exited with code ${code} signal ${signal}`)
      clearInterval(readyWatcher)
+     if (code !== 0 && !session.lastError) {
+       const stderrTail = session.stderrBuffer.slice(-5).join('; ')
+       session.lastError = stderrTail
+         ? `FFmpeg exited with code ${code}: ${stderrTail}`
+         : `FFmpeg exited with code ${code}`
+     }
      // Don't cleanup on normal completion (code 0) — segments are still
      // being served to the player. Session is cleaned up on player.stop()
      // or shutdown() instead.
@@ -310,6 +327,12 @@ export function killSession(id: string): void {
   if (!session) return
   debug('Killing session:', id)
   cleanupSession(id)
+}
+
+/** Retrieve the last error message for a session (or null). */
+export function getSessionError(sessionId: string): string | null {
+  const session = sessions.get(sessionId)
+  return session?.lastError ?? null
 }
 
 /** Kill all active sessions and clean up. */
@@ -454,6 +477,13 @@ export function init(getPort: () => number): void {
 
 // ─── Probing ─────────────────────────────────────────────────────────────────
 
+/** Chapter metadata extracted from ffprobe. */
+export interface Chapter {
+  title: string
+  startTime: number
+  endTime: number
+}
+
 /** Probe a URL for duration using ffprobe. Returns seconds or null. */
 export function probeDuration(inputUrl: string): number | null {
   try {
@@ -465,5 +495,24 @@ export function probeDuration(inputUrl: string): number | null {
     return isFinite(dur) ? dur : null
   } catch {
     return null
+  }
+}
+
+/** Probe a URL for chapter metadata using ffprobe. Returns chapter list. */
+export function probeChapters(inputUrl: string): Chapter[] {
+  try {
+    const result = require('child_process').execSync(
+      `ffprobe -v error -show_chapters -print_format json "${inputUrl}"`,
+      { timeout: 20000, stdio: ['pipe', 'pipe', 'ignore'] },
+    )
+    const data = JSON.parse(result.toString())
+    if (!data.chapters || !Array.isArray(data.chapters)) return []
+    return data.chapters.map((ch: any) => ({
+      title: ch.tags?.title || '',
+      startTime: parseFloat(ch.start_time),
+      endTime: parseFloat(ch.end_time),
+    }))
+  } catch {
+    return []
   }
 }

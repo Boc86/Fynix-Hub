@@ -89,8 +89,9 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
   const handleUpdate = useCallback(async () => {
     const status = await window.api.getUpdateStatus()
     if (status.isAppImage) {
-      const ok = await window.api.downloadUpdate()
-      if (ok) window.api.installUpdate()
+      // Fire-and-forget: downloadUpdate() starts the download and returns
+      // immediately.  Completion and install are handled via events.
+      window.api.downloadUpdate()
     } else {
       window.api.openExternal('https://github.com/Boc86/Fynix-Hub/releases')
     }

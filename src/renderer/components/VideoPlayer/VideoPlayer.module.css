@@ -213,10 +213,16 @@
 }
 
 .scrubTimeRow {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   gap: 0;
-  margin-top: 2px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 2px;
+  padding: 0 3px;
 }
 
 .scrubTimeLabel {
@@ -247,9 +253,9 @@
 
 .scrubBar {
   position: relative;
-  height: 20px;
+  height: 36px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   cursor: pointer;
   margin-bottom: 4px;
 }
@@ -267,10 +273,14 @@
 
 .scrubTrack {
   position: absolute;
-  inset: 0;
+  top: 10px;
+  left: 0;
+  right: 0;
+  height: 8px;
   display: flex;
   align-items: center;
   pointer-events: none;
+  overflow: visible;
 }
 
 .scrubFilled {

@@ -39,7 +39,7 @@ export default function MediaRow({ title, items, onSelect, rowIndex, focusedCard
         <div className={styles.container} ref={rowRef} onScroll={handleScroll}>
           {items.map((item, idx) => (
             <MediaCard
-              key={item.id}
+              key={`${title}-${item.id}`}
               item={item}
               onSelect={onSelect}
               isFocused={focusedCardIndex === idx}
