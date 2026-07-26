@@ -25,9 +25,11 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const {
     trending, popularMovies, popularTvShows, topRatedMovies,
     continueWatching, upNext, isLoading, error, traktWatched,
+    watchProviders, selectedProvider,
     setTrending, setPopularMovies, setPopularTvShows,
     setTopRatedMovies, setContinueWatching, setUpNext,
     setTraktWatched, setTraktPlayback,
+    setWatchProviders, setSelectedProvider,
     setLoading, setError, refreshVersion, setEpisodeWatched
   } = useMediaStore()
 
@@ -38,6 +40,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const [focusedCard, setFocusedCard] = useState(0)
   const [focusedHeroAction, setFocusedHeroAction] = useState(-1) // -1=rows, 0=Play, 1=More Info
   const [genreRows, setGenreRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
+  const [providerRows, setProviderRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
 
   const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !traktWatched.has(item.id))
@@ -50,7 +53,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           ? [{ items: continueMovies, label: 'continueMovies' }]
           : [{ items: upNextItems, label: 'upNext' }, { items: continueTv, label: 'continueTv' }]),
         { items: trending, label: 'trending' },
-        ...genreRows,
+        ...(selectedProvider ? providerRows : genreRows),
       ]
     : [
         { items: upNextItems, label: 'upNext' },
@@ -64,7 +67,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
   const getVisibleRows = useCallback(() =>
     rowConfig.filter((r) => r.items.length > 0),
-    [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, genreRows]
+    [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, genreRows, providerRows, selectedProvider]
   )
 
   const getRowItemCount = useCallback((rowIdx: number) => {
@@ -261,17 +264,36 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         if (popTv?.results) setPopularTvShows(popTv.results)
         if (topMovies?.results) setTopRatedMovies(topMovies.results)
 
-        // Load genre rows for filtered views
+        // Load genre rows for filtered views (fetch pages 1+2 for more items per row)
         if (mediaTypeFilter) {
           try {
+            // Fetch watch providers for the provider filter bar
+            const providersData = await window.api.tmdb.getWatchProviders(mediaTypeFilter)
+            if (providersData?.results) {
+              const providers = providersData.results.map((p: any) => ({
+                providerId: p.providerId,
+                providerName: p.providerName,
+                logoPath: p.logoPath,
+              })).filter((p: any) => p.logoPath) // only include providers with logos
+              setWatchProviders(providers)
+            }
+
             const genreData = mediaTypeFilter === 'movie'
               ? await window.api.tmdb.getMovieGenres()
               : await window.api.tmdb.getTvGenres()
             const genres: Array<{ id: number; name: string }> = genreData?.genres || []
             const rows = await Promise.all(genres.map(async (g) => {
               try {
-                const result = await window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1)
-                return { label: g.name, items: result?.results || [] }
+                // Fetch pages 1 and 2 for ~40 items per genre row
+                const [page1, page2] = await Promise.all([
+                  window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
+                  window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
+                ])
+                const allItems = [
+                  ...(page1?.results || []),
+                  ...(page2?.results || []),
+                ]
+                return { label: g.name, items: allItems }
               } catch {
                 return { label: g.name, items: [] }
               }
@@ -295,6 +317,39 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     if (!loadedRef.current) return
     fetchTraktData()
   }, [refreshVersion, fetchTraktData])
+
+  // Fetch provider-filtered content when a provider is selected
+  useEffect(() => {
+    if (!mediaTypeFilter || !selectedProvider) {
+      setProviderRows([])
+      return
+    }
+    let cancelled = false
+    const type = mediaTypeFilter as 'movie' | 'tv'
+    const providerId = selectedProvider as number
+    async function fetchProviderContent() {
+      try {
+        const [page1, page2] = await Promise.all([
+          window.api.tmdb.discoverByProvider(type, providerId, 1),
+          window.api.tmdb.discoverByProvider(type, providerId, 2),
+        ])
+        if (cancelled) return
+        const allItems = [
+          ...(page1?.results || []),
+          ...(page2?.results || []),
+        ]
+        if (allItems.length > 0) {
+          setProviderRows([{ label: '', items: allItems }])
+        } else {
+          setProviderRows([])
+        }
+      } catch {
+        if (!cancelled) setProviderRows([])
+      }
+    }
+    fetchProviderContent()
+    return () => { cancelled = true }
+  }, [selectedProvider, mediaTypeFilter])
 
   // Scroll to top when data loads (e.g. navigating back to Browser)
   useEffect(() => {
@@ -470,6 +525,33 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
               onSelectMedia()
             }}
           />
+        )}
+
+        {mediaTypeFilter && watchProviders.length > 0 && (
+          <div className={styles.providerBar}>
+            <div className={styles.providerTrack}>
+              <button
+                className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''}`}
+                onClick={() => setSelectedProvider(null)}
+              >
+                All
+              </button>
+              {watchProviders.slice(0, 30).map((p) => (
+                <button
+                  key={p.providerId}
+                  className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''}`}
+                  onClick={() => setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId)}
+                  title={p.providerName}
+                >
+                  <img
+                    src={`https://image.tmdb.org/t/p/original${p.logoPath}`}
+                    alt={p.providerName}
+                    className={styles.providerLogo}
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         <div className={styles.rows}>

@@ -12,7 +12,6 @@ import * as TorrentSearchService from '../services/torrent-search.service'
 import * as DebridService from '../services/debrid.service'
 import * as IntrosService from '../services/intros.service'
 import * as CacheService from '../services/cache.service'
-import * as MpvService from '../services/mpv.service'
 import * as FanartService from '../services/fanart.service'
 import * as IndexerCatalogService from '../services/indexer-catalog.service'
 import * as IntroDBService from "../services/introdb.service";
@@ -93,9 +92,6 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('app:quit', async () => {
     try {
-      await MpvService.stopPlayback()
-    } catch {}
-    try {
       WebTorrentService.removeAllTorrents()
     } catch {}
     app.quit()
@@ -174,6 +170,24 @@ export async function registerIpcHandlers(): Promise<void> {
     if (cached) return JSON.parse(cached)
     const data = await TmdbService.discoverByGenre(type, genreId, page || 1)
     CacheService.setCache(cacheKey, JSON.stringify(data), 3600000)
+    return data
+  })
+
+  handle('tmdb:get-watch-providers', async (_event, type) => {
+    const cacheKey = `tmdb:providers:${type}`
+    const cached = CacheService.getCache(cacheKey)
+    if (cached) return JSON.parse(cached)
+    const data = await TmdbService.getWatchProviders(type)
+    CacheService.setCache(cacheKey, JSON.stringify(data), 86400000) // 24h
+    return data
+  })
+
+  handle('tmdb:discover-by-provider', async (_event, type, providerId, page) => {
+    const cacheKey = `tmdb:provider-discover:${type}:${providerId}:${page || 1}`
+    const cached = CacheService.getCache(cacheKey)
+    if (cached) return JSON.parse(cached)
+    const data = await TmdbService.discoverByProvider(type, providerId, page || 1)
+    CacheService.setCache(cacheKey, JSON.stringify(data), 3600000) // 1h
     return data
   })
 
@@ -542,121 +556,6 @@ export async function registerIpcHandlers(): Promise<void> {
     CacheService.deleteWatchProgress(tmdbId, mediaType, season, episode)
   })
 
-  handle('mpv:start', async (event, url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => {
-    try {
-      await MpvService.startPlayback(url, resumePosition, accentColor, audioLanguage, playbackInfo, referer)
-      if (hasNext !== undefined) {
-        await MpvService.setHasNext(hasNext)
-      }
-    } catch (err: any) {
-      console.error('[Handler] mpv:start failed:', err.message)
-      throw err
-    }
-  })
-
-  handle('mpv:stop', async () => {
-    await MpvService.stopPlayback()
-  })
-
-  handle('mpv:get-time-pos', async () => {
-    return MpvService.getTimePos()
-  })
-
-  handle('mpv:get-duration', async () => {
-    return MpvService.getDuration()
-  })
-
-  handle('mpv:get-paused', async () => {
-    return MpvService.getPaused()
-  })
-
-  handle('mpv:is-running', () => {
-    return MpvService.isRunning()
-  })
-
-  handle('mpv:add-subtitle', async (_event, filePath: string) => {
-    await MpvService.addSubtitle(filePath)
-  })
-
-  handle('mpv:show-skip-intro', async (_event, endMs: number) => {
-    await MpvService.showSkipIntro(endMs)
-  })
-
-  handle('mpv:hide-skip-intro', async () => {
-    await MpvService.hideSkipIntro()
-  })
-
-  handle('mpv:show-splash', async () => {
-    await MpvService.showSplash()
-  })
-
-  handle('mpv:hide-splash', async () => {
-    await MpvService.hideSplash()
-  })
-
-  handle('mpv:set-has-next', async (_event, hasNext: boolean) => {
-    await MpvService.setHasNext(hasNext)
-  })
-
-  handle('mpv:set-auto-play-next', async (_event, autoplay: boolean) => {
-    await MpvService.setAutoplayNext(autoplay)
-  })
-
-  handle('mpv:set-plot', async (_event, text: string) => {
-    await MpvService.setPlot(text || '')
-  })
-
-  handle('mpv:set-up-next', async (_event, opts: { title: string; subtitle: string; countdown: number }) => {
-    if (!opts.title) {
-      await MpvService.clearUpNext()
-      return
-    }
-    await MpvService.setUpNext({
-      imagePath: '',
-      title: opts.title,
-      subtitle: opts.subtitle || '',
-      countdown: opts.countdown || 10,
-    })
-  })
-
-  handle('mpv:clear-up-next', async () => {
-    await MpvService.clearUpNext()
-  })
-
-  handle('mpv:get-last-exit-code', () => {
-    return MpvService.getLastExitCode()
-  })
-
-  handle('mpv:verify-playback-quality', async () => {
-    try {
-      const sr = await MpvService.getProperty('audio-params/samplerate')
-      const cc = await MpvService.getProperty('audio-params/channel-count')
-      const w = await MpvService.getProperty('video-params/w')
-      const h = await MpvService.getProperty('video-params/h')
-      const reasons: string[] = []
-      if (typeof sr === 'number' && sr < 32000) reasons.push(`low audio samplerate (${sr}Hz)`)
-      if (typeof cc === 'number' && cc < 2) reasons.push(`mono audio (${cc}ch)`)
-      if (typeof w === 'number' && typeof h === 'number' && w < 640) reasons.push(`low video width (${w}px)`)
-      return { isRealContent: reasons.length === 0, reasons }
-    } catch (err: any) {
-      console.error('[Handler] mpv:verify-playback-quality failed:', err?.message)
-      return { isRealContent: false, reasons: [err?.message || 'unknown error'] }
-    }
-  })
-
-  handle('mpv:verify-url', async (_event, url: string) => {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 5000)
-      const resp = await fetch(url, { method: 'HEAD', signal: controller.signal })
-      clearTimeout(timeout)
-      return { ok: resp.ok, status: resp.status }
-    } catch (err: any) {
-      console.error('[Handler] mpv:verify-url failed for', url.slice(0, 80), err?.message)
-      return { ok: false, status: 0, error: err?.message }
-    }
-  })
-
   // ── HTML5 Player (Video.js + FFmpeg remux) ──────────────────────────────
 
   handle('player:start', async (_event, url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) => {
@@ -691,6 +590,10 @@ export async function registerIpcHandlers(): Promise<void> {
       console.error('[Handler] player:verify-url failed for', url.slice(0, 80), err?.message)
       return { ok: false, status: 0, error: err?.message }
     }
+  })
+
+  handle('player:get-chapters', async () => {
+    return PlayerService.getChapters()
   })
 
   // ── Local Cache ─────────────────────────────────────────────────────────
@@ -881,26 +784,5 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('usenet:delete-by-path', async (_event, filePath: string) => {
     return UsenetService.deleteUsenetByPath(filePath)
-  })
-
-  handle('mpv:get-sub-action', async () => {
-    return MpvService.getSubAction()
-  })
-
-  handle('mpv:clear-sub-action', async () => {
-    await MpvService.clearSubAction()
-  })
-
-  // Notify all renderer windows when mpv exits (so cleanup happens immediately)
-  MpvService.setOnExitCallback((_code, _signal) => {
-    try {
-      BrowserWindow.getAllWindows().forEach(win => {
-        if (!win.isDestroyed()) {
-          win.webContents.send('mpv-exited')
-        }
-      })
-    } catch {
-      // Windows may be gone during app shutdown
-    }
   })
 }

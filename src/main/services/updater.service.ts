@@ -46,6 +46,9 @@ autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
   updateVersion = info.version
   updateReleaseNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : info.releaseNotes?.join?.('\n') ?? ''
   sendStatus({ status: 'downloaded', version: updateVersion, releaseNotes: updateReleaseNotes, percent: 100 })
+  // Auto-install now that the download is complete (matches previous behaviour
+  // where the Sidebar awaited downloadUpdate() then called installUpdate()).
+  installUpdate()
 })
 
 autoUpdater.on('error', (err: Error) => {
@@ -71,17 +74,16 @@ export async function downloadUpdate(): Promise<boolean> {
   // Immediately notify the renderer so the UpdateModal appears without waiting
   // for the first download-progress event.
   sendStatus({ status: 'downloading', percent: 0 })
-  return new Promise((resolve) => {
-    const onDownloaded = () => { cleanup(); resolve(true) }
-    const onError = () => { cleanup(); resolve(false) }
-    const cleanup = () => {
-      autoUpdater.removeListener('update-downloaded', onDownloaded)
-      autoUpdater.removeListener('error', onError)
-    }
-    autoUpdater.once('update-downloaded', onDownloaded)
-    autoUpdater.once('error', onError)
-    autoUpdater.downloadUpdate()
+
+  // Fire-and-forget: start the download and return immediately so the IPC
+  // channel is not held open for the entire download duration.  Completion
+  // and errors are communicated via autoUpdater events (see handlers above).
+  autoUpdater.downloadUpdate().catch((err) => {
+    console.error('[Updater] downloadUpdate() rejected:', err?.message || err)
+    sendStatus({ status: 'error', message: err?.message || String(err) })
   })
+
+  return true
 }
 
 export function installUpdate(): void {

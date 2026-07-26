@@ -31,14 +31,6 @@ const api = {
     },
     signOut: () => ipcRenderer.invoke('youtube:sign-out'),
   },
-  embed: {
-    show: (url: string) => ipcRenderer.send('embed:show', url),
-    hide: () => ipcRenderer.send('embed:hide'),
-    onHide: (callback: () => void) => {
-      ipcRenderer.on('embed:hide', callback)
-      return () => { ipcRenderer.removeListener('embed:hide', callback) }
-    },
-  },
   tizentube: {
     checkUpdates: () => ipcRenderer.invoke('tizentube:check-updates'),
     update: () => ipcRenderer.invoke('tizentube:update'),
@@ -69,6 +61,10 @@ const api = {
       ipcRenderer.invoke('tmdb:get-tv-genres'),
     discoverByGenre: (type: string, genreId: number, page?: number) =>
       ipcRenderer.invoke('tmdb:discover-by-genre', type, genreId, page),
+    getWatchProviders: (type: string) =>
+      ipcRenderer.invoke('tmdb:get-watch-providers', type),
+    discoverByProvider: (type: string, providerId: number, page?: number) =>
+      ipcRenderer.invoke('tmdb:discover-by-provider', type, providerId, page),
     getSimilar: (type: string, id: number, page?: number) =>
       ipcRenderer.invoke('tmdb:get-similar', type, id, page),
     getRecommendations: (type: string, id: number, page?: number) =>
@@ -175,40 +171,13 @@ const api = {
     deleteProgress: (tmdbId: number, mediaType: string, season?: number, episode?: number) =>
       ipcRenderer.invoke('watch:delete-progress', tmdbId, mediaType, season, episode),
   },
-  mpv: {
-    addSubtitle: (filePath: string) => ipcRenderer.invoke('mpv:add-subtitle', filePath),
-      start: (url: string, resumePosition?: number, accentColor?: string, hasNext?: boolean, audioLanguage?: string, playbackInfo?: { tmdbId: number; mediaType: string; season?: number; episode?: number }, referer?: string) => ipcRenderer.invoke('mpv:start', url, resumePosition, accentColor, hasNext, audioLanguage, playbackInfo, referer),
-      stop: () => ipcRenderer.invoke('mpv:stop'),
-      isRunning: () => ipcRenderer.invoke('mpv:is-running'),
-      getTimePos: () => ipcRenderer.invoke('mpv:get-time-pos'),
-      getDuration: () => ipcRenderer.invoke('mpv:get-duration'),
-      getPaused: () => ipcRenderer.invoke('mpv:get-paused'),
-      showSkipIntro: (endMs: number) => ipcRenderer.invoke('mpv:show-skip-intro', endMs),
-      hideSkipIntro: () => ipcRenderer.invoke('mpv:hide-skip-intro'),
-      showSplash: () => ipcRenderer.invoke('mpv:show-splash'),
-      hideSplash: () => ipcRenderer.invoke('mpv:hide-splash'),
-      setHasNext: (hasNext: boolean) => ipcRenderer.invoke('mpv:set-has-next', hasNext),
-      setAutoplayNext: (autoplay: boolean) => ipcRenderer.invoke('mpv:set-auto-play-next', autoplay),
-      setPlot: (text: string) => ipcRenderer.invoke('mpv:set-plot', text),
-      setUpNext: (opts: { title: string; subtitle: string; countdown: number }) =>
-        ipcRenderer.invoke('mpv:set-up-next', opts),
-      clearUpNext: () => ipcRenderer.invoke('mpv:clear-up-next'),
-      getLastExitCode: () => ipcRenderer.invoke('mpv:get-last-exit-code'),
-      getSubAction: () => ipcRenderer.invoke('mpv:get-sub-action'),
-      clearSubAction: () => ipcRenderer.invoke('mpv:clear-sub-action'),
-      verifyUrl: (url: string) => ipcRenderer.invoke('mpv:verify-url', url),
-      verifyPlaybackQuality: () => ipcRenderer.invoke('mpv:verify-playback-quality'),
-      onExited: (callback: () => void) => {
-        ipcRenderer.on('mpv-exited', callback)
-        return () => { ipcRenderer.removeListener('mpv-exited', callback) }
-      },
-    },
   player: {
     start: (url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) =>
       ipcRenderer.invoke('player:start', url, resumePosition, referer, forceRemux),
     stop: () => ipcRenderer.invoke('player:stop'),
     addSubtitle: (filePath: string) => ipcRenderer.invoke('player:add-subtitle', filePath),
     verifyUrl: (url: string) => ipcRenderer.invoke('player:verify-url', url),
+    getChapters: () => ipcRenderer.invoke('player:get-chapters'),
   },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),

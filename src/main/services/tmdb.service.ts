@@ -109,6 +109,21 @@ export async function discoverByGenre(type: 'movie' | 'tv', genreId: number, pag
   return mapMediaResults(data, type)
 }
 
+export async function getWatchProviders(type: 'movie' | 'tv') {
+  const data = await fetchTmdb(`/watch/providers/${type}`)
+  return mapKeys(data)
+}
+
+export async function discoverByProvider(type: 'movie' | 'tv', providerId: number, page: number = 1) {
+  const data = await fetchTmdb(`/discover/${type}`, {
+    with_watch_providers: String(providerId),
+    watch_region: 'US',
+    page: String(page),
+    sort_by: 'popularity.desc',
+  })
+  return mapMediaResults(data, type)
+}
+
 export async function getSimilar(type: 'movie' | 'tv', id: number, page: number = 1) {
   const data = await fetchTmdb(`/${type}/${id}/similar`, { page: String(page) })
   return mapMediaResults(data, type)

@@ -238,6 +238,18 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       console.log('[VideoJsPlayer] src changed:', src?.slice(0, 120))
     }, [src])
 
+    // ── Fetch chapters when src changes ──────────────────────────────
+    useEffect(() => {
+      setChapters([])
+      if (!src) return
+      window.api.player.getChapters().then((ch) => {
+        if (ch && ch.length > 0) {
+          console.log('[VideoJsPlayer] Loaded', ch.length, 'chapters')
+          setChapters(ch)
+        }
+      }).catch(() => {})
+    }, [src])
+
     useEffect(() => {
       const v = videoRef.current
       if (!v) return
@@ -290,6 +302,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     const [subtitleTracks, setSubtitleTracks] = useState<{ index: number; label: string; language: string; mode: string }[]>([])
     const [activeSubtitleTrack, setActiveSubtitleTrack] = useState(-1)
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('Default')
+    const [chapters, setChapters] = useState<{ startTime: number; endTime: number; title: string }[]>([])
     const [audioMenuOpen, setAudioMenuOpen] = useState(false)
     const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false)
     const [aspectMenuOpen, setAspectMenuOpen] = useState(false)
@@ -420,6 +433,61 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       if (!v || !isFinite(v.duration)) return
       v.currentTime = (pct / 100) * v.duration
     }, [])
+
+    // ── Chapter skip ──────────────────────────────────────────────────
+    const CHAPTER_BOUNDARY_THRESHOLD = 5 // seconds — if within this of a boundary, skip chapter
+
+    /**
+     * Try to skip to the next chapter. Returns true if a chapter skip was performed.
+     * Only skips if current position is within CHAPTER_BOUNDARY_THRESHOLD of a chapter end.
+     */
+    const skipToNextChapter = useCallback(() => {
+      if (chapters.length === 0) return false
+      const v = videoRef.current
+      if (!v) return false
+      const t = v.currentTime
+      // Find the chapter we're currently in (or the nearest one ahead)
+      for (let i = 0; i < chapters.length; i++) {
+        const ch = chapters[i]
+        // If we're within threshold of this chapter's end, skip to next chapter start
+        if (Math.abs(t - ch.endTime) < CHAPTER_BOUNDARY_THRESHOLD) {
+          const nextIdx = i + 1
+          if (nextIdx < chapters.length) {
+            v.currentTime = chapters[nextIdx].startTime
+            const nextCh = chapters[nextIdx]
+            showOsdMessage(nextCh.title || `Chapter ${nextIdx + 1}`)
+          }
+          return true
+        }
+      }
+      return false
+    }, [chapters, showOsdMessage])
+
+    /**
+     * Try to skip to the previous chapter. Returns true if a chapter skip was performed.
+     * Only skips if current position is within CHAPTER_BOUNDARY_THRESHOLD of a chapter start.
+     */
+    const skipToPrevChapter = useCallback(() => {
+      if (chapters.length === 0) return false
+      const v = videoRef.current
+      if (!v) return false
+      const t = v.currentTime
+      // Find the chapter we're currently in
+      for (let i = 0; i < chapters.length; i++) {
+        const ch = chapters[i]
+        // If we're within threshold of this chapter's start, skip to previous chapter start
+        if (Math.abs(t - ch.startTime) < CHAPTER_BOUNDARY_THRESHOLD) {
+          const prevIdx = i - 1
+          if (prevIdx >= 0) {
+            v.currentTime = chapters[prevIdx].startTime
+            const prevCh = chapters[prevIdx]
+            showOsdMessage(prevCh.title || `Chapter ${prevIdx + 1}`)
+          }
+          return true
+        }
+      }
+      return false
+    }, [chapters, showOsdMessage])
 
     // ── Playback speed ────────────────────────────────────────────────
     const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -681,7 +749,11 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
             case 'ArrowLeft':
               e.preventDefault()
               if (osdRow === 0) {
-                seekDelta(-10)
+                if (skipToPrevChapter()) {
+                  // Chapter skip performed
+                } else {
+                  seekDelta(-10)
+                }
               } else {
                 setOsdButtonIndex((osdButtonIndex - 1 + BUTTON_COUNT) % BUTTON_COUNT)
               }
@@ -691,7 +763,11 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
             case 'ArrowRight':
               e.preventDefault()
               if (osdRow === 0) {
-                seekDelta(10)
+                if (skipToNextChapter()) {
+                  // Chapter skip performed
+                } else {
+                  seekDelta(10)
+                }
               } else {
                 setOsdButtonIndex((osdButtonIndex + 1) % BUTTON_COUNT)
               }
@@ -737,6 +813,10 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
 
           case 'ArrowLeft':
             e.preventDefault()
+            if (skipToPrevChapter()) {
+              openOsd()
+              return
+            }
             if (seekDirectionRef.current !== -1) {
               seekStepRef.current = 0
               seekDirectionRef.current = -1
@@ -750,6 +830,10 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
 
           case 'ArrowRight':
             e.preventDefault()
+            if (skipToNextChapter()) {
+              openOsd()
+              return
+            }
             if (seekDirectionRef.current !== 1) {
               seekStepRef.current = 0
               seekDirectionRef.current = 1
@@ -838,6 +922,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     }, [
       osdOpen, osdRow, osdButtonIndex, audioMenuOpen, subtitleMenuOpen, aspectMenuOpen,
       openOsd, closeOsd, resetOsdTimer, activateButton, seekDelta, seekToPercent,
+      skipToPrevChapter, skipToNextChapter,
       adjustVolume, togglePlayPause, toggleMute, toggleFullscreen,
       cycleAudioTrack, cycleSubtitle, cycleAspect, adjustSpeed, onBack,
     ])

@@ -2,10 +2,12 @@ import React from 'react'
 
 interface Props {
   percent: number
+  error?: string | null
   onCancel: () => void
 }
 
-export default function UpdateModal({ percent, onCancel }: Props) {
+export default function UpdateModal({ percent, error, onCancel }: Props) {
+  const isError = !!error
   return (
     <div
       style={{
@@ -23,28 +25,32 @@ export default function UpdateModal({ percent, onCancel }: Props) {
         }}
       >
         <h2 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 600, color: '#fff' }}>
-          Downloading Update
+          {isError ? 'Update Failed' : percent >= 100 ? 'Installing Update…' : 'Downloading Update'}
         </h2>
-        <p style={{ margin: '0 0 24px 0', fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>
-          Please wait while the update downloads...
+        <p style={{ margin: '0 0 24px 0', fontSize: 14, color: isError ? '#ff6b6b' : 'rgba(255,255,255,0.6)' }}>
+          {isError ? error : percent >= 100 ? 'Update complete — restarting…' : 'Please wait while the update downloads…'}
         </p>
-        <div
-          style={{
-            width: '100%', height: 8, background: 'rgba(255,255,255,0.1)',
-            borderRadius: 4, overflow: 'hidden', marginBottom: 12,
-          }}
-        >
+        {!isError && percent < 100 && (
           <div
             style={{
-              width: `${Math.min(Math.max(percent, 0), 100)}%`, height: '100%',
-              background: 'var(--accent, #FF6B00)', borderRadius: 4,
-              transition: 'width 0.3s ease',
+              width: '100%', height: 8, background: 'rgba(255,255,255,0.1)',
+              borderRadius: 4, overflow: 'hidden', marginBottom: 12,
             }}
-          />
-        </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
-          {Math.round(percent)}%
-        </div>
+          >
+            <div
+              style={{
+                width: `${Math.min(Math.max(percent, 0), 100)}%`, height: '100%',
+                background: 'var(--accent, #FF6B00)', borderRadius: 4,
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        )}
+        {!isError && percent < 100 && (
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
+            {Math.round(percent)}%
+          </div>
+        )}
         <button
           tabIndex={0}
           onClick={onCancel}
@@ -54,7 +60,7 @@ export default function UpdateModal({ percent, onCancel }: Props) {
             color: '#fff', cursor: 'pointer', fontSize: 13,
           }}
         >
-          Hide
+          {isError ? 'Close' : 'Hide'}
         </button>
       </div>
     </div>

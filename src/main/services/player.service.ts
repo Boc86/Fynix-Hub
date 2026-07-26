@@ -12,6 +12,7 @@
  */
 
 import * as FfmpegRemux from './ffmpeg-remux.service'
+import type { Chapter } from './ffmpeg-remux.service'
 import * as LocalCache from './local-cache.service'
 import * as OkruResolver from './okru-resolver'
 import * as DailymotionResolver from './dailymotion-resolver'
@@ -23,11 +24,14 @@ export interface StartPlaybackResult {
   streamUrl: string
   /** Duration in seconds, if known from ffprobe. */
   duration: number | null
+  /** Chapter metadata, if available from ffprobe. */
+  chapters: Chapter[]
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentSessionId: string | null = null
 let currentProxyId: string | null = null
+let currentChapters: Chapter[] = []
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,7 +111,7 @@ export async function startPlayback(
       debug('CDN stream needs proxy for auth headers:', resolvedUrl.slice(0, 80))
       const { proxyId, proxyUrl } = LocalCache.createProxySession(resolvedUrl)
       currentProxyId = proxyId
-      return { streamUrl: proxyUrl, duration: null }
+      return { streamUrl: proxyUrl, duration: null, chapters: [] }
     }
 
     if (isLocal) {
@@ -115,7 +119,7 @@ export async function startPlayback(
     } else {
       debug('URL is browser-playable, passing directly:', resolvedUrl.slice(0, 80))
     }
-    return { streamUrl: resolvedUrl, duration: null }
+    return { streamUrl: resolvedUrl, duration: null, chapters: [] }
   }
 
   // ── FFmpeg remux (non-browser-playable formats) ──────────
@@ -140,16 +144,21 @@ export async function startPlayback(
   }
 
   debug('Starting FFmpeg remux for:', resolvedUrl.slice(0, 80))
-  const result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders)
-  if (!result) {
-    throw new Error('Failed to start FFmpeg remux session')
+  let result: { sessionId: string; streamUrl: string }
+  try {
+    result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to start FFmpeg remux session'
+    throw new Error(`FFmpeg remux failed: ${msg}`)
   }
 
   currentSessionId = result.sessionId
   const duration = FfmpegRemux.probeDuration(resolvedUrl)
+  const chapters = FfmpegRemux.probeChapters(resolvedUrl)
+  currentChapters = chapters
 
   debug('Remux session started:', result.sessionId, 'duration:', duration)
-  return { streamUrl: result.streamUrl, duration }
+  return { streamUrl: result.streamUrl, duration, chapters }
 }
 
 /**
@@ -166,6 +175,14 @@ export async function stopPlayback(): Promise<void> {
     FfmpegRemux.killSession(currentSessionId)
     currentSessionId = null
   }
+  currentChapters = []
+}
+
+/**
+ * Get chapters for the current playback session.
+ */
+export function getChapters(): Chapter[] {
+  return currentChapters
 }
 
 /**

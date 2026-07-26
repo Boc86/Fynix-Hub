@@ -43,7 +43,7 @@ interface LiveTvChannel {
 
 const HOUR_MS = 3600
 const SLOT_WIDTH = 120
-const ROW_HEIGHT = 64
+const ROW_HEIGHT = 80
 const CHANNEL_WIDTH = 200
 const HEADER_HEIGHT = 50
 const SCROLL_AMOUNT = 300
@@ -209,7 +209,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       )}
 
       {selNN && (selNN.now || selNN.next) && (
-        <div style={{ display: 'flex', gap: 12, padding: 12, background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border, #2a2a4a)' }}>
+        <div style={{ display: 'flex', gap: 12, padding: 12, background: 'var(--bg-primary, #0d0d1a)', borderBottom: '1px solid var(--border, #2a2a4a)', position: 'sticky', top: 0, zIndex: 10 }}>
           {selNN.now && (
             <div style={{ flex: 1, background: 'rgba(var(--accent-rgb, 255, 107, 0), 0.12)', borderRadius: 8, padding: 12, border: '1px solid var(--accent)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -237,7 +237,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       )}
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <div style={{ width: CHANNEL_WIDTH, flexShrink: 0, overflow: 'hidden', borderRight: '1px solid var(--border, #2a2a4a)' }}>
+        <div style={{ width: CHANNEL_WIDTH, flexShrink: 0, overflow: 'hidden', borderRight: '1px solid var(--border, #2a2a4a)', position: 'sticky', left: 0, zIndex: 5, background: 'var(--bg-primary, #0d0d1a)' }}>
           <div style={{ height: HEADER_HEIGHT, borderBottom: '1px solid var(--border, #2a2a4a)', padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>CHANNELS</div>
           <div ref={channelListRef} style={{ overflow: 'auto', height: `calc(100% - ${HEADER_HEIGHT}px)` }}>
             {channels.map((ch, i) => (
@@ -253,7 +253,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
                 onMouseEnter={() => setFocusedChannelIdx(i)}
               >
                 {ch.liveTvLogo
-                  ? <img src={ch.liveTvLogo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  ? <img src={ch.liveTvLogo} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   : <span style={{ fontSize: 12, fontWeight: 500, color: i === focusedChannelIdx ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
                 }
                 {playing === ch.liveTvChannelId && <div style={{ width: 12, height: 12, border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}

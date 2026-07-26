@@ -34,7 +34,7 @@ If you find this project useful, consider supporting development on Ko-fi. Every
 - **Debrid cache checking** — automatically checks Real-Debrid, All-Debrid, and Premiumize for cached torrents
 
 ### Playback
-- **mpv-based playback** — high-quality video playback via mpv with hardware acceleration
+- **HTML5 playback** — high-quality video playback via built-in HTML5 player with hardware acceleration
 - **Auto-play** — automatically cycle through torrent results until one plays successfully
 - **Vyla / Rivestream** — optional streaming sources for instant playback without downloading
 - **Sports live streaming** — watch live sports events directly from supported sources
@@ -107,7 +107,7 @@ Download the latest release for Linux from the [Releases page](https://github.co
 | Torrent Indexers | Media | Public and private torrent indexers for media discovery |
 | Usenet | Media | Newznab-compatible Usenet indexers |
 | NZBGet | Downloader | Usenet NZB download client integration |
-| mpv | Player | High-quality video playback |
+| HTML5 Player | Player | High-quality video playback via HTML5 + FFmpeg remux |
 
 ### Keyboard Navigation
 
@@ -157,7 +157,7 @@ npm run make    # Build all packages
 - **Frontend**: React, TypeScript, Zustand (state management), CSS Modules
 - **Backend**: Electron, Vite (bundler), Electron Forge (packaging)
 - **Data**: TMDB API, torrent indexers, Newznab Usenet, YouTube
-- **Player**: mpv (native video playback)
+- **Player**: HTML5 (browser-based video playback with FFmpeg remux)
 - **Updates**: electron-updater (GitHub Releases)
 - **Packaging**: Debian (.deb), RPM (.rpm), AppImage, portable ZIP
 

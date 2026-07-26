@@ -20,6 +20,8 @@ interface MediaState {
   isLoading: boolean
   error: string | null
   refreshVersion: number
+  watchProviders: Array<{ providerId: number; providerName: string; logoPath: string }>
+  selectedProvider: number | null
   setTrending: (items: MediaItem[]) => void
   setPopularMovies: (items: MediaItem[]) => void
   setPopularTvShows: (items: MediaItem[]) => void
@@ -35,6 +37,8 @@ interface MediaState {
   setTraktWatched: (ids: Set<number>) => void
   setTraktPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
   setEpisodeWatched: (data: Map<number, Map<number, Set<number>>>) => void
+  setWatchProviders: (providers: Array<{ providerId: number; providerName: string; logoPath: string }>) => void
+  setSelectedProvider: (providerId: number | null) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   clearTraktData: () => void
@@ -60,6 +64,8 @@ export const useMediaStore = create<MediaState>((set) => ({
   isLoading: false,
   error: null,
   refreshVersion: 0,
+  watchProviders: [],
+  selectedProvider: null,
 
   setTrending: (items) => set({ trending: items }),
   setPopularMovies: (items) => set({ popularMovies: items }),
@@ -82,6 +88,8 @@ export const useMediaStore = create<MediaState>((set) => ({
   setTraktWatched: (ids) => set({ traktWatched: ids }),
   setTraktPlayback: (items) => set({ traktPlayback: items }),
   setEpisodeWatched: (data) => set({ episodeWatched: data }),
+  setWatchProviders: (providers) => set({ watchProviders: providers }),
+  setSelectedProvider: (providerId) => set({ selectedProvider: providerId }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   clearTraktData: () => set({
