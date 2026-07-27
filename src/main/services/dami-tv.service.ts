@@ -331,5 +331,20 @@ export async function extractChannelUrl(ch: { id: string; name: string; countryC
   }
 }
 
+import type { LiveTVProvider, LiveTVChannel as BaseLiveTVChannel, LiveTVStreamResult } from './livetv-provider.types'
 
+export const cdnliveProvider: LiveTVProvider = {
+  id: 'cdnlive',
+  label: 'CDNLive',
+
+  async getChannels(): Promise<BaseLiveTVChannel[]> {
+    const channels = await getChannels()
+    return channels.map(ch => ({ ...ch, provider: 'cdnlive' as const }))
+  },
+
+  async extractUrl(ch: { id: string; name: string; countryCode: string; playerUrl?: string }): Promise<LiveTVStreamResult> {
+    const result = await extractChannelUrl(ch)
+    return { hlsUrl: result.hlsUrl, error: result.hlsUrl ? undefined : 'No playable source found' }
+  },
+}
 

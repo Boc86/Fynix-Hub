@@ -210,9 +210,10 @@ const api = {
   },
 
   damiTv: {
-    getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),
+    getChannels: (server?: string) => ipcRenderer.invoke('dami-tv:get-channels', server),
     getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
-    extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => ipcRenderer.invoke('dami-tv:extract-url', ch),
+    extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }, server?: string) =>
+      ipcRenderer.invoke('dami-tv:extract-url', ch, server),
   },
   epg: {
     getChannels: (liveTvChannels?: any[]) => ipcRenderer.invoke('epg:get-channels', liveTvChannels),

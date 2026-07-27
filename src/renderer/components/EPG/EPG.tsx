@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
+import { useSettingsStore } from '../../store/settingsStore'
 
 interface EPGChannel {
   id: string
@@ -144,12 +145,13 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     setPlaying(ch.liveTvChannelId)
     setPlayError(null)
     try {
+      const server = useSettingsStore.getState().liveTvServer || 'cdnlive'
       const result = await window.api.damiTv.extractUrl({
         id: ch.liveTvChannelId,
         name: ch.liveTvName,
         countryCode: ch.liveTvCountryCode,
         playerUrl: ch.liveTvPlayerUrl,
-      })
+      }, server)
       if (result?.hlsUrl) {
         await onPlayUrl(result.hlsUrl)
       } else {

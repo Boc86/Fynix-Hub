@@ -54,6 +54,7 @@ interface SettingsState {
   opensubtitlesForcedOnly: boolean
   liveTvUser: string
   liveTvPlan: string
+  liveTvServer: 'cdnlive' | 'ondemand' | 'dlhd'
   preferredAudioLanguage: string
   classificationCountry: string
   accentColor: string
@@ -110,6 +111,7 @@ interface SettingsState {
   setOpensubtitlesForcedOnly: (forced: boolean) => void
   setLiveTvUser: (user: string) => void
   setLiveTvPlan: (plan: string) => void
+  setLiveTvServer: (server: 'cdnlive' | 'ondemand' | 'dlhd') => void
   setPreferredAudioLanguage: (lang: string) => void
   setClassificationCountry: (country: string) => void
   setAccentColor: (color: string) => void
@@ -175,6 +177,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   opensubtitlesForcedOnly: true,
   liveTvUser: 'cdnlivetv',
   liveTvPlan: 'free',
+  liveTvServer: 'cdnlive',
   preferredAudioLanguage: '',
   classificationCountry: 'US',
   accentColor: '#FF6B00',
@@ -231,6 +234,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
   setLiveTvUser: (user) => { set({ liveTvUser: user }); get().saveToDisk() },
   setLiveTvPlan: (plan) => { set({ liveTvPlan: plan }); get().saveToDisk() },
+  setLiveTvServer: (server) => { set({ liveTvServer: server }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setClassificationCountry: (country) => { set({ classificationCountry: country }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
@@ -466,6 +470,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('opensubtitlesForcedOnly', state.opensubtitlesForcedOnly),
         window.api.settings.set('liveTvUser', state.liveTvUser),
         window.api.settings.set('liveTvPlan', state.liveTvPlan),
+        window.api.settings.set('liveTvServer', state.liveTvServer),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('classificationCountry', state.classificationCountry),
         window.api.settings.set('accentColor', state.accentColor),

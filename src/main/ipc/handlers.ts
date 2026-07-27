@@ -25,6 +25,7 @@ import * as ReplayZoneService from '../services/replayzone.service'
 import * as StreamedPkService from '../services/streamedpk.service'
 import * as ExtractorService from '../services/extractor.service'
 import * as DamiTVService from '../services/dami-tv.service'
+import { getChannelsWithFallback, extractUrlWithFallback, type LiveTVServerId } from '../services/livetv-providers'
 import * as EpgService from '../services/epg.service'
 import * as UsenetSearchService from '../services/usenet-search.service'
 import * as UsenetService from '../services/usenet.service'
@@ -681,16 +682,18 @@ export async function registerIpcHandlers(): Promise<void> {
     return StreamedPkService.getMatchesForSports(sports)
   })
 
-  handle('dami-tv:get-channels', async () => {
-    return DamiTVService.getChannels()
+  handle('dami-tv:get-channels', async (_event, server?: LiveTVServerId) => {
+    const serverId = server || 'cdnlive'
+    return getChannelsWithFallback(serverId)
   })
 
   handle('dami-tv:get-available-countries', async () => {
     return DamiTVService.getAvailableCountries()
   })
 
-  handle('dami-tv:extract-url', async (_event, ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => {
-    return DamiTVService.extractChannelUrl(ch)
+  handle('dami-tv:extract-url', async (_event, ch: { id: string; name: string; countryCode: string; playerUrl?: string }, server?: LiveTVServerId) => {
+    const serverId = server || 'cdnlive'
+    return extractUrlWithFallback(serverId, ch)
   })
 
   handle('epg:get-channels', async (_event, liveTvChannels?: any[]) => {

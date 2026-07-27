@@ -62,12 +62,13 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
 
   useEffect(() => {
     setLoading(true)
-    window.api.damiTv.getChannels().then(ch => {
-      window.api.log(`[LiveTV] ${ch.length} channels loaded, ${ch.filter((c: any) => c.image).length} have images`)
+    const server = settingsStore.liveTvServer || 'cdnlive'
+    window.api.damiTv.getChannels(server).then(ch => {
+      window.api.log(`[LiveTV] ${ch.length} channels loaded from ${server}`)
       setChannels(ch)
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [])
+  }, [settingsStore.liveTvServer])
 
   // Auto-focus container when loading completes
   useEffect(() => {
@@ -158,8 +159,9 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
   const playChannel = useCallback(async (ch: Channel) => {
     setPlaying(ch.id)
     setPlayError(null)
+    const server = settingsStore.liveTvServer || 'cdnlive'
     try {
-      const result = await window.api.damiTv.extractUrl({ id: ch.id, name: ch.name, countryCode: ch.countryCode, playerUrl: ch.playerUrl })
+      const result = await window.api.damiTv.extractUrl({ id: ch.id, name: ch.name, countryCode: ch.countryCode, playerUrl: ch.playerUrl }, server)
       if (result?.hlsUrl) {
         await onPlayUrl(result.hlsUrl)
       } else {
@@ -169,7 +171,7 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
       setPlayError(`Failed to play ${ch.name}: ${err?.message || 'Unknown error'}`)
     }
     setPlaying(null)
-  }, [onPlayUrl])
+  }, [onPlayUrl, settingsStore.liveTvServer])
 
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === 'Escape' || e.key === 'Backspace') { onBack(); return }

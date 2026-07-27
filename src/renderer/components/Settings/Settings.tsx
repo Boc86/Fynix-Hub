@@ -1740,6 +1740,30 @@ export default function Settings({ onClose }: SettingsProps) {
 
             {store.liveTvEnabled && (
               <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Server</h3>
+                <p className={styles.settingDesc}>Select the primary channel source. Other servers are used as fallback if the primary fails.</p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {([
+                    { id: 'cdnlive', label: 'CDNLive' },
+                    { id: 'ondemand', label: 'OnDemand' },
+                    { id: 'dlhd', label: 'DLHD' },
+                  ] as const).map(srv => (
+                    <button
+                      key={srv.id}
+                      tabIndex={0}
+                      className={`${styles.toggle} ${store.liveTvServer === srv.id ? styles.toggleActive : ''}`}
+                      onClick={() => store.setLiveTvServer(srv.id)}
+                      style={{ flex: '1 1 100px', textAlign: 'center' }}
+                    >
+                      {srv.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {store.liveTvEnabled && (
+              <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>API Credentials</h3>
                 <p className={styles.settingDesc}>LiveTV channel source credentials. Defaults: user=<strong>cdnlivetv</strong>, plan=<strong>free</strong>.</p>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

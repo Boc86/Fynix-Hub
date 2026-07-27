@@ -318,7 +318,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         .map(async (s) => {
           let url = s.embedUrl!
           if (!url.endsWith('.m3u8')) {
-            const result = await window.api.damiTv.extractUrl({ id: s.id || s.source, name: match.title, countryCode: '', playerUrl: url }).catch(() => null)
+            const server = useSettingsStore.getState().liveTvServer || 'cdnlive'
+            const result = await window.api.damiTv.extractUrl({ id: s.id || s.source, name: match.title, countryCode: '', playerUrl: url }, server).catch(() => null)
             if (result?.hlsUrl) url = result.hlsUrl
           }
           return { source: s.source, streamNo: 1, language: 'Unknown', hd: true, embedUrl: url }
