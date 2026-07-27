@@ -374,7 +374,7 @@ async function serveRemotePlaylist(
 
     if (status !== 200) {
       debug('Remote playlist HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status)
+      res.writeHead(status, { 'Access-Control-Allow-Origin': '*' })
       res.end('Remote playlist fetch failed')
       return
     }
@@ -404,7 +404,7 @@ async function serveRemoteFile(
 
     if (status !== 200) {
       debug('Remote file HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status)
+      res.writeHead(status, { 'Access-Control-Allow-Origin': '*' })
       res.end('Remote file fetch failed')
       return
     }
