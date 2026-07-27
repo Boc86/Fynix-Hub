@@ -139,6 +139,26 @@ function createWindow(): void {
   }
   setupRemoteControl(mainWindow.webContents, mainWindow)
   setupCursorHide(mainWindow)
+
+  // Inject Referer/Origin headers for CDNLive requests (CORS fix)
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ['*://cdnlivetv.tv/*'] },
+    (details, callback) => {
+      details.requestHeaders['Referer'] = 'https://cdnlivetv.tv/'
+      details.requestHeaders['Origin'] = 'https://cdnlivetv.tv'
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
+  // Add CORS headers to CDNLive responses so HLS.js XHR can read them
+  mainWindow.webContents.session.webRequest.onHeadersReceived(
+    { urls: ['*://cdnlivetv.tv/*'] },
+    (details, callback) => {
+      if (!details.responseHeaders) details.responseHeaders = {}
+      details.responseHeaders['Access-Control-Allow-Origin'] = ['*']
+      callback({ responseHeaders: details.responseHeaders })
+    }
+  )
+
   mainWindow.maximize()
 
   mainWindow.on('closed', () => {
