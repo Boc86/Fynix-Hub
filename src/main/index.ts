@@ -140,12 +140,12 @@ function createWindow(): void {
   setupRemoteControl(mainWindow.webContents, mainWindow)
   setupCursorHide(mainWindow)
 
-  // Inject Referer/Origin headers for CDNLive requests (CORS fix)
+  // Inject Referer header for CDNLive requests — matches old MPV --referrer behavior
+  // The API is at api.cdnlivetv.is, the CDN is at cdnlivetv.tv. MPV used .is as referer.
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
     { urls: ['*://cdnlivetv.tv/*'] },
     (details, callback) => {
-      details.requestHeaders['Referer'] = 'https://cdnlivetv.tv/'
-      details.requestHeaders['Origin'] = 'https://cdnlivetv.tv'
+      details.requestHeaders['Referer'] = 'https://cdnlivetv.is/'
       callback({ requestHeaders: details.requestHeaders })
     }
   )
