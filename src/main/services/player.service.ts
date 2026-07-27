@@ -59,7 +59,6 @@ function isBrowserPlayable(url: string): boolean {
 function needsCdnProxy(url: string): boolean {
   return /okcdn\.ru|vkuser\.net|vk\.com|vkvideo/i.test(url)
     || /dailymotion\.com/i.test(url)
-    || /cdnlivetv\.tv/i.test(url)
 }
 
 // ─── Public API ────────────────────────────────────────────────
