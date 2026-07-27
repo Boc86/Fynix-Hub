@@ -1098,15 +1098,6 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
               autoPlay
               playsInline
               preload="auto"
-              config={{
-                hlsJs: {
-                  xhrSetup: (xhr: XMLHttpRequest, url: string) => {
-                    if (/cdnlivetv\.tv/i.test(url)) {
-                      xhr.setRequestHeader('Referer', 'https://cdnlivetv.is/')
-                    }
-                  },
-                },
-              }}
               onTimeUpdate={handleTimeUpdateInternal}
               onDurationChange={handleDurationChange}
               onEnded={onEnded}

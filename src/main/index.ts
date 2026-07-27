@@ -140,6 +140,16 @@ function createWindow(): void {
   setupRemoteControl(mainWindow.webContents, mainWindow)
   setupCursorHide(mainWindow)
 
+  // Inject Referer header for CDNLive requests — browsers block this via XHR
+  // but Electron main process can intercept and add it. Matches old MPV --referrer behavior.
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ['*://cdnlivetv.tv/*'] },
+    (details, callback) => {
+      details.requestHeaders['Referer'] = 'https://cdnlivetv.is/'
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
+
   mainWindow.maximize()
 
   mainWindow.on('closed', () => {
