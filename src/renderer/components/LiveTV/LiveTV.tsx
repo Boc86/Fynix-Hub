@@ -156,20 +156,44 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [focusedChannelIdx])
 
+  const SERVERS = ['cdnlive', 'ondemand', 'dlhd'] as const
+
   const playChannel = useCallback(async (ch: Channel) => {
     setPlaying(ch.id)
     setPlayError(null)
-    const server = settingsStore.liveTvServer || 'cdnlive'
-    try {
-      const result = await window.api.damiTv.extractUrl({ id: ch.id, name: ch.name, countryCode: ch.countryCode, playerUrl: ch.playerUrl }, server)
-      if (result?.hlsUrl) {
+    const primary = settingsStore.liveTvServer || 'cdnlive'
+    const servers = [primary, ...SERVERS.filter(s => s !== primary)]
+    let lastError = ''
+
+    for (const server of servers) {
+      try {
+        const result = await window.api.damiTv.extractUrl(
+          { id: ch.id, name: ch.name, countryCode: ch.countryCode, playerUrl: ch.playerUrl },
+          server,
+        )
+        if (!result?.hlsUrl) {
+          lastError = `${server}: no URL extracted`
+          continue
+        }
+        // Quick HEAD check — reject dead URLs (502/503/403) before sending to player
+        try {
+          const probe = await fetch(result.hlsUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+          if (!probe.ok) {
+            lastError = `${server}: HTTP ${probe.status}`
+            window.api.log(`[LiveTV] ${ch.name} URL check failed: ${server} HTTP ${probe.status}`)
+            continue
+          }
+        } catch { /* HEAD failed — try playing anyway, the player may handle retries */ }
+
         await onPlayUrl(result.hlsUrl)
-      } else {
-        setPlayError(`No playable source for ${ch.name}.`)
+        setPlaying(null)
+        return // success
+      } catch (err: any) {
+        lastError = `${server}: ${err?.message || 'unknown'}`
       }
-    } catch (err: any) {
-      setPlayError(`Failed to play ${ch.name}: ${err?.message || 'Unknown error'}`)
     }
+
+    setPlayError(`No playable source for ${ch.name}. ${lastError ? `(${lastError})` : ''}`)
     setPlaying(null)
   }, [onPlayUrl, settingsStore.liveTvServer])
 
