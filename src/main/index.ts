@@ -154,6 +154,8 @@ function createWindow(): void {
     { urls: ['*://cdnlivetv.tv/*'] },
     (details, callback) => {
       if (!details.responseHeaders) details.responseHeaders = {}
+      // Remove existing CORS headers first (CDN may send its own)
+      delete details.responseHeaders['access-control-allow-origin']
       details.responseHeaders['Access-Control-Allow-Origin'] = ['*']
       callback({ responseHeaders: details.responseHeaders })
     }
