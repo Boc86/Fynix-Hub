@@ -25,6 +25,22 @@ function friendlyMessage(raw: string): string {
     return 'Video player failed to start.'
   if (lower.includes('timeout') || lower.includes('timed out'))
     return 'Connection timed out — check your network and Usenet settings.'
+  if (lower.includes('ffmpeg') && lower.includes('not found'))
+    return 'FFmpeg is not installed or not in PATH. Check your installation.'
+  if (lower.includes('ffmpeg') && (lower.includes('exit') || lower.includes('crashed')))
+    return 'FFmpeg process failed — the stream may be corrupted or unsupported.'
+  if (lower.includes('codec') || lower.includes('decoder'))
+    return 'Video codec is not supported by your system. Try a different source.'
+  if (lower.includes('network') || lower.includes('connection refused') || lower.includes('connection reset'))
+    return 'Network error — the stream server may be unreachable.'
+  if (lower.includes('no such file') || lower.includes('file not found'))
+    return 'The stream file could not be found — it may have been removed.'
+  if (lower.includes('permission denied'))
+    return 'Permission denied — check file permissions.'
+  if (lower.includes('invalid data') || lower.includes('corrupt'))
+    return 'The stream data appears to be corrupted or invalid.'
+  if (lower.includes('protocol') || lower.includes('not supported'))
+    return 'The stream protocol is not supported. Try a different source.'
   return raw
 }
 

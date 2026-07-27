@@ -104,8 +104,12 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('tmdb:get-popular', async (_event, type, page) => {
-    return TmdbService.getPopular(type, page)
-  })
+      return TmdbService.getPopular(type, page);
+    });
+
+    handle('tmdb:get-top-rated', async (_event, type, page) => {
+      return TmdbService.getTopRated(type, page);
+    });
 
   handle('tmdb:get-details', async (_event, type, id) => {
     const cacheKey = `tmdb:details:${TMDB_CACHE_VERSION}:${type}:${id}`
@@ -570,6 +574,12 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('player:stop', async () => {
     await PlayerService.stopPlayback()
+  })
+
+  handle('player:get-session-error', async () => {
+    const sessionId = PlayerService.getCurrentSessionId()
+    if (!sessionId) return null
+    return FfmpegRemux.getSessionError(sessionId)
   })
 
   handle('player:add-subtitle', async (_event, filePath: string) => {

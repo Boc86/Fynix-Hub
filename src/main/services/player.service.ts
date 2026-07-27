@@ -153,6 +153,24 @@ export async function startPlayback(
   }
 
   currentSessionId = result.sessionId
+
+  // Watch for unexpected FFmpeg exit and notify renderer
+  if (currentSessionId) {
+    const checkInterval = setInterval(() => {
+      if (!currentSessionId) { clearInterval(checkInterval); return }
+      const err = FfmpegRemux.getSessionError(currentSessionId)
+      if (err) {
+        clearInterval(checkInterval)
+        const { BrowserWindow } = require('electron') as typeof import('electron')
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('player:ffmpeg-error', err)
+          }
+        }
+      }
+    }, 2000)
+  }
+
   const duration = FfmpegRemux.probeDuration(resolvedUrl)
   const chapters = FfmpegRemux.probeChapters(resolvedUrl)
   currentChapters = chapters

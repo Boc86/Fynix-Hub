@@ -69,10 +69,8 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       ]
 
   const getVisibleRows = useCallback(() => {
-      rowConfig.filter((r) => r.items.length > 0);
-    }, [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, providerRows, selectedProvider])
-  )
-
+          return rowConfig.filter((r) => r.items.length > 0);
+      }, [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, providerRows, selectedProvider]);
   const getRowItemCount = useCallback((rowIdx: number) => {
     const rows = getVisibleRows()
     return rows[rowIdx]?.items.length ?? 0
@@ -304,44 +302,44 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                     }
 
                     // Fetch popular and top_rated for the media type (pages 1 and 2)
-                    const [popularItems, topRatedItems, genreRows] = await Promise.all([
-                      fetchPaginatedResults((page) => window.api.tmdb.getPopular(mediaTypeFilter, page)),
-                      fetchPaginatedResults((page) => window.api.tmdb.getTopRated(mediaTypeFilter, page)),
-                      Promise.all(genres.map(async (g) => {
-                        try {
-                          // Fetch discover by genre (pages 1 and 2)
-                          const [page1, page2] = await Promise.all([
-                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
-                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
-                          ])
-                          const allItems = [
-                            ...(page1?.results || []),
-                            ...(page2?.results || []),
-                          ]
-                          return { label: g.name, items: allItems }
-                        } catch {
-                          return { label: g.name, items: [] }
-                        }
-                      }))
-                    ])
-
-                    // Populate discoveryRows with popular, top_rated, and genre rows
-                    const discoveryRows: Array<{ label: string; items: MediaItem[] }> = []
-            
-                    if (popularItems.length > 0) {
-                      discoveryRows.push({ label: 'Popular', items: popularItems })
-                    }
-            
-                    if (topRatedItems.length > 0) {
-                      discoveryRows.push({ label: 'Top Rated', items: topRatedItems })
-                    }
-            
-                    // Add genre rows (only those with items)
-                    genreRows.forEach(genreRow => {
-                      if (genreRow.items.length > 0) {
-                        discoveryRows.push(genreRow)
-                      }
-                    })
+                                        const [popularItems, topRatedItems, genreRowsData] = await Promise.all([
+                                          fetchPaginatedResults((page) => window.api.tmdb.getPopular(mediaTypeFilter, page)),
+                                          fetchPaginatedResults((page) => window.api.tmdb.getTopRated(mediaTypeFilter, page)),
+                                          Promise.all(genres.map(async (g) => {
+                                            try {
+                                              // Fetch discover by genre (pages 1 and 2)
+                                              const [page1, page2] = await Promise.all([
+                                                window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
+                                                window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
+                                              ])
+                                              const allItems = [
+                                                ...(page1?.results || []),
+                                                ...(page2?.results || []),
+                                              ]
+                                              return { label: g.name, items: allItems }
+                                            } catch {
+                                              return { label: g.name, items: [] }
+                                            }
+                                          }))
+                                        ])
+                    
+                                        // Populate discoveryRows with popular, top_rated, and genre rows
+                                        const discoveryRows: Array<{ label: string; items: MediaItem[] }> = []
+          
+                                        if (popularItems.length > 0) {
+                                          discoveryRows.push({ label: 'Popular', items: popularItems })
+                                        }
+          
+                                        if (topRatedItems.length > 0) {
+                                          discoveryRows.push({ label: 'Top Rated', items: topRatedItems })
+                                        }
+          
+                                        // Add genre rows (only those with items)
+                                        genreRowsData.forEach(genreRow => {
+                                          if (genreRow.items.length > 0) {
+                                            discoveryRows.push(genreRow);
+                                          }
+                                        });
             
                     setDiscoveryRows(discoveryRows)
                   } catch { /* genre/popular/top_rated rows are optional */ }

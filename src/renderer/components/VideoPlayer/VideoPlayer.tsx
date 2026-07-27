@@ -102,6 +102,7 @@ function VideoPlayerInner({
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
   const retryCountRef = useRef(0)
+  const [displayError, setDisplayError] = useState<string | null>(null)
 
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
@@ -419,8 +420,20 @@ function VideoPlayerInner({
     finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
   }, [mediaInfo, hasNextEpisode, finishPlayback])
 
-  const handleError = useCallback(() => {
+  const handleError = useCallback((error?: MediaError) => {
     if (exitedRef.current) return
+
+    let errorMsg = 'Playback error'
+    if (error) {
+      switch (error.code) {
+        case 1: errorMsg = 'Playback was aborted'; break
+        case 2: errorMsg = 'A network error occurred while loading the stream'; break
+        case 3: errorMsg = 'The video could not be decoded — the format may be unsupported'; break
+        case 4: errorMsg = 'The video source is not supported or unavailable'; break
+        default: errorMsg = error.message || 'Unknown playback error'
+      }
+    }
+
     if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
       retryCountRef.current++
       window.api.log(`[VP] stream error, auto-reconnect attempt ${retryCountRef.current}`)
@@ -428,9 +441,9 @@ function VideoPlayerInner({
       onRetryStream()
     } else {
       exitedRef.current = true
-      finishPlayback(false)
+      setDisplayError(errorMsg)
     }
-  }, [isReconnectableStream, onRetryStream, finishPlayback])
+  }, [isReconnectableStream, onRetryStream])
 
   // Reset state when streamUrl changes.
   useEffect(() => {
@@ -442,6 +455,19 @@ function VideoPlayerInner({
     retryCountRef.current = 0
     currentTimeRef.current = 0
     durationRef.current = 0
+    setDisplayError(null)
+  }, [streamUrl])
+
+  // Listen for FFmpeg process errors (unexpected exit during playback)
+  useEffect(() => {
+    if (!streamUrl) return
+    const unsubscribe = (window.api.player as any).onFfmpegError?.((errorMsg: string) => {
+      if (exitedRef.current) return
+      window.api.log(`[VP] FFmpeg error received: ${errorMsg}`)
+      exitedRef.current = true
+      setDisplayError(errorMsg)
+    })
+    return unsubscribe
   }, [streamUrl])
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -465,6 +491,21 @@ function VideoPlayerInner({
           message={streamError}
           onBack={onBack}
           onRetry={onStreamError}
+        />
+      </div>
+    )
+  }
+
+  if (displayError) {
+    return (
+      <div className={styles.player}>
+        <ErrorModal
+          message={displayError}
+          onBack={onBack}
+          onRetry={() => {
+            setDisplayError(null)
+            onRetryStream?.()
+          }}
         />
       </div>
     )

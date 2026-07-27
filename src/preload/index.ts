@@ -45,6 +45,8 @@ const api = {
       ipcRenderer.invoke('tmdb:get-trending', type, timeWindow),
     getPopular: (type: string, page: number) =>
       ipcRenderer.invoke('tmdb:get-popular', type, page),
+    getTopRated: (type: string, page: number) =>
+      ipcRenderer.invoke('tmdb:get-top-rated', type, page),
     getDetails: (type: string, id: number) =>
       ipcRenderer.invoke('tmdb:get-details', type, id),
     search: (query: string, type: string) =>
@@ -178,6 +180,12 @@ const api = {
     addSubtitle: (filePath: string) => ipcRenderer.invoke('player:add-subtitle', filePath),
     verifyUrl: (url: string) => ipcRenderer.invoke('player:verify-url', url),
     getChapters: () => ipcRenderer.invoke('player:get-chapters'),
+    getSessionError: () => ipcRenderer.invoke('player:get-session-error'),
+    onFfmpegError: (callback: (error: string) => void) => {
+      const handler = (_event: any, error: string) => callback(error)
+      ipcRenderer.on('player:ffmpeg-error', handler)
+      return () => { ipcRenderer.removeListener('player:ffmpeg-error', handler) }
+    },
   },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),
