@@ -175,16 +175,9 @@ export default function LiveTV({ onPlayUrl, onBack }: { onPlayUrl: (url: string)
           lastError = `${server}: no URL extracted`
           continue
         }
-        // Quick HEAD check — reject dead URLs (502/503/403) before sending to player
-        try {
-          const probe = await fetch(result.hlsUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
-          if (!probe.ok) {
-            lastError = `${server}: HTTP ${probe.status}`
-            window.api.log(`[LiveTV] ${ch.name} URL check failed: ${server} HTTP ${probe.status}`)
-            continue
-          }
-        } catch { /* HEAD failed — try playing anyway, the player may handle retries */ }
-
+        // ponytail: NO HEAD check — CDN tokens in HLS URLs are often
+        // one-time-use. A HEAD request would consume the token and
+        // cause a 502 on the actual playback request.
         await onPlayUrl(result.hlsUrl)
         setPlaying(null)
         return // success
