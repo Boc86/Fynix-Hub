@@ -60,6 +60,8 @@ export default function App() {
   const [streamError, setStreamError] = useState<string | null>(null)
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | undefined>()
   const [playerLoading, setPlayerLoading] = useState(false)
+  const [audioTracksInfo, setAudioTracksInfo] = useState<any[]>([])
+  const [isRemux, setIsRemux] = useState(false)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updatePercent, setUpdatePercent] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
@@ -1030,6 +1032,8 @@ export default function App() {
     const result = await window.api.player.start(url, resumePosition, referer, forceRemux)
     const hlsUrl = result?.streamUrl ?? url
     setStreamUrl(hlsUrl)
+    setAudioTracksInfo(result?.audioTracks ?? [])
+    setIsRemux(result?.isRemux ?? false)
     return result
   }, [])
 
@@ -1593,6 +1597,8 @@ export default function App() {
           onNextEpisode={handleNextEpisode}
           title={playerInfo?.title}
           clearlogoUrl={playerInfo?.clearlogoUrl}
+          audioTracks={audioTracksInfo}
+          isRemux={isRemux}
         />
       )}
       {view === 'settings' && (

@@ -186,6 +186,7 @@ const api = {
       ipcRenderer.on('player:ffmpeg-error', handler)
       return () => { ipcRenderer.removeListener('player:ffmpeg-error', handler) }
     },
+    setAudioTrack: (audioIndex: number) => ipcRenderer.invoke('player:set-audio-track', audioIndex),
   },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),

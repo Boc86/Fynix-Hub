@@ -606,6 +606,11 @@ export async function registerIpcHandlers(): Promise<void> {
     return PlayerService.getChapters()
   })
 
+  handle('player:set-audio-track', async (_event, audioIndex: number) => {
+    const newUrl = await PlayerService.switchAudioTrack(audioIndex)
+    return { streamUrl: newUrl }
+  })
+
   // ── Local Cache ─────────────────────────────────────────────────────────
 
   handle('local-cache:get-url', async (_event, infoHash) => {

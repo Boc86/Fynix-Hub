@@ -12,7 +12,7 @@
  */
 
 import * as FfmpegRemux from './ffmpeg-remux.service'
-import type { Chapter } from './ffmpeg-remux.service'
+import type { Chapter, AudioTrackInfo } from './ffmpeg-remux.service'
 import * as LocalCache from './local-cache.service'
 import * as OkruResolver from './okru-resolver'
 import * as DailymotionResolver from './dailymotion-resolver'
@@ -26,6 +26,10 @@ export interface StartPlaybackResult {
   duration: number | null
   /** Chapter metadata, if available from ffprobe. */
   chapters: Chapter[]
+  /** Available audio tracks in the source file. */
+  audioTracks: AudioTrackInfo[]
+  /** Whether this stream is an FFmpeg remux (vs direct/proxied). */
+  isRemux: boolean
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -72,6 +76,7 @@ export async function startPlayback(
   resumePosition?: number,
   referer?: string,
   forceRemux?: boolean,
+  audioTrackIndex?: number,
 ): Promise<StartPlaybackResult> {
   await stopPlayback()
 
@@ -111,7 +116,7 @@ export async function startPlayback(
       debug('CDN stream needs proxy for auth headers:', resolvedUrl.slice(0, 80))
       const { proxyId, proxyUrl } = LocalCache.createProxySession(resolvedUrl)
       currentProxyId = proxyId
-      return { streamUrl: proxyUrl, duration: null, chapters: [] }
+      return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
     }
 
     if (isLocal) {
@@ -119,7 +124,7 @@ export async function startPlayback(
     } else {
       debug('URL is browser-playable, passing directly:', resolvedUrl.slice(0, 80))
     }
-    return { streamUrl: resolvedUrl, duration: null, chapters: [] }
+    return { streamUrl: resolvedUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
   }
 
   // ── FFmpeg remux (non-browser-playable formats) ──────────
@@ -146,7 +151,7 @@ export async function startPlayback(
   debug('Starting FFmpeg remux for:', resolvedUrl.slice(0, 80))
   let result: { sessionId: string; streamUrl: string }
   try {
-    result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders)
+    result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders, audioTrackIndex)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to start FFmpeg remux session'
     throw new Error(`FFmpeg remux failed: ${msg}`)
@@ -173,10 +178,11 @@ export async function startPlayback(
 
   const duration = FfmpegRemux.probeDuration(resolvedUrl)
   const chapters = FfmpegRemux.probeChapters(resolvedUrl)
+  const audioTracks = FfmpegRemux.probeAudioTracks(resolvedUrl)
   currentChapters = chapters
 
   debug('Remux session started:', result.sessionId, 'duration:', duration)
-  return { streamUrl: result.streamUrl, duration, chapters }
+  return { streamUrl: result.streamUrl, duration, chapters, audioTracks, isRemux: true }
 }
 
 /**
@@ -194,6 +200,21 @@ export async function stopPlayback(): Promise<void> {
     currentSessionId = null
   }
   currentChapters = []
+}
+
+/**
+ * Switch the active audio track for the current FFmpeg session.
+ * Stops the current session, restarts with the selected audio index.
+ * Returns the new stream URL, or null if no session is active.
+ */
+export async function switchAudioTrack(audioIndex: number): Promise<string | null> {
+  if (!currentSessionId) return null
+  const info = FfmpegRemux.getSessionInfo(currentSessionId)
+  if (!info) return null
+  const inputUrl = info.inputUrl
+  await stopPlayback()
+  const result = await startPlayback(inputUrl, 0, undefined, false, audioIndex)
+  return result.streamUrl
 }
 
 /**

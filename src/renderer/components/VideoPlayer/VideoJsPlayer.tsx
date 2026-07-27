@@ -53,6 +53,9 @@ interface VideoJsPlayerProps {
   onPause?: () => void
     onCanPlay?: () => void
     onError?: (error: MediaError) => void
+    audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
+    isRemux?: boolean
+    onAudioTrackSelect?: (trackIndex: number) => void
   }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -226,6 +229,9 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       onPause,
       onCanPlay,
       onError,
+      audioTracks: probedAudioTracks,
+      isRemux = false,
+      onAudioTrackSelect,
     },
     forwardedRef
   ) {
@@ -297,7 +303,8 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     const [buffered, setBuffered] = useState(0)
 
     // Track state
-    const [audioTracks, setAudioTracks] = useState<{ index: number; label: string; language: string; enabled: boolean }[]>([])
+    const [videoElementTracks, setVideoElementTracks] = useState<{ index: number; label: string; language: string; enabled: boolean }[]>([])
+    const [displayAudioTracks, setDisplayAudioTracks] = useState<{ index: number; label: string; language: string; enabled: boolean }[]>([])
     const [activeAudioTrack, setActiveAudioTrack] = useState(0)
     const [subtitleTracks, setSubtitleTracks] = useState<{ index: number; label: string; language: string; mode: string }[]>([])
     const [activeSubtitleTrack, setActiveSubtitleTrack] = useState(-1)
@@ -521,7 +528,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     const refreshTracks = useCallback(() => {
       const v = videoRef.current
       if (!v) return
-      setAudioTracks(getAudioTracks(v))
+      setVideoElementTracks(getAudioTracks(v))
       setSubtitleTracks(getSubtitleTracks(v))
       const at = getAudioTracks(v)
       const activeA = at.findIndex(t => t.enabled)
@@ -543,16 +550,48 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       }
     }, [src, refreshTracks])
 
+    // Use probed audio tracks for remuxed content, video element tracks for direct playback
+    useEffect(() => {
+      if (isRemux && probedAudioTracks && probedAudioTracks.length > 0) {
+        setDisplayAudioTracks(probedAudioTracks.map(t => ({
+          index: t.index,
+          label: t.title || t.language || `Track ${t.index + 1}`,
+          language: t.language,
+          enabled: t.isDefault,
+        })))
+        const defaultIdx = probedAudioTracks.findIndex(t => t.isDefault)
+        if (defaultIdx >= 0) setActiveAudioTrack(defaultIdx)
+      } else {
+        // For direct playback, use video element's audio tracks
+        const v = videoRef.current
+        if (v) {
+          const tracks = getAudioTracks(v)
+          setDisplayAudioTracks(tracks)
+          const activeA = tracks.findIndex(t => t.enabled)
+          if (activeA >= 0) setActiveAudioTrack(activeA)
+        }
+      }
+    }, [isRemux, probedAudioTracks, src])
+
     // ── Audio track cycling ────────────────────────────────────────────
     const cycleAudioTrack = useCallback(() => {
       const v = videoRef.current
       if (!v) return
-      const tracks = getAudioTracks(v)
+      const tracks = displayAudioTracks
       if (tracks.length <= 1) {
         showOsdMessage('No other audio tracks')
         return
       }
       const nextIdx = (activeAudioTrack + 1) % tracks.length
+
+      if (isRemux && onAudioTrackSelect) {
+        onAudioTrackSelect(tracks[nextIdx].index)
+        showOsdMessage(`Switching to: ${tracks[nextIdx].label}`)
+        setActiveAudioTrack(nextIdx)
+        return
+      }
+
+      // HTML5 audio track switching (direct playback)
       const at = (v as any).audioTracks as any
       if (at) {
         for (let i = 0; i < at.length; i++) {
@@ -562,9 +601,20 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       setActiveAudioTrack(nextIdx)
       refreshTracks()
       showOsdMessage(`Audio: ${tracks[nextIdx].label}`)
-    }, [activeAudioTrack, refreshTracks, showOsdMessage])
+    }, [displayAudioTracks, activeAudioTrack, isRemux, onAudioTrackSelect, refreshTracks, showOsdMessage])
 
     const selectAudioTrack = useCallback((idx: number) => {
+      const tracks = displayAudioTracks
+      const matchTrack = tracks.find(t => t.index === idx)
+
+      if (isRemux && onAudioTrackSelect) {
+        onAudioTrackSelect(idx)
+        setActiveAudioTrack(tracks.findIndex(t => t.index === idx))
+        showOsdMessage(`Audio: ${matchTrack?.label || `Track ${idx + 1}`}`)
+        setAudioMenuOpen(false)
+        return
+      }
+
       const v = videoRef.current
       if (!v) return
       const at = (v as any).audioTracks as any
@@ -573,12 +623,11 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
           at[i].enabled = i === idx
         }
       }
-      setActiveAudioTrack(idx)
+      setActiveAudioTrack(tracks.findIndex(t => t.index === idx))
       refreshTracks()
-      const tracks = getAudioTracks(v)
-      showOsdMessage(`Audio: ${tracks[idx]?.label || `Track ${idx + 1}`}`)
+      showOsdMessage(`Audio: ${matchTrack?.label || `Track ${idx + 1}`}`)
       setAudioMenuOpen(false)
-    }, [refreshTracks, showOsdMessage])
+    }, [displayAudioTracks, isRemux, onAudioTrackSelect, refreshTracks, showOsdMessage])
 
     // ── Subtitle cycling ──────────────────────────────────────────────
     const cycleSubtitle = useCallback(() => {
@@ -710,12 +759,12 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         case 0: return `Rewind (${playbackSpeed === 1 ? '1x' : `${playbackSpeed}x`})`
         case 1: return isPaused ? 'Play' : 'Pause'
         case 2: return `Forward (${playbackSpeed === 1 ? '1x' : `${playbackSpeed}x`})`
-        case 3: return audioTracks.length > 1 ? `Audio: ${audioTracks[activeAudioTrack]?.label || ''}` : 'Audio'
+        case 3: return displayAudioTracks.length > 1 ? `Audio: ${displayAudioTracks[activeAudioTrack]?.label || ''}` : 'Audio'
         case 4: return activeSubtitleTrack >= 0 ? `Subs: ${subtitleTracks.find(t => t.index === activeSubtitleTrack)?.label || 'On'}` : 'Subtitles'
         case 5: return `Aspect: ${aspectRatio}`
         default: return ''
       }
-    }, [isPaused, playbackSpeed, audioTracks, activeAudioTrack, subtitleTracks, activeSubtitleTrack, aspectRatio])
+    }, [isPaused, playbackSpeed, displayAudioTracks, activeAudioTrack, subtitleTracks, activeSubtitleTrack, aspectRatio])
 
     // ── Keyboard handler (window-level for robustness) ────────────────
     useEffect(() => {
@@ -1155,7 +1204,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
                   {audioMenuOpen && (
                     <div className={styles.trackDropdown}>
                       <div className={styles.trackDropdownHeader}>Audio Track</div>
-                      {audioTracks.map((t) => (
+                      {displayAudioTracks.map((t) => (
                         <button
                           key={t.index}
                           className={`${styles.trackItem} ${t.enabled ? styles.trackItemActive : ''}`}

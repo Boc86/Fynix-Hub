@@ -104,7 +104,7 @@ function getContentType(filename: string): string {
 
 // ─── Session Management ──────────────────────────────────────────────────────
 
-function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false): string[] {
+function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false, audioTrackIndex?: number): string[] {
   const args = [
     '-hide_banner',
     '-loglevel', 'info',
@@ -125,9 +125,9 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
 
   args.push(
     '-i', inputUrl,
-    // Only map first video + first audio — skip subtitles and other streams
+    // Only map first video + selected audio — skip subtitles and other streams
     // that would generate extra HLS playlists the local cache server doesn't serve.
-    '-map', '0:v:0', '-map', '0:a:0',
+    '-map', '0:v:0', '-map', `0:a:${audioTrackIndex ?? 0}`,
   )
 
   if (transcodeVideo) {
@@ -197,6 +197,7 @@ function probeIsHevc(inputUrl: string): boolean {
    inputUrl: string,
    resumePosition = 0,
    headers: string[] = [],
+   audioTrackIndex?: number,
  ): { sessionId: string; streamUrl: string } {
    const id = generateId()
    const outputDir = getSessionDir(id)
@@ -210,7 +211,7 @@ function probeIsHevc(inputUrl: string): boolean {
    }
    // ponytail: Chromium (Electron 42) with VAAPI decodes HEVC natively.
    // No transcode needed — just remux (copy) the video stream.
-   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false))
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false, audioTrackIndex))
 
    debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 
@@ -484,6 +485,16 @@ export interface Chapter {
   endTime: number
 }
 
+/** Audio track metadata extracted from ffprobe. */
+export interface AudioTrackInfo {
+  index: number
+  language: string
+  title: string
+  codec: string
+  channels: number
+  isDefault: boolean
+}
+
 /** Probe a URL for duration using ffprobe. Returns seconds or null. */
 export function probeDuration(inputUrl: string): number | null {
   try {
@@ -515,4 +526,33 @@ export function probeChapters(inputUrl: string): Chapter[] {
   } catch {
     return []
   }
+}
+
+/** Probe a URL for audio track metadata. Returns track list. */
+export function probeAudioTracks(inputUrl: string): AudioTrackInfo[] {
+  try {
+    const result = require('child_process').execSync(
+      `ffprobe -v error -select_streams a -show_entries stream=index,codec_name:stream_tags=language,title -of json "${inputUrl}"`,
+      { timeout: 20000, stdio: ['pipe', 'pipe', 'ignore'] },
+    )
+    const data = JSON.parse(result.toString())
+    if (!data.streams || !Array.isArray(data.streams)) return []
+    return data.streams.map((s: any, i: number) => ({
+      index: s.index ?? i,
+      language: s.tags?.language || '',
+      title: s.tags?.title || '',
+      codec: s.codec_name || '',
+      channels: s.channels ?? 0,
+      isDefault: i === 0,
+    }))
+  } catch {
+    return []
+  }
+}
+
+/** Get info about an active session (for audio track switching). */
+export function getSessionInfo(sessionId: string): { inputUrl: string; resumePosition: number } | null {
+  const session = sessions.get(sessionId)
+  if (!session) return null
+  return { inputUrl: session.inputUrl, resumePosition: 0 }
 }

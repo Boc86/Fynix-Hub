@@ -41,6 +41,8 @@ interface VideoPlayerProps {
   nextEpisodeTitle?: string
   title?: string
   clearlogoUrl?: string | null
+  audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
+  isRemux?: boolean
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,6 +90,8 @@ function VideoPlayerInner({
   nextEpisodeTitle,
   title,
   clearlogoUrl,
+  audioTracks,
+  isRemux,
 }, ref) {
   const videoJsRef = useRef<VideoJsPlayerHandle>(null)
   const scrobbleThrottle = useRef(0)
@@ -445,6 +449,18 @@ function VideoPlayerInner({
     }
   }, [isReconnectableStream, onRetryStream])
 
+  const handleAudioTrackSelect = useCallback(async (trackIndex: number) => {
+    try {
+      const result = await (window.api.player as any).setAudioTrack(trackIndex)
+      if (result?.streamUrl) {
+        // The new stream URL will be picked up by streamUrl state in App.tsx
+        // which triggers the video element to reload
+      }
+    } catch (err: any) {
+      setDisplayError(err?.message || 'Failed to switch audio track')
+    }
+  }, [])
+
   // Reset state when streamUrl changes.
   useEffect(() => {
     exitedRef.current = false
@@ -469,6 +485,15 @@ function VideoPlayerInner({
     })
     return unsubscribe
   }, [streamUrl])
+
+  // Loading timeout — surface error if stream doesn't start within 30s
+  useEffect(() => {
+    if (!playerLoading || !streamUrl) return
+    const timeout = setTimeout(() => {
+      setDisplayError(prev => prev ?? 'Stream took too long to start — the source may be unavailable or too slow.')
+    }, 30_000)
+    return () => clearTimeout(timeout)
+  }, [playerLoading, streamUrl])
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -531,6 +556,9 @@ function VideoPlayerInner({
           clearlogoUrl={clearlogoUrl}
           onBack={onBack}
           mediaInfo={mediaInfo}
+          audioTracks={audioTracks}
+          isRemux={isRemux}
+          onAudioTrackSelect={handleAudioTrackSelect}
         />
       )}
 
