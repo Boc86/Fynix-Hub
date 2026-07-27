@@ -424,17 +424,21 @@ function VideoPlayerInner({
     finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
   }, [mediaInfo, hasNextEpisode, finishPlayback])
 
-  const handleError = useCallback((error?: MediaError) => {
+  const handleError = useCallback((error?: MediaError | Error) => {
     if (exitedRef.current) return
 
     let errorMsg = 'Playback error'
     if (error) {
-      switch (error.code) {
-        case 1: errorMsg = 'Playback was aborted'; break
-        case 2: errorMsg = 'A network error occurred while loading the stream'; break
-        case 3: errorMsg = 'The video could not be decoded — the format may be unsupported'; break
-        case 4: errorMsg = 'The video source is not supported or unavailable'; break
-        default: errorMsg = error.message || 'Unknown playback error'
+      if ('code' in error && error.code) {
+        switch (error.code) {
+          case 1: errorMsg = 'Playback was aborted'; break
+          case 2: errorMsg = 'A network error occurred while loading the stream'; break
+          case 3: errorMsg = 'The video could not be decoded — the format may be unsupported'; break
+          case 4: errorMsg = 'The video source is not supported or unavailable'; break
+          default: errorMsg = error.message || 'Unknown playback error'
+        }
+      } else {
+        errorMsg = error.message || 'Unknown playback error'
       }
     }
 
@@ -486,12 +490,12 @@ function VideoPlayerInner({
     return unsubscribe
   }, [streamUrl])
 
-  // Loading timeout — surface error if stream doesn't start within 30s
+  // Loading timeout — surface error if stream doesn't start within 10s
   useEffect(() => {
     if (!playerLoading || !streamUrl) return
     const timeout = setTimeout(() => {
       setDisplayError(prev => prev ?? 'Stream took too long to start — the source may be unavailable or too slow.')
-    }, 30_000)
+    }, 10_000)
     return () => clearTimeout(timeout)
   }, [playerLoading, streamUrl])
 

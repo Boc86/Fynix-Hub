@@ -52,7 +52,7 @@ interface VideoJsPlayerProps {
   onPlay?: () => void
   onPause?: () => void
     onCanPlay?: () => void
-    onError?: (error: MediaError) => void
+    onError?: (error: MediaError | Error) => void
     audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
     isRemux?: boolean
     onAudioTrackSelect?: (trackIndex: number) => void
@@ -272,18 +272,43 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
           error: err ? { MEDIA_ERR_ABORTED: 1, MEDIA_ERR_NETWORK: 2, MEDIA_ERR_DECODE: 3, MEDIA_ERR_SRC_NOT_SUPPORTED: 4 }[err.code] : null,
         })
       }
+      // Detect stalled stream (HLS.js retries silently on 502/503 etc.)
+      let hasPlayed = false
+      let stalledTimer: ReturnType<typeof setTimeout> | null = null
+      const onPlaying = () => { hasPlayed = true }
+      const onStalled = () => {
+        if (hasPlayed) return // stall after playback started is normal (buffering)
+        // Stream hasn't started playing yet and is stalling — check every 5s
+        if (stalledTimer) return
+        stalledTimer = setTimeout(() => {
+          stalledTimer = null
+          if (hasPlayed || v.readyState >= 3) return // already playing or enough data
+          console.warn('[VideoJsPlayer] stream stalled without playing — likely dead')
+          onError?.(new Error('Stream is not responding') as any)
+        }, 5000)
+      }
+      const onCanPlay = () => {
+        if (stalledTimer) { clearTimeout(stalledTimer); stalledTimer = null }
+      }
       v.addEventListener('play', logEvent('play'))
+      v.addEventListener('playing', onPlaying)
       v.addEventListener('playing', logEvent('playing'))
       v.addEventListener('waiting', logEvent('waiting'))
+      v.addEventListener('canplay', onCanPlay)
       v.addEventListener('canplay', logEvent('canplay'))
       v.addEventListener('loadeddata', logEvent('loadeddata'))
+      v.addEventListener('stalled', onStalled)
       v.addEventListener('error', logError)
       return () => {
+        if (stalledTimer) clearTimeout(stalledTimer)
         v.removeEventListener('play', logEvent('play'))
+        v.removeEventListener('playing', onPlaying)
         v.removeEventListener('playing', logEvent('playing'))
         v.removeEventListener('waiting', logEvent('waiting'))
+        v.removeEventListener('canplay', onCanPlay)
         v.removeEventListener('canplay', logEvent('canplay'))
         v.removeEventListener('loadeddata', logEvent('loadeddata'))
+        v.removeEventListener('stalled', onStalled)
         v.removeEventListener('error', logError)
       }
     }, [])
