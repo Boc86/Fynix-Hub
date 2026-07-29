@@ -398,12 +398,6 @@ function VideoPlayerInner({
       // Up-next is handled by the React overlay — just trigger it once.
       // The state is managed by the parent (App.tsx) via hasNextEpisode.
     }
-
-    // ── End-of-playback detection ─────────────────────────────────────
-    if (mediaInfo && !exitedRef.current && d > 0 && time > 0 && d - time <= 2.5) {
-      exitedRef.current = true
-      finishPlayback(!!(mediaInfo.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
-    }
   }, [mediaInfo, hasNextEpisode, segments, saveProgress, scrobble, finishPlayback])
 
   const handlePlay = useCallback(() => {

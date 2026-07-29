@@ -301,22 +301,7 @@ export default function App() {
     }
   }, [playerInfo?.resumePosition])
 
-  // Clean up torrent/usenet when leaving player view
-  useEffect(() => {
-    if (view !== 'player') {
-      window.api.player.stop().catch(() => {})
-      const isCompleted = videoPlayerRef.current?.wasPlaybackCompleted() ?? false
-      if (currentInfoHashRef.current && isCompleted) {
-        window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
-      }
-      if (currentUsenetIdRef.current && isCompleted) {
-        window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
-      }
-      currentInfoHashRef.current = null
-      currentUsenetIdRef.current = null
-      currentUsenetPathRef.current = null
-    }
-  }, [view])
+
 
   // Centralized focus management: save activeElement when a modal opens,
   // restore it when all modals close.  Saving is done here only as a
