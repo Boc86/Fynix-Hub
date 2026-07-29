@@ -203,6 +203,8 @@ export async function stopPlayback(): Promise<void> {
     FfmpegRemux.killSession(currentSessionId)
     currentSessionId = null
   }
+  // Clear all remux temp files on playback stop
+  FfmpegRemux.clearAllSessions()
   currentChapters = []
 }
 
