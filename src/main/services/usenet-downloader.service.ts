@@ -123,7 +123,7 @@ async function fetchNzbContent(url: string): Promise<{ content: string; size: nu
 export async function getDownloadStatus(id: string): Promise<{
   id: string; name: string; status: string; progress: number;
   size: number; downloaded: number; speed: number; eta: string;
-  nzbUrl?: string; error?: string
+  nzbUrl?: string; error?: string; nzbId: number
 } | null> {
   const active = activeDownloads.get(id)
   if (!active) return null
@@ -142,7 +142,7 @@ export async function getDownloadStatus(id: string): Promise<{
           id, name: active.title, status,
           progress: 100, size: histMatch.FileSizeMB * 1048576,
           downloaded: histMatch.FileSizeMB * 1048576,
-          speed: 0, eta: '', nzbUrl: active.nzbUrl,
+          speed: 0, eta: '', nzbUrl: active.nzbUrl, nzbId: active.nzbId,
           error: status === 'failed' ? 'Download failed in nzbget' : undefined,
         }
       }
@@ -174,10 +174,10 @@ export async function getDownloadStatus(id: string): Promise<{
       active.completedDir = match.DestDir || match.FinalDir
     }
 
-    return { id, name: active.title, status, progress, size, downloaded, speed, eta: etaStr, nzbUrl: active.nzbUrl }
+    return { id, name: active.title, status, progress, size, downloaded, speed, eta: etaStr, nzbUrl: active.nzbUrl, nzbId: active.nzbId }
   } catch (err: any) {
     console.error(`[UDB] getDownloadStatus: ${err?.message}`)
-    return { id, name: active.title, status: 'downloading', progress: 0, size: 0, downloaded: 0, speed: 0, eta: '', nzbUrl: active.nzbUrl }
+    return { id, name: active.title, status: 'downloading', progress: 0, size: 0, downloaded: 0, speed: 0, eta: '', nzbUrl: active.nzbUrl, nzbId: active.nzbId }
   }
 }
 
@@ -186,7 +186,20 @@ export async function getStreamUrl(id: string): Promise<string | null> {
   // The active entry can be cleared by the status-poller by the time a
   // completed download is replayed. Fall back to resolving the directory from
   // nzbget history by NZBID so completed downloads still resolve.
-  const nzbId = active?.nzbId ?? Number(id)
+  let nzbId = active?.nzbId
+
+  if (!nzbId) {
+    // Try to get the nzbId from the status (which may still have it in its own map)
+    const status = await getDownloadStatus(id)
+    if (status && status.nzbId !== undefined) {
+      nzbId = status.nzbId
+    }
+  }
+
+  if (!nzbId) {
+    // We don't have the nzbid, so we cannot proceed with the normal method.
+    return null
+  }
 
   try {
     // Cached completed dir from getDownloadStatus

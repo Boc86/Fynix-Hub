@@ -27,6 +27,7 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
   const isVkUser = /vkuser\.net/i.test(url)
   const isVk = /vk\.com|vkvideo/i.test(url)
   const isDailymotion = /dailymotion\.com/i.test(url)
+  const isCdnLive = /cdnlivetv\.tv/i.test(url)
 
   if (isOkCdn || isVkUser || isVk) {
     return {
@@ -41,6 +42,13 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
       ...baseHeaders,
       'Referer': 'https://www.dailymotion.com/',
       'Origin': 'https://www.dailymotion.com',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    }
+  }
+  if (isCdnLive) {
+    return {
+      ...baseHeaders,
+      'Referer': 'https://cdnlivetv.is/',
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     }
   }
@@ -365,7 +373,7 @@ async function serveRemotePlaylist(
 
     if (status !== 200) {
       debug('Remote playlist HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status)
+      res.writeHead(status, { 'Access-Control-Allow-Origin': '*' })
       res.end('Remote playlist fetch failed')
       return
     }
@@ -395,7 +403,7 @@ async function serveRemoteFile(
 
     if (status !== 200) {
       debug('Remote file HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status)
+      res.writeHead(status, { 'Access-Control-Allow-Origin': '*' })
       res.end('Remote file fetch failed')
       return
     }

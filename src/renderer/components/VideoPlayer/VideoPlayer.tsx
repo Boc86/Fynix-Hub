@@ -41,6 +41,8 @@ interface VideoPlayerProps {
   nextEpisodeTitle?: string
   title?: string
   clearlogoUrl?: string | null
+  audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
+  isRemux?: boolean
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,6 +90,8 @@ function VideoPlayerInner({
   nextEpisodeTitle,
   title,
   clearlogoUrl,
+  audioTracks,
+  isRemux,
 }, ref) {
   const videoJsRef = useRef<VideoJsPlayerHandle>(null)
   const scrobbleThrottle = useRef(0)
@@ -102,6 +106,7 @@ function VideoPlayerInner({
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
   const retryCountRef = useRef(0)
+  const [displayError, setDisplayError] = useState<string | null>(null)
 
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
@@ -419,8 +424,24 @@ function VideoPlayerInner({
     finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
   }, [mediaInfo, hasNextEpisode, finishPlayback])
 
-  const handleError = useCallback(() => {
+  const handleError = useCallback((error?: MediaError | Error) => {
     if (exitedRef.current) return
+
+    let errorMsg = 'Playback error'
+    if (error) {
+      if ('code' in error && error.code) {
+        switch (error.code) {
+          case 1: errorMsg = 'Playback was aborted'; break
+          case 2: errorMsg = 'A network error occurred while loading the stream'; break
+          case 3: errorMsg = 'The video could not be decoded — the format may be unsupported'; break
+          case 4: errorMsg = 'The video source is not supported or unavailable'; break
+          default: errorMsg = error.message || 'Unknown playback error'
+        }
+      } else {
+        errorMsg = error.message || 'Unknown playback error'
+      }
+    }
+
     if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
       retryCountRef.current++
       window.api.log(`[VP] stream error, auto-reconnect attempt ${retryCountRef.current}`)
@@ -428,9 +449,21 @@ function VideoPlayerInner({
       onRetryStream()
     } else {
       exitedRef.current = true
-      finishPlayback(false)
+      setDisplayError(errorMsg)
     }
-  }, [isReconnectableStream, onRetryStream, finishPlayback])
+  }, [isReconnectableStream, onRetryStream])
+
+  const handleAudioTrackSelect = useCallback(async (trackIndex: number) => {
+    try {
+      const result = await (window.api.player as any).setAudioTrack(trackIndex)
+      if (result?.streamUrl) {
+        // The new stream URL will be picked up by streamUrl state in App.tsx
+        // which triggers the video element to reload
+      }
+    } catch (err: any) {
+      setDisplayError(err?.message || 'Failed to switch audio track')
+    }
+  }, [])
 
   // Reset state when streamUrl changes.
   useEffect(() => {
@@ -442,7 +475,29 @@ function VideoPlayerInner({
     retryCountRef.current = 0
     currentTimeRef.current = 0
     durationRef.current = 0
+    setDisplayError(null)
   }, [streamUrl])
+
+  // Listen for FFmpeg process errors (unexpected exit during playback)
+  useEffect(() => {
+    if (!streamUrl) return
+    const unsubscribe = (window.api.player as any).onFfmpegError?.((errorMsg: string) => {
+      if (exitedRef.current) return
+      window.api.log(`[VP] FFmpeg error received: ${errorMsg}`)
+      exitedRef.current = true
+      setDisplayError(errorMsg)
+    })
+    return unsubscribe
+  }, [streamUrl])
+
+  // Loading timeout — surface error if stream doesn't start within 10s
+  useEffect(() => {
+    if (!playerLoading || !streamUrl) return
+    const timeout = setTimeout(() => {
+      setDisplayError(prev => prev ?? 'Stream took too long to start — the source may be unavailable or too slow.')
+    }, 10_000)
+    return () => clearTimeout(timeout)
+  }, [playerLoading, streamUrl])
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -470,6 +525,21 @@ function VideoPlayerInner({
     )
   }
 
+  if (displayError) {
+    return (
+      <div className={styles.player}>
+        <ErrorModal
+          message={displayError}
+          onBack={onBack}
+          onRetry={() => {
+            setDisplayError(null)
+            onRetryStream?.()
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className={styles.player} tabIndex={-1}>
       {/* Video.js player — fills the container, provides all controls */}
@@ -490,6 +560,9 @@ function VideoPlayerInner({
           clearlogoUrl={clearlogoUrl}
           onBack={onBack}
           mediaInfo={mediaInfo}
+          audioTracks={audioTracks}
+          isRemux={isRemux}
+          onAudioTrackSelect={handleAudioTrackSelect}
         />
       )}
 
@@ -497,12 +570,22 @@ function VideoPlayerInner({
       {activeSkip && (
         <div className={styles.skipOverlay}>
           <button
+            tabIndex={0}
             className={styles.skipBtn}
             onClick={() => {
               if (activeSkip.endMs !== null) {
                 videoJsRef.current?.seek(activeSkip.endMs / 1000)
               }
               setActiveSkip(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                if (activeSkip.endMs !== null) {
+                  videoJsRef.current?.seek(activeSkip.endMs / 1000)
+                }
+                setActiveSkip(null)
+              }
             }}
           >
             {activeSkip.type === 'recap' ? 'Skip Recap' : 'Skip Intro'}
@@ -514,10 +597,18 @@ function VideoPlayerInner({
       {mediaInfo?.mediaType === 'tv' && hasNextEpisode && durationRef.current > 0 && currentTimeRef.current > 0 && durationRef.current - currentTimeRef.current <= 30 && currentTimeRef.current >= 60 && (
         <div className={styles.skipOverlay}>
           <button
+            tabIndex={0}
             className={styles.skipBtn}
             onClick={() => {
               exitedRef.current = true
               onNextEpisode()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                exitedRef.current = true
+                onNextEpisode()
+              }
             }}
           >
             Up Next: {nextEpisodeTitle || 'Next Episode'}

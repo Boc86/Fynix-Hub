@@ -79,6 +79,26 @@ describe('ErrorModal', () => {
       render(<ErrorModal message="request timed out" />)
       expect(screen.getByText(/Connection timed out/)).toBeInTheDocument()
     })
+    it('maps ffmpeg not found to installation message', () => {
+      render(<ErrorModal message="FFmpeg not found or failed to start" />)
+      expect(screen.getByText(/FFmpeg is not installed/)).toBeInTheDocument()
+    })
+    it('maps ffmpeg crash to failure message', () => {
+      render(<ErrorModal message="FFmpeg exited with code 1" />)
+      expect(screen.getByText(/FFmpeg process failed/)).toBeInTheDocument()
+    })
+    it('maps codec error to unsupported message', () => {
+      render(<ErrorModal message="Video codec not supported" />)
+      expect(screen.getByText(/Video codec is not supported/)).toBeInTheDocument()
+    })
+    it('maps network error to unreachable message', () => {
+      render(<ErrorModal message="Connection refused" />)
+      expect(screen.getByText(/Network error/)).toBeInTheDocument()
+    })
+    it('maps corrupt data to corrupted message', () => {
+      render(<ErrorModal message="Invalid data found" />)
+      expect(screen.getByText(/corrupted or invalid/)).toBeInTheDocument()
+    })
   })
 
   describe('buttons', () => {

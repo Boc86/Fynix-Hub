@@ -45,6 +45,8 @@ const api = {
       ipcRenderer.invoke('tmdb:get-trending', type, timeWindow),
     getPopular: (type: string, page: number) =>
       ipcRenderer.invoke('tmdb:get-popular', type, page),
+    getTopRated: (type: string, page: number) =>
+      ipcRenderer.invoke('tmdb:get-top-rated', type, page),
     getDetails: (type: string, id: number) =>
       ipcRenderer.invoke('tmdb:get-details', type, id),
     search: (query: string, type: string) =>
@@ -146,8 +148,6 @@ const api = {
       ipcRenderer.invoke('debrid:alldebrid-get-device-pin'),
     alldebridPollForToken: (pin: string, deviceId?: string) =>
       ipcRenderer.invoke('debrid:alldebrid-poll-token', pin, deviceId),
-    getTorboxSettingsUrl: () =>
-      ipcRenderer.invoke('debrid:torbox-settings-url'),
     realDebridGetDeviceCode: () =>
       ipcRenderer.invoke('debrid:real-debrid-device-code'),
     realDebridPollForCredentials: (deviceCode: string) =>
@@ -178,6 +178,13 @@ const api = {
     addSubtitle: (filePath: string) => ipcRenderer.invoke('player:add-subtitle', filePath),
     verifyUrl: (url: string) => ipcRenderer.invoke('player:verify-url', url),
     getChapters: () => ipcRenderer.invoke('player:get-chapters'),
+    getSessionError: () => ipcRenderer.invoke('player:get-session-error'),
+    onFfmpegError: (callback: (error: string) => void) => {
+      const handler = (_event: any, error: string) => callback(error)
+      ipcRenderer.on('player:ffmpeg-error', handler)
+      return () => { ipcRenderer.removeListener('player:ffmpeg-error', handler) }
+    },
+    setAudioTrack: (audioIndex: number) => ipcRenderer.invoke('player:set-audio-track', audioIndex),
   },
   localCache: {
     getUrl: (infoHash: string) => ipcRenderer.invoke('local-cache:get-url', infoHash),
@@ -199,11 +206,11 @@ const api = {
   streamedpk: {
     getMatchesForSports: (sports: string[]) => ipcRenderer.invoke('streamedpk:get-matches-for-sports', sports),
   },
-
   damiTv: {
-    getChannels: () => ipcRenderer.invoke('dami-tv:get-channels'),
+    getChannels: (server?: string) => ipcRenderer.invoke('dami-tv:get-channels', server),
     getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
-    extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }) => ipcRenderer.invoke('dami-tv:extract-url', ch),
+    extractUrl: (ch: { id: string; name: string; countryCode: string; playerUrl?: string }, server?: string) =>
+      ipcRenderer.invoke('dami-tv:extract-url', ch, server),
   },
   epg: {
     getChannels: (liveTvChannels?: any[]) => ipcRenderer.invoke('epg:get-channels', liveTvChannels),
@@ -231,6 +238,16 @@ const api = {
       ipcRenderer.on('usenet:result', handler)
       return () => { ipcRenderer.removeListener('usenet:result', handler) }
     },
+  },
+  iptvM3u: {
+    getAllSources: (forceRefresh?: boolean) => ipcRenderer.invoke('iptv-m3u:get-all-sources', forceRefresh),
+    findChannel: (query: string) => ipcRenderer.invoke('iptv-m3u:find-channel', query)
+  },
+  onDemand: {
+    extractStream: (embedUrl: string) => ipcRenderer.invoke('ondemand:extract-stream', embedUrl)
+  },
+  dlhd: {
+    getEmbedUrl: (url: string) => ipcRenderer.invoke('dlhd:get-embed-url', url),
   },
 }
 

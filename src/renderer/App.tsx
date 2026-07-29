@@ -10,7 +10,7 @@ import Sidebar from './components/Sidebar/Sidebar'
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import Sports from './components/Sports/Sports'
-import LiveTV from './components/LiveTV/LiveTV'
+import LiveTV, { type LiveTVAPI } from './components/LiveTV/LiveTV'
 import EPG from './components/EPG/EPG'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
@@ -60,6 +60,9 @@ export default function App() {
   const [streamError, setStreamError] = useState<string | null>(null)
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | undefined>()
   const [playerLoading, setPlayerLoading] = useState(false)
+  const [audioTracksInfo, setAudioTracksInfo] = useState<any[]>([])
+  const [isRemux, setIsRemux] = useState(false)
+  const [dlhdEmbedUrl, setDlhdEmbedUrl] = useState<string | null>(null)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updatePercent, setUpdatePercent] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
@@ -85,6 +88,7 @@ export default function App() {
   const keyboardInputRef = useRef<HTMLElement | null>(null)
   const savedFocusRef = useRef<HTMLElement | null>(null)
   const prevModalCountRef = useRef(0)
+  const liveTvApiRef = useRef<LiveTVAPI | null>(null)
   const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile, traktConnected } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
   const playerInfoRef = useRef<PlayerInfo | undefined>(undefined)
@@ -277,9 +281,8 @@ export default function App() {
     prevTraktRef.current = traktConnected
   }, [traktConnected, fetchWatchedData])
 
-  // Keep resumePositionRef and resumeDurationRef in sync with playerInfo
+  // Keep resumeDurationRef in sync with playerInfo for torrent prioritization
   useEffect(() => {
-    resumePositionRef.current = playerInfo?.resumePosition
     if (playerInfo?.resumePosition && playerInfo.resumePosition > 0) {
       const sm = useMediaStore.getState().selectedMedia
       const runtime = (sm as any)?.runtime
@@ -835,6 +838,7 @@ export default function App() {
       window.api.log('[App] Stream URL:', url)
       currentInfoHashRef.current = result.infoHash
       const rp = resumePositionRef.current
+      window.api.log(`[App] tryAutoPlayResult reading resumePositionRef rp=${rp}`)
       resumePositionRef.current = undefined
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
@@ -1027,9 +1031,12 @@ export default function App() {
 
   // Helper: call player.start() and wire the returned HLS URL into the player UI.
   const startPlayerUrl = useCallback(async (url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) => {
+    window.api.log(`[App] startPlayerUrl resumePosition=${resumePosition} url=${url?.slice(0, 80)}`)
     const result = await window.api.player.start(url, resumePosition, referer, forceRemux)
     const hlsUrl = result?.streamUrl ?? url
     setStreamUrl(hlsUrl)
+    setAudioTracksInfo(result?.audioTracks ?? [])
+    setIsRemux(result?.isRemux ?? false)
     return result
   }, [])
 
@@ -1061,6 +1068,10 @@ export default function App() {
       return
     }
 
+    // Set resume position synchronously — this ref is read by startPlayback/tryAutoPlayResult
+    // and must be set NOW, not after a React effect cycle.
+    resumePositionRef.current = resumePosition
+
     const selected = useMediaStore.getState().selectedMedia
     if (!selected) return
     const season = useMediaStore.getState().selectedSeason
@@ -1076,7 +1087,7 @@ export default function App() {
     searchInfoHashesRef.current = new Set()
     const session = ++searchSessionRef.current
     const caller = new Error().stack?.split('\n').slice(2, 4).map(l => l.trim()).join(' | ') || 'unknown'
-    window.api.log(`[App] handlePlay session=${session} caller=${caller} autoPlayTorrent=`, selected.title, selected.id)
+    window.api.log(`[App] handlePlay session=${session} resumePosition=${resumePosition} caller=${caller}`, selected.title, selected.id)
 
     setPlayerInfo({
       tmdbId: selected.id,
@@ -1271,6 +1282,8 @@ export default function App() {
     currentUsenetIdRef.current = null
     currentUsenetPathRef.current = null
     setStreamUrl(undefined)
+    setDlhdEmbedUrl(null)
+    resumePositionRef.current = undefined
     setStreamError(null)
     setPlayerInfo(undefined)
     setPlayerLoading(false)
@@ -1423,6 +1436,9 @@ export default function App() {
       if (view === 'youtube') return
       
       const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)
+
+      // LiveTV keyboard delegation (modal, grid navigation)
+      if (view === 'live-tv' && liveTvApiRef.current?.handleKeyDown(e)) return
       
       if (e.key === 'Escape') {
         if (virtualKeyboardOpen) { setVirtualKeyboardOpen(false); return }
@@ -1580,7 +1596,22 @@ export default function App() {
           />
         </div>
       )}
-      {view === 'player' && (
+      {view === 'player' && (dlhdEmbedUrl ? (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: '#000', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '8px 16px', background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', gap: 12, zIndex: 1 }}>
+            <button onClick={handlePlayerBack}
+              style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 20, padding: '4px 8px', lineHeight: 1 }}>←</button>
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>DLHD Stream</span>
+            {playerLoading && <div style={{ width: 16, height: 16, border: '2px solid #fff', borderTopColor: '#22c55e', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
+          </div>
+          <iframe
+            src={dlhdEmbedUrl}
+            style={{ flex: 1, border: 'none', width: '100%' }}
+            allowFullScreen
+            allow="autoplay; encrypted-media"
+          />
+        </div>
+      ) : (
         <VideoPlayer
           ref={videoPlayerRef}
           streamUrl={streamUrl}
@@ -1593,8 +1624,10 @@ export default function App() {
           onNextEpisode={handleNextEpisode}
           title={playerInfo?.title}
           clearlogoUrl={playerInfo?.clearlogoUrl}
+          audioTracks={audioTracksInfo}
+          isRemux={isRemux}
         />
-      )}
+      ))}
       {view === 'settings' && (
         <div className="animate-fade">
           <Settings onClose={() => goBack()} />
@@ -1641,7 +1674,16 @@ export default function App() {
       {view === 'live-tv' && (
         <div className="animate-fade">
           <LiveTV
+            apiRef={liveTvApiRef}
             onPlayUrl={async (url) => {
+              if (/dlhd\.st\/watch\.php/i.test(url)) {
+                window.api.log('[App] LiveTV DLHD — opening iframe player')
+                const embedUrl = await window.api.dlhd.getEmbedUrl(url)
+                setDlhdEmbedUrl(embedUrl || url)
+                navigate('player')
+                setPlayerLoading(false)
+                return
+              }
               setTorrentSearchOpen(false)
               setFreeSearchOpen(false)
               setFreeSearchQuery('')
@@ -1671,6 +1713,14 @@ export default function App() {
         <div className="animate-fade">
           <EPG
             onPlayUrl={async (url) => {
+              if (/dlhd\.st\/watch\.php/i.test(url)) {
+                window.api.log('[App] EPG DLHD — opening iframe player')
+                const embedUrl = await window.api.dlhd.getEmbedUrl(url)
+                setDlhdEmbedUrl(embedUrl || url)
+                navigate('player')
+                setPlayerLoading(false)
+                return
+              }
               setTorrentSearchOpen(false)
               setFreeSearchOpen(false)
               setFreeSearchQuery('')

@@ -1738,6 +1738,61 @@ export default function Settings({ onClose }: SettingsProps) {
               </div>
             </div>
 
+                        {store.liveTvEnabled && (
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>IPTV M3U</h3>
+                <p className={styles.settingDesc}>Add IPTV M3U playlists as an additional Live TV source.</p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    tabIndex={0}
+                    className={`${styles.toggle} ${store.iptvM3uEnabled ? styles.toggleActive : ''}`}
+                    onClick={() => store.setIptvM3uEnabled(!store.iptvM3uEnabled)}
+                  >
+                    IPTV M3U {store.iptvM3uEnabled ? 'ENABLED' : 'DISABLED'}
+                  </button>
+                  {store.iptvM3uEnabled && (
+                    <>
+                      <input
+                        type="number"
+                        className={styles.input}
+                        placeholder="Update interval (hours)"
+                        value={store.iptvM3uUpdateInterval}
+                        onChange={(e) => store.setIptvM3uUpdateInterval(parseInt(e.target.value) || 4)}
+                        min="1"
+                        max="168"
+                        style={{ width: 80 }}
+                      />
+                      <span className={styles.settingDesc}>hours</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+{store.liveTvEnabled && (
+              <div className={styles.settingGroup}>
+                <h3 className={styles.settingTitle}>Server</h3>
+                <p className={styles.settingDesc}>Select the primary channel source. Other servers are used as fallback if the primary fails.</p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {([
+                    { id: 'cdnlive', label: 'CDNLive' },
+                    { id: 'ondemand', label: 'OnDemand' },
+                    { id: 'dlhd', label: 'DLHD' },
+                  ] as const).map(srv => (
+                    <button
+                      key={srv.id}
+                      tabIndex={0}
+                      className={`${styles.toggle} ${store.liveTvServer === srv.id ? styles.toggleActive : ''}`}
+                      onClick={() => store.setLiveTvServer(srv.id)}
+                      style={{ flex: '1 1 100px', textAlign: 'center' }}
+                    >
+                      {srv.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {store.liveTvEnabled && (
               <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>API Credentials</h3>

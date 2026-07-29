@@ -152,6 +152,15 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       switch (e.key) {
         case 'ArrowDown': {
           e.preventDefault()
+          if (focusedSection === 'result' && resultCount > 0) {
+            const nextIdx = focusedIdx + 1
+            if (nextIdx < resultCount) {
+              setFocusedIdx(nextIdx)
+              return
+            }
+            // else, we are at the last item, try to move to next section (if any)
+          }
+          // Try to move to next section
           for (let i = curSecIdx + 1; i < secs.length; i++) {
             if (secs[i].count > 0) {
               if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
@@ -167,6 +176,15 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
         }
         case 'ArrowUp': {
           e.preventDefault()
+          if (focusedSection === 'result' && resultCount > 0) {
+            const prevIdx = focusedIdx - 1
+            if (prevIdx >= 0) {
+              setFocusedIdx(prevIdx)
+              return
+            }
+            // else, we are at the first item, try to move to previous section
+          }
+          // Try to move to previous section
           for (let i = curSecIdx - 1; i >= 0; i--) {
             if (secs[i].count > 0) {
               if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
