@@ -13,6 +13,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
+import { refreshAllPortalM3Us } from './xtream-portal.service'
 
 export interface IPTVChannel {
   name: string
@@ -38,7 +39,7 @@ let fetchPromise: Promise<IPTVSource[]> | null = null // dedupe concurrent fetch
  * Parse an M3U file's text content into channel entries.
  * Format: #EXTINF:...,<name>\n<play-url>
  */
-function parseM3U(content: string): IPTVChannel[] {
+export function parseM3U(content: string): IPTVChannel[] {
   const lines = content.split('\n')
   const channels: IPTVChannel[] = []
   for (let i = 0; i < lines.length; i++) {
@@ -188,6 +189,19 @@ async function doFetch(): Promise<IPTVSource[]> {
     if (r.status === 'fulfilled' && r.value.channels.length > 0) {
       sources.push(r.value)
     }
+  }
+
+  // Step 3: Fetch from saved Xtream portals (same cache lifecycle)
+  try {
+    const xtreamSources = await refreshAllPortalM3Us()
+    for (const xs of xtreamSources) {
+      if (xs.channels.length > 0) sources.push(xs)
+    }
+    if (xtreamSources.length > 0) {
+      console.log(`[IPTV-M3U] Added ${xtreamSources.length} Xtream portal source(s)`)
+    }
+  } catch (e: any) {
+    console.warn(`[IPTV-M3U] Xtream portal fetch failed: ${e.message}`)
   }
 
   const total = sources.reduce((sum, s) => sum + s.channels.length, 0)

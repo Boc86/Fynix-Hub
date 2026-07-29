@@ -213,6 +213,28 @@ function createYouTubeView() {
   // Focus the BrowserView so it receives keyboard input
   youtubeView.webContents.focus();
 
+  // Inject TizenTube scripts on did-finish-load
+  let tizentubeInjected = false;
+  youtubeView.webContents.on('did-finish-load', () => {
+    youtubeView?.webContents.focus();
+
+    if (tizentubeInjected) return;
+    tizentubeInjected = true;
+
+    const scripts = TizenTubeService.getScripts();
+    if (scripts.length === 0) {
+      console.warn('[YouTubeView] No TizenTube scripts found — injection skipped');
+      return;
+    }
+    for (const script of scripts) {
+      const wrapped = `try{\n${script}\n}catch(e){console.error('[TizenTube]',e)}`;
+      youtubeView?.webContents.executeJavaScript(wrapped).catch((e: any) =>
+        console.error('[YouTubeView] TizenTube injection failed:', e)
+      );
+    }
+    console.log(`[YouTubeView] Injected ${scripts.length} TizenTube script(s)`);
+  });
+
   // Intercept keyboard events
   youtubeView.webContents.on('before-input-event', (event, input) => {
     // Escape → go back within YouTube, or exit to app if on main screen
@@ -284,6 +306,11 @@ function destroyYouTubeView() {
 
 app.whenReady().then(async () => {
   await registerIpcHandlers();
+
+  // Initialize TizenTube (downloads scripts if not present)
+  TizenTubeService.init().catch((err: any) =>
+    console.error('[TizenTube] init failed:', err?.message)
+  );
 
   if (TorrentSearchService.shouldRefreshTrackers()) {
     TorrentSearchService.refreshTrackers().catch(() => {});

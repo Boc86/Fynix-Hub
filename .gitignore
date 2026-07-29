@@ -17,3 +17,8 @@ build_icon_obj.log
 .tmp/
 build_log.txt
 typecheck.log
+.hermes/
+FINAL_*.md
+IPTV_M3U_*.md
+TASK_*.md
+VERIFICATION_*.md
