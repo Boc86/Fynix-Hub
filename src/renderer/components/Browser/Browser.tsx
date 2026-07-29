@@ -286,42 +286,42 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                     const genres: Array<{ id: number; name: string }> = genreData?.genres || []
 
                     // Helper function to fetch and combine pages 1 and 2
-                    const fetchPaginatedResults = async <T>(fetchFn: (page: number) => Promise<any>) => {
-                      try {
-                        const [page1, page2] = await Promise.all([
-                          fetchFn(1),
-                          fetchFn(2),
-                        ])
-                        return [
-                          ...(page1?.results || []),
-                          ...(page2?.results || []),
-                        ]
-                      } catch {
-                        return []
-                      }
+                    async function fetchPaginatedResults(fetchFn: (page: number) => Promise<any>) {
+                        try {
+                            const [page1, page2] = await Promise.all([
+                                fetchFn(1),
+                                fetchFn(2),
+                            ]);
+                            return [
+                                ...(page1?.results || []),
+                                ...(page2?.results || []),
+                            ];
+                        } catch {
+                            return [];
+                        }
                     }
 
                     // Fetch popular and top_rated for the media type (pages 1 and 2)
-                                        const [popularItems, topRatedItems, genreRowsData] = await Promise.all([
-                                          fetchPaginatedResults((page) => window.api.tmdb.getPopular(mediaTypeFilter, page)),
-                                          fetchPaginatedResults((page) => window.api.tmdb.getTopRated(mediaTypeFilter, page)),
-                                          Promise.all(genres.map(async (g) => {
-                                            try {
-                                              // Fetch discover by genre (pages 1 and 2)
-                                              const [page1, page2] = await Promise.all([
-                                                window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
-                                                window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
-                                              ])
-                                              const allItems = [
-                                                ...(page1?.results || []),
-                                                ...(page2?.results || []),
-                                              ]
-                                              return { label: g.name, items: allItems }
-                                            } catch {
-                                              return { label: g.name, items: [] }
-                                            }
-                                          }))
-                                        ])
+                    const [popularItems, topRatedItems, genreRowsData] = await Promise.all([
+                      fetchPaginatedResults((page) => window.api.tmdb.getPopular(mediaTypeFilter, page)),
+                      fetchPaginatedResults((page) => window.api.tmdb.getTopRated(mediaTypeFilter, page)),
+                      Promise.all(genres.map(async (g) => {
+                        try {
+                          // Fetch discover by genre (pages 1 and 2)
+                          const [page1, page2] = await Promise.all([
+                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
+                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
+                          ])
+                          const allItems = [
+                            ...(page1?.results || []),
+                            ...(page2?.results || []),
+                          ]
+                          return { label: g.name, items: allItems }
+                        } catch {
+                          return { label: g.name, items: [] }
+                        }
+                      }))
+                    ])
                     
                                         // Populate discoveryRows with popular, top_rated, and genre rows
                                         const discoveryRows: Array<{ label: string; items: MediaItem[] }> = []

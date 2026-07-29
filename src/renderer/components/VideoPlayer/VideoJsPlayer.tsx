@@ -1027,7 +1027,11 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     // ── Seek to resume position ────────────────────────────────────────
     useEffect(() => {
       const video = videoRef.current
-      if (!video || startTime <= 0 || startTimeSeekedRef.current || !shouldResume) return
+      console.log('[VideoJsPlayer] resume effect: startTime=', startTime, 'shouldResume=', shouldResume, 'startTimeSeekedRef=', startTimeSeekedRef.current)
+      if (!video || startTime <= 0 || startTimeSeekedRef.current || !shouldResume) {
+        console.log('[VideoJsPlayer] resume effect: skipping (startTime <= 0 or !shouldResume or already seeked)')
+        return
+      }
       const onLoaded = () => {
         if (startTimeSeekedRef.current) return
         startTimeSeekedRef.current = true
@@ -1042,6 +1046,43 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     }, [startTime, src, shouldResume])
 
     useEffect(() => { startTimeSeekedRef.current = false }, [src])
+
+    // ── Debug: intercept any currentTime set to catch resume seek source ─
+    useEffect(() => {
+      const v = videoRef.current
+      if (!v) return
+
+      console.log('[VideoJsPlayer] video element currentTime at mount:', v.currentTime)
+
+      const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'currentTime')
+      // Override on the instance
+      let _ct = v.currentTime
+      Object.defineProperty(v, 'currentTime', {
+        get: () => _ct,
+        set: (val) => {
+          if (val > 1) {
+            console.log('[VideoJsPlayer] ⛔ currentTime set to', val, '— stack:', new Error().stack?.split('\n').slice(2, 6).map(l => l.trim()).join(' | '))
+          }
+          _ct = val
+          originalDescriptor?.set?.call(v, val)
+        },
+        configurable: true,
+      })
+
+      const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: currentTime=', v.currentTime, 'duration=', v.duration, 'seekable=', v.seekable?.length) }
+      const onPlay = () => { console.log('[VideoJsPlayer] play event: currentTime=', v.currentTime) }
+      const onSeeked = () => { console.log('[VideoJsPlayer] seeked event: currentTime=', v.currentTime) }
+      v.addEventListener('loadedmetadata', onMeta)
+      v.addEventListener('play', onPlay)
+      v.addEventListener('seeked', onSeeked)
+      return () => {
+        v.removeEventListener('loadedmetadata', onMeta)
+        v.removeEventListener('play', onPlay)
+        v.removeEventListener('seeked', onSeeked)
+        // Restore original descriptor
+        delete (v as any).currentTime
+      }
+    }, [src])
 
     // ── Audio language preference ──────────────────────────────────────
     useEffect(() => {
@@ -1098,6 +1139,11 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
               autoPlay
               playsInline
               preload="auto"
+              config={{
+                hlsJs: {
+                  startPosition: 0,
+                },
+              }}
               onTimeUpdate={handleTimeUpdateInternal}
               onDurationChange={handleDurationChange}
               onEnded={onEnded}

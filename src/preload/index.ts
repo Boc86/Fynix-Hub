@@ -148,8 +148,6 @@ const api = {
       ipcRenderer.invoke('debrid:alldebrid-get-device-pin'),
     alldebridPollForToken: (pin: string, deviceId?: string) =>
       ipcRenderer.invoke('debrid:alldebrid-poll-token', pin, deviceId),
-    getTorboxSettingsUrl: () =>
-      ipcRenderer.invoke('debrid:torbox-settings-url'),
     realDebridGetDeviceCode: () =>
       ipcRenderer.invoke('debrid:real-debrid-device-code'),
     realDebridPollForCredentials: (deviceCode: string) =>
@@ -208,7 +206,6 @@ const api = {
   streamedpk: {
     getMatchesForSports: (sports: string[]) => ipcRenderer.invoke('streamedpk:get-matches-for-sports', sports),
   },
-
   damiTv: {
     getChannels: (server?: string) => ipcRenderer.invoke('dami-tv:get-channels', server),
     getAvailableCountries: () => ipcRenderer.invoke('dami-tv:get-available-countries'),
@@ -241,6 +238,16 @@ const api = {
       ipcRenderer.on('usenet:result', handler)
       return () => { ipcRenderer.removeListener('usenet:result', handler) }
     },
+  },
+  iptvM3u: {
+    getAllSources: (forceRefresh?: boolean) => ipcRenderer.invoke('iptv-m3u:get-all-sources', forceRefresh),
+    findChannel: (query: string) => ipcRenderer.invoke('iptv-m3u:find-channel', query)
+  },
+  onDemand: {
+    extractStream: (embedUrl: string) => ipcRenderer.invoke('ondemand:extract-stream', embedUrl)
+  },
+  dlhd: {
+    getEmbedUrl: (url: string) => ipcRenderer.invoke('dlhd:get-embed-url', url),
   },
 }
 

@@ -570,12 +570,22 @@ function VideoPlayerInner({
       {activeSkip && (
         <div className={styles.skipOverlay}>
           <button
+            tabIndex={0}
             className={styles.skipBtn}
             onClick={() => {
               if (activeSkip.endMs !== null) {
                 videoJsRef.current?.seek(activeSkip.endMs / 1000)
               }
               setActiveSkip(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                if (activeSkip.endMs !== null) {
+                  videoJsRef.current?.seek(activeSkip.endMs / 1000)
+                }
+                setActiveSkip(null)
+              }
             }}
           >
             {activeSkip.type === 'recap' ? 'Skip Recap' : 'Skip Intro'}
@@ -587,10 +597,18 @@ function VideoPlayerInner({
       {mediaInfo?.mediaType === 'tv' && hasNextEpisode && durationRef.current > 0 && currentTimeRef.current > 0 && durationRef.current - currentTimeRef.current <= 30 && currentTimeRef.current >= 60 && (
         <div className={styles.skipOverlay}>
           <button
+            tabIndex={0}
             className={styles.skipBtn}
             onClick={() => {
               exitedRef.current = true
               onNextEpisode()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                exitedRef.current = true
+                onNextEpisode()
+              }
             }}
           >
             Up Next: {nextEpisodeTitle || 'Next Episode'}

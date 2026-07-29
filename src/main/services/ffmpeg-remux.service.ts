@@ -124,6 +124,15 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
   }
 
   args.push(
+    // Reconnect for live HTTP streams that drop connections — not needed for local files
+    ...(inputUrl.startsWith('http') ? [
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_at_eof', '1',
+      '-reconnect_on_network_error', '1',
+      '-reconnect_on_http_error', '4xx,5xx',
+      '-reconnect_delay_max', '30',
+    ] : []),
     '-i', inputUrl,
     // Only map first video + selected audio — skip subtitles and other streams
     // that would generate extra HLS playlists the local cache server doesn't serve.
@@ -207,7 +216,10 @@ function probeIsHevc(inputUrl: string): boolean {
    // If resume position specified, add -ss before -i for fast seek.
    const args: string[] = []
    if (resumePosition > 0) {
+     debug('Adding -ss seek to', resumePosition)
      args.push('-ss', String(resumePosition))
+   } else {
+     debug('No resume seek (resumePosition=', resumePosition, ') — starting from 0:00')
    }
    // ponytail: Chromium (Electron 42) with VAAPI decodes HEVC natively.
    // No transcode needed — just remux (copy) the video stream.

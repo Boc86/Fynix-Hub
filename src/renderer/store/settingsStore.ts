@@ -55,6 +55,9 @@ interface SettingsState {
   liveTvUser: string
   liveTvPlan: string
   liveTvServer: 'cdnlive' | 'ondemand' | 'dlhd'
+  iptvM3uSourceUrl: string
+  iptvM3uUpdateInterval: number
+  iptvM3uEnabled: boolean
   preferredAudioLanguage: string
   classificationCountry: string
   accentColor: string
@@ -112,6 +115,9 @@ interface SettingsState {
   setLiveTvUser: (user: string) => void
   setLiveTvPlan: (plan: string) => void
   setLiveTvServer: (server: 'cdnlive' | 'ondemand' | 'dlhd') => void
+  setIptvM3uSourceUrl: (url: string) => void
+  setIptvM3uUpdateInterval: (interval: number) => void
+  setIptvM3uEnabled: (enabled: boolean) => void
   setPreferredAudioLanguage: (lang: string) => void
   setClassificationCountry: (country: string) => void
   setAccentColor: (color: string) => void
@@ -178,6 +184,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   liveTvUser: 'cdnlivetv',
   liveTvPlan: 'free',
   liveTvServer: 'cdnlive',
+  iptvM3uSourceUrl: 'http://magnetic.website/MAD_TITAN_SPORTS/Keep_m3u_json/zone1.txt',
+  iptvM3uUpdateInterval: 24,
+  iptvM3uEnabled: true,
   preferredAudioLanguage: '',
   classificationCountry: 'US',
   accentColor: '#FF6B00',
@@ -229,19 +238,46 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSponsorBlockEnabled: (enabled) => { set({ sponsorBlockEnabled: enabled }); get().saveToDisk() },
   setSponsorBlockCategories: (categories) => { set({ sponsorBlockCategories: categories }); get().saveToDisk() },
   setYoutubePreferredQuality: (quality) => { set({ youtubePreferredQuality: quality }); get().saveToDisk() },
-  setIntroDbApiKey: (key: string) => { set({ introDbApiKey: key }); get().saveToDisk() },
+  setIntroDbApiKey: (key) => { set({ introDbApiKey: key }); get().saveToDisk() },
   setOpensubtitlesApiKey: (key) => { set({ opensubtitlesApiKey: key }); get().saveToDisk() },
   setOpensubtitlesForcedOnly: (forced) => { set({ opensubtitlesForcedOnly: forced }); get().saveToDisk() },
   setLiveTvUser: (user) => { set({ liveTvUser: user }); get().saveToDisk() },
   setLiveTvPlan: (plan) => { set({ liveTvPlan: plan }); get().saveToDisk() },
   setLiveTvServer: (server) => { set({ liveTvServer: server }); get().saveToDisk() },
+  setIptvM3uSourceUrl: (url) => { set({ iptvM3uSourceUrl: url }); get().saveToDisk() },
+  setIptvM3uUpdateInterval: (interval) => { set({ iptvM3uUpdateInterval: interval }); get().saveToDisk() },
+  setIptvM3uEnabled: (enabled) => { set({ iptvM3uEnabled: enabled }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setClassificationCountry: (country) => { set({ classificationCountry: country }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
-  setSportsEnabled: (enabled) => { set({ sportsEnabled: enabled }); get().saveToDisk() },
-  setSportsSelected: (ids) => { set({ sportsSelected: ids }); get().saveToDisk() },
-  setSportsTimezone: (tz) => { set({ sportsTimezone: tz }); get().saveToDisk() },
+  setSportsEnabled: async (enabled) => { 
+    set({ sportsEnabled: enabled }); 
+    try { await window.api.settings.set('sportsEnabled', enabled); } catch {}
+    get().saveToDisk() 
+  },
+  setSportsSelected: async (ids) => {
+    set((state) => {
+      // Also update the active profile's sportsSelected so it doesn't get stale
+      if (state.activeProfileId) {
+        return {
+          sportsSelected: ids,
+          profiles: state.profiles.map(p =>
+            p.id === state.activeProfileId ? { ...p, sportsSelected: ids } : p
+          )
+        }
+      }
+      return { sportsSelected: ids }
+    });
+    // Persist immediately so data isn't lost on app close
+    try { await window.api.settings.set('sportsSelected', ids); } catch {}
+    get().saveToDisk()
+  },
+  setSportsTimezone: async (tz) => {
+    set({ sportsTimezone: tz });
+    try { await window.api.settings.set('sportsTimezone', tz); } catch {}
+    get().saveToDisk()
+  },
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
   setUsenetEnabled: (enabled) => { set({ usenetEnabled: enabled }); get().saveToDisk() },
@@ -277,14 +313,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         activeProfileId: id,
       };
     });
-    get().saveToDisk()
+    get().saveToDisk();
   },
 
   updateProfile: (id, updates) => {
     set((state) => ({
       profiles: state.profiles.map((p) => p.id === id ? { ...p, ...updates } : p)
     }));
-    get().saveToDisk()
+    get().saveToDisk();
   },
 
   removeProfile: (id) => {
@@ -293,7 +329,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       activeProfileId: state.activeProfileId === id ? null : state.activeProfileId,
       autoLoginProfileId: state.autoLoginProfileId === id ? null : state.autoLoginProfileId
     }));
-    get().saveToDisk()
+    get().saveToDisk();
   },
 
   setActiveProfile: async (id) => {
@@ -339,16 +375,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         useMediaStore.getState().triggerRefresh()
       }
     }
-    get().saveToDisk()
+    get().saveToDisk();
   },
 
   getActiveProfile: () => {
-    const { profiles, activeProfileId } = get();
-    return profiles.find((p) => p.id === activeProfileId);
+    const { profiles, activeProfileId } = get()
+    return profiles.find((p) => p.id === activeProfileId)
   },
 
   setAutoLoginProfile: (id) => {
-    set({ autoLoginProfileId: id });
+    set({ autoLoginProfileId: id })
     get().saveToDisk()
   },
 
@@ -360,7 +396,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (settings) {
         // Migrate from old trakt tokens on first load
         if (!settings.profiles && settings.traktAccessToken) {
-          const id = Date.now().toString();
+          const id = Date.now().toString()
           set({
             profiles: [{
               id,
@@ -382,7 +418,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
               sportsSelected: p.sportsSelected || settings.sportsSelected || []
             }))
           }
-          // Migrate old maxTorrentSize → maxDownloadSize
+          // Migrate old maxTorrentSize -> maxDownloadSize
           if (!(settings as any).maxDownloadSize && (settings as any).maxTorrentSize) {
             (settings as any).maxDownloadSize = (settings as any).maxTorrentSize
           }
@@ -391,7 +427,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
 
       // Handle auto-login: if autologin profile is set, resolve to it
-      const { activeProfileId, autoLoginProfileId } = get();
+      const { activeProfileId, autoLoginProfileId } = get()
       if (autoLoginProfileId) {
         if (activeProfileId !== autoLoginProfileId) {
           set({ activeProfileId: autoLoginProfileId });
@@ -439,18 +475,39 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (adToken) set({ alldebridConnected: true });
       const enabled = await window.api.settings.get('enabledIndexers');
       if (!Array.isArray(enabled)) set({ enabledIndexers: DEFAULT_ENABLED_INDEXERS });
+
+      // Explicitly restore sports settings from top-level DB keys (unconditional)
+      const savedSportsSelected = await window.api.settings.get('sportsSelected');
+      if (Array.isArray(savedSportsSelected)) {
+        console.log(`[Settings] Restored ${savedSportsSelected.length} selected sports: ${JSON.stringify(savedSportsSelected)}`);
+        set({ sportsSelected: savedSportsSelected });
+      }
+      const savedSportsEnabled = await window.api.settings.get('sportsEnabled');
+      if (typeof savedSportsEnabled === 'boolean') {
+        console.log(`[Settings] Restored sportsEnabled: ${savedSportsEnabled}`);
+        set({ sportsEnabled: savedSportsEnabled });
+      }
+      const savedSportsTz = await window.api.settings.get('sportsTimezone');
+      if (typeof savedSportsTz === 'string') {
+        set({ sportsTimezone: savedSportsTz });
+      }
     } catch { /* ignore */ }
   },
 
   saveToDisk: async () => {
     try {
       const state = get()
+      console.log(`[Settings] Saving sports: enabled=${state.sportsEnabled}, selected=${JSON.stringify(state.sportsSelected)}`);
       await Promise.all([
         window.api.settings.set('tmdbApiKey', state.tmdbApiKey),
         window.api.settings.set('fanartApiKey', state.fanartApiKey),
         window.api.settings.set('traktConnected', state.traktConnected),
         window.api.settings.set('realDebridApiKey', state.realDebridApiKey),
+        window.api.settings.set('realDebridConnected', state.realDebridConnected),
         window.api.settings.set('torboxApiKey', state.torboxApiKey),
+        window.api.settings.set('torboxConnected', state.torboxConnected),
+        window.api.settings.set('premiumizeConnected', state.premiumizeConnected),
+        window.api.settings.set('alldebridConnected', state.alldebridConnected),
         window.api.settings.set('preferredDebrid', state.preferredDebrid),
         window.api.settings.set('downloadPath', state.downloadPath),
         window.api.settings.set('autoPlayNext', state.autoPlayNext),
@@ -471,6 +528,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('liveTvUser', state.liveTvUser),
         window.api.settings.set('liveTvPlan', state.liveTvPlan),
         window.api.settings.set('liveTvServer', state.liveTvServer),
+        window.api.settings.set('iptvM3uSourceUrl', state.iptvM3uSourceUrl),
+        window.api.settings.set('iptvM3uUpdateInterval', state.iptvM3uUpdateInterval),
+        window.api.settings.set('iptvM3uEnabled', state.iptvM3uEnabled),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('classificationCountry', state.classificationCountry),
         window.api.settings.set('accentColor', state.accentColor),
@@ -492,15 +552,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('customUsenetIndexers', state.customUsenetIndexers),
         window.api.settings.set('usenetSearchEnabled', state.usenetSearchEnabled),
         window.api.settings.set('torrentSearchEnabled', state.torrentSearchEnabled),
-        window.api.settings.set('vylaSearchEnabled', state.vylaSearchEnabled),
+        window.api.settings.set('vtylaSearchEnabled', state.vylaSearchEnabled),
         window.api.settings.set('preemptiveSearchTermination', state.preemptiveSearchTermination),
-        window.api.settings.set('vylaSearchLimit', state.vylaSearchLimit),
+        window.api.settings.set('vtylaSearchLimit', state.vylaSearchLimit),
         window.api.settings.set('torrentSearchLimit', state.torrentSearchLimit),
         window.api.settings.set('usenetSearchLimit', state.usenetSearchLimit),
         window.api.settings.set('profiles', state.profiles),
         window.api.settings.set('activeProfileId', state.activeProfileId),
         window.api.settings.set('autoLoginProfileId', state.autoLoginProfileId),
-      ])
-    } catch { /* ignore */ }
-  },
-}))
+      ]);
+    } catch (error) {
+      console.error('Failed to save settings to disk:', error);
+    }
+  }
+}));

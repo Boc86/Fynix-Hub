@@ -57,8 +57,7 @@ function isBrowserPlayable(url: string): boolean {
  * Referer/Origin headers via hls.js XHR.
  */
 function needsCdnProxy(url: string): boolean {
-  return /okcdn\.ru|vkuser\.net|vk\.com|vkvideo/i.test(url)
-    || /dailymotion\.com/i.test(url)
+  return /okcdn\.ru|vkuser\.net|vk\.com|vkvideo|dlhd\.st/i.test(url)
 }
 
 // ─── Public API ────────────────────────────────────────────────
@@ -78,6 +77,7 @@ export async function startPlayback(
   forceRemux?: boolean,
   audioTrackIndex?: number,
 ): Promise<StartPlaybackResult> {
+  debug('startPlayback called url=', inputUrl.slice(0, 80), 'resumePosition=', resumePosition)
   await stopPlayback()
 
   let resolvedUrl = inputUrl
@@ -132,6 +132,7 @@ export async function startPlayback(
   const isOkCdn = /okcdn\.ru/i.test(resolvedUrl)
   const isVk = /vk\.com|vkvideo|vkuser\.net/i.test(resolvedUrl)
   const isDailymotion = DailymotionResolver.isDailymotionUrl(inputUrl)
+  const isDlhd = /dlhd\.st/i.test(resolvedUrl)
 
   // Build headers for FFmpeg
   const ffmpegHeaders: string[] = []
@@ -144,6 +145,9 @@ export async function startPlayback(
   } else if (isDailymotion) {
     ffmpegHeaders.push('Referer: https://www.dailymotion.com/')
     ffmpegHeaders.push('Origin: https://www.dailymotion.com')
+  } else if (isDlhd) {
+    ffmpegHeaders.push('Referer: https://dlhd.st/')
+    ffmpegHeaders.push('Origin: https://dlhd.st')
   } else if (referer) {
     ffmpegHeaders.push('Referer: ' + referer)
   }

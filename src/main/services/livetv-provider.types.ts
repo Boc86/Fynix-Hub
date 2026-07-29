@@ -10,7 +10,7 @@ export interface LiveTVChannel {
   playerUrl: string
   source: string
   status: string
-  provider: 'cdnlive' | 'ondemand' | 'dlhd'
+  provider: 'cdnlive' | 'ondemand' | 'dlhd' | 'iptv-m3u'
 }
 
 /** Result of resolving a channel to a playable URL. */
@@ -21,7 +21,7 @@ export interface LiveTVStreamResult {
 
 /** Interface all Live TV providers must implement. */
 export interface LiveTVProvider {
-  readonly id: 'cdnlive' | 'ondemand' | 'dlhd'
+  readonly id: 'cdnlive' | 'ondemand' | 'dlhd' | 'iptv-m3u'
   readonly label: string
   getChannels(): Promise<LiveTVChannel[]>
   extractUrl(ch: { id: string; name: string; countryCode: string; playerUrl?: string }): Promise<LiveTVStreamResult>

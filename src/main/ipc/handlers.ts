@@ -25,11 +25,12 @@ import * as ReplayZoneService from '../services/replayzone.service'
 import * as StreamedPkService from '../services/streamedpk.service'
 import * as ExtractorService from '../services/extractor.service'
 import * as DamiTVService from '../services/dami-tv.service'
-import { getChannelsWithFallback, extractUrlWithFallback, type LiveTVServerId } from '../services/livetv-providers'
+import { getProvider, type LiveTVServerId } from '../services/livetv-providers'
 import * as EpgService from '../services/epg.service'
 import * as UsenetSearchService from '../services/usenet-search.service'
 import * as UsenetService from '../services/usenet.service'
 import * as UpdaterService from '../services/updater.service'
+import { getDlhdEmbedUrl } from '../services/dlhd-window'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -565,6 +566,7 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('player:start', async (_event, url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) => {
     try {
+      console.log('[Handler] player:start resumePosition=', resumePosition, 'url=', url?.slice(0, 80))
       const result = await PlayerService.startPlayback(url, resumePosition, referer, forceRemux)
       return result
     } catch (err: any) {
@@ -684,7 +686,12 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('dami-tv:get-channels', async (_event, server?: LiveTVServerId) => {
     const serverId = server || 'cdnlive'
-    return getChannelsWithFallback(serverId)
+    // Only fetch from the requested provider — don't wait for all providers
+    try {
+      return await getProvider(serverId).getChannels()
+    } catch {
+      return []
+    }
   })
 
   handle('dami-tv:get-available-countries', async () => {
@@ -693,7 +700,40 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('dami-tv:extract-url', async (_event, ch: { id: string; name: string; countryCode: string; playerUrl?: string }, server?: LiveTVServerId) => {
     const serverId = server || 'cdnlive'
-    return extractUrlWithFallback(serverId, ch)
+    // Call the specific provider directly — don't fallback to other providers
+    // when the user explicitly chose a source
+    try {
+      const result = await getProvider(serverId).extractUrl(ch)
+      return result
+    } catch (err: any) {
+      return { error: err?.message || 'Extraction failed' }
+    }
+  })
+
+  handle('dlhd:get-embed-url', async (_event, url: string) => {
+    return getDlhdEmbedUrl(url)
+  })
+
+  handle('ondemand:extract-stream', async (_event, embedUrl: string) => {
+    try {
+      const res = await fetch(embedUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(15000),
+      })
+      const html = await res.text()
+      // Look for .m3u8 URLs in the page
+      const m3u8Match = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/)
+      if (m3u8Match) return m3u8Match[0]
+      // Look for iframe src URLs that might contain a stream
+      const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/)
+      if (iframeMatch) return iframeMatch[1]
+      // Look for video source tags
+      const videoSrc = html.match(/<source[^>]+src=["']([^"']+)["']/)
+      if (videoSrc) return videoSrc[1]
+      return null
+    } catch {
+      return null
+    }
   })
 
   handle('epg:get-channels', async (_event, liveTvChannels?: any[]) => {

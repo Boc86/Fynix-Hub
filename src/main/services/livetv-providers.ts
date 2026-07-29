@@ -1,26 +1,28 @@
-import type { LiveTVProvider, LiveTVChannel, LiveTVStreamResult } from './livetv-provider.types'
-import { cdnliveProvider } from './dami-tv.service'
-import { ondemandProvider } from './ondemand-tv.service'
-import { dlhdProvider } from './dlhd-tv.service'
+import type { LiveTVProvider, LiveTVChannel, LiveTVStreamResult } from './livetv-provider.types';
+import { cdnliveProvider } from './dami-tv.service';
+import { ondemandProvider } from './ondemand-tv.service';
+import { dlhdProvider } from './dlhd-tv.service';
+import { iptvM3uProvider } from './iptv-m3u.provider';
 
-export type LiveTVServerId = 'cdnlive' | 'ondemand' | 'dlhd'
+export type LiveTVServerId = 'cdnlive' | 'ondemand' | 'dlhd' | 'iptv-m3u';
 
 const providers: Record<LiveTVServerId, LiveTVProvider> = {
   cdnlive: cdnliveProvider,
   ondemand: ondemandProvider,
   dlhd: dlhdProvider,
-}
+  'iptv-m3u': iptvM3uProvider
+};
 
 export function getProvider(id: LiveTVServerId): LiveTVProvider {
-  return providers[id]
+  return providers[id];
 }
 
 export function getAllProviders(): LiveTVProvider[] {
-  return Object.values(providers)
+  return Object.values(providers);
 }
 
 export function getServerLabel(id: LiveTVServerId): string {
-  return providers[id]?.label ?? id
+  return providers[id]?.label ?? id;
 }
 
 /**
@@ -30,31 +32,31 @@ export function getServerLabel(id: LiveTVServerId): string {
 export async function getChannelsWithFallback(
   primaryId: LiveTVServerId,
 ): Promise<LiveTVChannel[]> {
-  const allIds: LiveTVServerId[] = ['cdnlive', 'ondemand', 'dlhd']
+  const allIds: LiveTVServerId[] = ['cdnlive', 'ondemand', 'dlhd', 'iptv-m3u'];
 
   const results = await Promise.allSettled(
     allIds.map(async (id) => {
       try {
-        return await providers[id].getChannels()
+        return await providers[id].getChannels();
       } catch {
-        return []
+        return [];
       }
     })
-  )
+  );
 
   const channels = results
     .filter((r): r is PromiseFulfilledResult<LiveTVChannel[]> => r.status === 'fulfilled')
-    .flatMap(r => r.value)
+    .flatMap(r => r.value);
 
-  const seen = new Map<string, LiveTVChannel>()
+  const seen = new Map<string, LiveTVChannel>();
   for (const ch of channels) {
-    const key = `${ch.name}|${ch.countryCode}`
+    const key = `${ch.name}|${ch.countryCode}`;
     if (!seen.has(key) || ch.provider === primaryId) {
-      seen.set(key, ch)
+      seen.set(key, ch);
     }
   }
 
-  return Array.from(seen.values())
+  return Array.from(seen.values());
 }
 
 /**
@@ -65,18 +67,18 @@ export async function extractUrlWithFallback(
   ch: { id: string; name: string; countryCode: string; playerUrl?: string },
 ): Promise<LiveTVStreamResult> {
   try {
-    const result = await providers[primaryId].extractUrl(ch)
-    if (result.hlsUrl) return result
+    const result = await providers[primaryId].extractUrl(ch);
+    if (result.hlsUrl) return result;
   } catch {}
 
-  const allIds: LiveTVServerId[] = ['cdnlive', 'ondemand', 'dlhd']
+  const allIds: LiveTVServerId[] = ['cdnlive', 'ondemand', 'dlhd', 'iptv-m3u'];
   for (const id of allIds) {
-    if (id === primaryId) continue
+    if (id === primaryId) continue;
     try {
-      const result = await providers[id].extractUrl(ch)
-      if (result.hlsUrl) return result
+      const result = await providers[id].extractUrl(ch);
+      if (result.hlsUrl) return result;
     } catch {}
   }
 
-  return { error: 'All providers failed to extract stream URL' }
+  return { error: 'All providers failed to extract stream URL' };
 }
