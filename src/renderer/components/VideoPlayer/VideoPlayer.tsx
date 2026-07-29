@@ -43,6 +43,8 @@ interface VideoPlayerProps {
   clearlogoUrl?: string | null
   audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
   isRemux?: boolean
+  /** Called when playback ends naturally (video finished). */
+  onPlaybackComplete?: () => void
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -92,6 +94,7 @@ function VideoPlayerInner({
   clearlogoUrl,
   audioTracks,
   isRemux,
+  onPlaybackComplete,
 }, ref) {
   const videoJsRef = useRef<VideoJsPlayerHandle>(null)
   const scrobbleThrottle = useRef(0)
@@ -106,6 +109,7 @@ function VideoPlayerInner({
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
   const retryCountRef = useRef(0)
+  const playbackCompletedRef = useRef(false)
   const [displayError, setDisplayError] = useState<string | null>(null)
 
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
@@ -199,7 +203,8 @@ function VideoPlayerInner({
       saveProgress()
       scrobble('stop').catch(() => {})
     },
-  }), [saveProgress, scrobble])
+    wasPlaybackCompleted: () => playbackCompletedRef.current,
+  }), [saveProgress, scrobble, playbackCompletedRef])
 
   // ── Subtitle search ────────────────────────────────────────────────────
 
@@ -421,8 +426,10 @@ function VideoPlayerInner({
   const handleEnded = useCallback(() => {
     if (exitedRef.current) return
     exitedRef.current = true
+    playbackCompletedRef.current = true
+    onPlaybackComplete?.()
     finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
-  }, [mediaInfo, hasNextEpisode, finishPlayback])
+  }, [mediaInfo, hasNextEpisode, finishPlayback, onPlaybackComplete])
 
   const handleError = useCallback((error?: MediaError | Error) => {
     if (exitedRef.current) return
