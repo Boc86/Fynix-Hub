@@ -292,7 +292,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         clearInterval(pollTimer)
         v.removeEventListener('error', logError)
       }
-    }, [])
+    }, [onError])
     // ── OSD state ──────────────────────────────────────────────────────
     const [osdOpen, setOsdOpen] = useState(false)
     const [osdRow, setOsdRow] = useState(0) // 0 = scrub bar, 1 = buttons
@@ -1047,29 +1047,10 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
 
     useEffect(() => { startTimeSeekedRef.current = false }, [src])
 
-    // ── Debug: intercept any currentTime set to catch resume seek source ─
     useEffect(() => {
       const v = videoRef.current
       if (!v) return
-
-      console.log('[VideoJsPlayer] video element currentTime at mount:', v.currentTime)
-
-      const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'currentTime')
-      // Override on the instance
-      let _ct = v.currentTime
-      Object.defineProperty(v, 'currentTime', {
-        get: () => _ct,
-        set: (val) => {
-          if (val > 1) {
-            console.log('[VideoJsPlayer] ⛔ currentTime set to', val, '— stack:', new Error().stack?.split('\n').slice(2, 6).map(l => l.trim()).join(' | '))
-          }
-          _ct = val
-          originalDescriptor?.set?.call(v, val)
-        },
-        configurable: true,
-      })
-
-      const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: currentTime=', v.currentTime, 'duration=', v.duration, 'seekable=', v.seekable?.length) }
+      const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: duration=', v.duration, 'seekable=', v.seekable?.length) }
       const onPlay = () => { console.log('[VideoJsPlayer] play event: currentTime=', v.currentTime) }
       const onSeeked = () => { console.log('[VideoJsPlayer] seeked event: currentTime=', v.currentTime) }
       v.addEventListener('loadedmetadata', onMeta)
@@ -1079,8 +1060,6 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         v.removeEventListener('loadedmetadata', onMeta)
         v.removeEventListener('play', onPlay)
         v.removeEventListener('seeked', onSeeked)
-        // Restore original descriptor
-        delete (v as any).currentTime
       }
     }, [src])
 

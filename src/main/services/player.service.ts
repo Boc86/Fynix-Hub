@@ -45,10 +45,10 @@ function debug(...args: unknown[]) {
 
 /**
  * Determine if a URL is already browser-playable by hls.js or natively.
- * Returns true for .m3u8 (HLS), .mp4, .webm, .m4a, .mp3, and file:// URLs.
+ * Returns true for .m3u8 (HLS), .mp4, .webm, .m4a, .mp3.
  */
 function isBrowserPlayable(url: string): boolean {
-  return /\.(m3u8|mp4|webm|m4a|mp3|aac|ogg)(\?|$)/i.test(url) || /^file:/i.test(url)
+  return /\.(m3u8|mp4|webm|m4a|mp3|aac|ogg)(\?|$)/i.test(url)
 }
 
 /**
