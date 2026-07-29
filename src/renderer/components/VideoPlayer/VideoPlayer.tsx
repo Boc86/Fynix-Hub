@@ -7,11 +7,12 @@ import ErrorModal from '../ErrorModal/ErrorModal'
 import { VideoJsPlayer, type VideoJsPlayerHandle } from './VideoJsPlayer'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
 /** Imperative handle exposed by VideoPlayer via ref. */
 export interface VideoPlayerHandle {
   /** Save current progress without unmounting. */
   saveCurrentProgress: () => void
+  /** Returns true if playback was completed (video ended naturally). */
+  wasPlaybackCompleted: () => boolean
 }
 
 interface MediaInfo {
@@ -456,6 +457,7 @@ function VideoPlayerInner({
       onRetryStream()
     } else {
       exitedRef.current = true
+      window.api.log(`[VideoPlayer] Playback error: ${errorMsg}`, error)
       setDisplayError(errorMsg)
     }
   }, [isReconnectableStream, onRetryStream])

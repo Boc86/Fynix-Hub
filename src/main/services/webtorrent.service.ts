@@ -110,12 +110,16 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
 }
 
 export async function removeTorrent(infoHash: string) {
-  const c = await getClient()
-  const torrent = torrentMap.get(infoHash) || c.get(infoHash)
-  if (torrent) {
-    c.remove(infoHash)
-    torrentMap.delete(infoHash)
-    debug(`Removed torrent ${infoHash}`)
+  try {
+    const c = await getClient()
+    const torrent = torrentMap.get(infoHash) || c.get(infoHash)
+    if (torrent) {
+      c.remove(infoHash)
+      torrentMap.delete(infoHash)
+      debug(`Removed torrent ${infoHash}`)
+    }
+  } catch (err: any) {
+    console.error(`[WebTorrent] Failed to remove torrent ${infoHash}:`, err?.message)
   }
 }
 
