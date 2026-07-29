@@ -243,6 +243,15 @@ const api = {
     getAllSources: (forceRefresh?: boolean) => ipcRenderer.invoke('iptv-m3u:get-all-sources', forceRefresh),
     findChannel: (query: string) => ipcRenderer.invoke('iptv-m3u:find-channel', query)
   },
+  xtream: {
+    getPortals: () => ipcRenderer.invoke('xtream:get-portals'),
+    addPortal: (url: string, user: string, pass: string) =>
+      ipcRenderer.invoke('xtream:add-portal', url, user, pass),
+    removePortal: (url: string, user: string, pass: string) =>
+      ipcRenderer.invoke('xtream:remove-portal', url, user, pass),
+    importPortals: (portals: { url: string; user: string; pass: string }[]) =>
+      ipcRenderer.invoke('xtream:import-portals', portals),
+  },
   onDemand: {
     extractStream: (embedUrl: string) => ipcRenderer.invoke('ondemand:extract-stream', embedUrl)
   },
