@@ -426,22 +426,32 @@ export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
       ...(await NzbgetService.listGroups()),
       ...(await NzbgetService.history()),
     ]
+    console.log('[UDB] deleteUsenetByPath dir:', dir, 'candidates:', candidates.length)
     const match = candidates.find((c: any) => {
       const base = (c.FinalDir || c.DestDir || '').replace(/\/+$/, '')
-      return base && dir.startsWith(base)
+      const matched = base && dir.startsWith(base)
+      if (matched) console.log('[UDB] matched candidate NZBID=' + c.NZBID, 'base:', base)
+      return matched
     })
 
     if (match) {
       const nzbId = match.NZBID
+      console.log('[UDB] deleteUsenetByPath: deleting NZBID=' + nzbId, 'dir:', dir)
+      // Delete on disk FIRST — then clean up nzbget, NOT the other way around.
+      // deleteDownloadDirectory queries nzbget for FinalDir, so if we delete
+      // from nzbget first, it can't find the entry.
+      await fsPromises.rm(dir, { recursive: true, force: true }).catch((e: any) =>
+        console.warn('[UDB] failed to delete dir:', e?.message),
+      )
+      // Remove from nzbget queue + history
       await NzbgetService.deleteNzb(nzbId).catch(() => {})
       await NzbgetService.historyDelete(nzbId).catch(() => {})
-      await deleteDownloadDirectory(nzbId).catch(() => {})
       // also remove any active entry keyed by this NZBID
       for (const [k, v] of activeDownloads) {
         if (v.nzbId === nzbId) activeDownloads.delete(k)
       }
     } else {
-      // No nzbget entry — just delete the folder on disk.
+      console.log('[UDB] deleteUsenetByPath: no nzbget match for', dir, '— deleting folder only')
       await fsPromises.rm(dir, { recursive: true, force: true }).catch(() => {})
     }
     return true
