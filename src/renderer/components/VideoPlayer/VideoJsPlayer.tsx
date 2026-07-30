@@ -1042,17 +1042,28 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       const v = videoRef.current
       if (!v) return
       const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: duration=', v.duration, 'seekable=', v.seekable?.length) }
+      const onPlaying = () => {
+        console.log('[VideoJsPlayer] playing event: currentTime=', v.currentTime)
+        // Force 0 for fresh content — hls.js treats EVENT playlists as live
+        // and starts at the live edge instead of position 0
+        if (!shouldResume && v.currentTime > 0.5) {
+          console.log('[VideoJsPlayer] live-edge offset detected, seeking to 0')
+          v.currentTime = 0
+        }
+      }
       const onPlay = () => { console.log('[VideoJsPlayer] play event: currentTime=', v.currentTime) }
       const onSeeked = () => { console.log('[VideoJsPlayer] seeked event: currentTime=', v.currentTime) }
       v.addEventListener('loadedmetadata', onMeta)
+      v.addEventListener('playing', onPlaying)
       v.addEventListener('play', onPlay)
       v.addEventListener('seeked', onSeeked)
       return () => {
         v.removeEventListener('loadedmetadata', onMeta)
+        v.removeEventListener('playing', onPlaying)
         v.removeEventListener('play', onPlay)
         v.removeEventListener('seeked', onSeeked)
       }
-    }, [src])
+    }, [src, shouldResume])
 
     // ── Audio language preference ──────────────────────────────────────
     useEffect(() => {
