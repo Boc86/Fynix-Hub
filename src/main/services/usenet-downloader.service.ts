@@ -428,7 +428,7 @@ export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
     ]
     console.log('[UDB] deleteUsenetByPath dir:', dir, 'candidates:', candidates.length)
     const match = candidates.find((c: any) => {
-      const base = (c.FinalDir || c.DestDir || '').replace(/\/+$/, '')
+      const base = (c.FinalDir || c.DestDir || '').replace(/\/+$/, '').replace(/\/+/g, '/')
       const matched = base && dir.startsWith(base)
       if (matched) console.log('[UDB] matched candidate NZBID=' + c.NZBID, 'base:', base)
       return matched
