@@ -70,6 +70,7 @@ export default function App() {
   const [deletePromptOpen, setDeletePromptOpen] = useState<{
     infoHash?: string
     usenetId?: string
+    usenetPath?: string
     isCompleted: boolean
   } | null>(null)
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
@@ -787,6 +788,7 @@ export default function App() {
             if (cacheResults.length > 0) {
               const cached = cacheResults[0]
               if (cached.streamUrl) {
+                currentUsenetPathRef.current = cached.streamUrl
                 const audioLang = getAudioLang()
                 try {
                   await startPlayerUrl(cached.streamUrl)
@@ -923,6 +925,7 @@ export default function App() {
         )
         if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
           window.api.log(`[App] Auto-play Usenet: found in WebDAV cache: ${cacheResults[0].name}`)
+          currentUsenetPathRef.current = cacheResults[0].streamUrl
           const audioLang = getAudioLang()
           try {
             await startPlayerUrl(cacheResults[0].streamUrl)
@@ -997,6 +1000,7 @@ export default function App() {
               pi ? { title: result.title, type: pi.mediaType, season: pi.season, episode: pi.episode } : undefined,
             )
             if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
+              currentUsenetPathRef.current = cacheResults[0].streamUrl
               const audioLang = getAudioLang()
               try {
                 await startPlayerUrl(cacheResults[0].streamUrl)
@@ -1107,6 +1111,7 @@ export default function App() {
         )
         if (cacheResults.length > 0 && cacheResults[0].streamUrl) {
           window.api.log(`[App] Found in WebDAV cache, playing directly: ${cacheResults[0].name}`)
+          currentUsenetPathRef.current = cacheResults[0].streamUrl
           setPlayerLoading(true)
           setStreamUrl(undefined)
           setStreamError(null)
@@ -1295,6 +1300,23 @@ export default function App() {
         currentUsenetIdRef.current = null
       } else {
         setDeletePromptOpen({ usenetId: currentUsenetIdRef.current, isCompleted: false })
+        setStreamUrl(undefined)
+        setDlhdEmbedUrl(null)
+        resumePositionRef.current = undefined
+        setStreamError(null)
+        setPlayerInfo(undefined)
+        setPlayerLoading(false)
+        goBack()
+        return
+      }
+    }
+
+    if (currentUsenetPathRef.current) {
+      if (isCompleted) {
+        window.api.usenet.deleteByPath(currentUsenetPathRef.current).catch(() => {})
+        currentUsenetPathRef.current = null
+      } else {
+        setDeletePromptOpen({ usenetPath: currentUsenetPathRef.current, isCompleted: false })
         setStreamUrl(undefined)
         setDlhdEmbedUrl(null)
         resumePositionRef.current = undefined
@@ -1868,6 +1890,9 @@ export default function App() {
                 }
                 if (deletePromptOpen.usenetId) {
                   window.api.usenet.removeDownload(deletePromptOpen.usenetId).catch(() => {})
+                }
+                if (deletePromptOpen.usenetPath) {
+                  window.api.usenet.deleteByPath(deletePromptOpen.usenetPath).catch(() => {})
                 }
                 setDeletePromptOpen(null)
               }}

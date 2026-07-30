@@ -130,11 +130,11 @@ export async function history(limit = 100): Promise<NzbgetHistory[]> {
 }
 
 export async function historyDelete(nzbId: number): Promise<void> {
-  await jsonRpcCall('editqueue', ['HistoryDelete', 0, [nzbId]])
+  await jsonRpcCall('editqueue', ['HistoryDelete', 0, [{ id: nzbId }]])
 }
 
 export async function deleteNzb(nzbId: number): Promise<void> {
-  await jsonRpcCall('editqueue', ['GroupDelete', 0, [nzbId]])
+  await jsonRpcCall('editqueue', ['GroupDelete', 0, [{ id: nzbId }]])
 }
 
 export async function getStatus(): Promise<NzbgetStatus> {
