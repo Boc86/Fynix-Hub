@@ -237,7 +237,6 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
   ) {
     const videoRef = useRef<HTMLVideoElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
-    const startTimeSeekedRef = useRef(false)
 
     // ── Debug: log src changes and video element events ─────
     useEffect(() => {
@@ -1024,7 +1023,20 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       },
     }), [refreshTracks])
 
-    useEffect(() => { startTimeSeekedRef.current = false }, [src])
+    // ── Seek to start time on resume ─────────────────────────────────
+    useEffect(() => {
+      const video = videoRef.current
+      if (!video || !shouldResume || startTime <= 0) return
+      console.log('[VideoJsPlayer] resume: seeking to', startTime)
+      const onLoaded = () => {
+        video.currentTime = startTime
+      }
+      video.addEventListener('loadedmetadata', onLoaded, { once: true })
+      if (video.readyState >= 1) {
+        video.currentTime = startTime
+      }
+      return () => video.removeEventListener('loadedmetadata', onLoaded)
+    }, [startTime, src, shouldResume])
 
     useEffect(() => {
       const v = videoRef.current
