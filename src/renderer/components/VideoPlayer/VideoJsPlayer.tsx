@@ -4,8 +4,9 @@ import React, {
 import { createPlayer } from '@videojs/react'
 import { videoFeatures } from '@videojs/react/video'
 import { HlsJsVideo } from '@videojs/react/media/hlsjs-video'
-import { Container } from '@videojs/react'
+import { Container, useMedia } from '@videojs/react'
 import styles from './VideoPlayer.module.css'
+import Hls from 'hls.js'
 
 // ─── Stub Google Cast to prevent Cast SDK script load in Electron ────────────
 if (!(globalThis as any).chrome?.cast) {
@@ -208,6 +209,42 @@ const AspectIcon = () => (
 // ─── OSD auto-hide ───────────────────────────────────────────────────────────
 const OSD_HIDE_DELAY = 5000 // 5s when OSD is open (longer than before for navigation)
 
+// ─── Inner helper: capture hls.js engine and force startLoad(0) ───────────
+// Fixed outside forwardRef to avoid re-creating on every render.
+function HlsStartFix({
+  shouldResume,
+  onEngine,
+}: {
+  shouldResume: boolean
+  onEngine: (engine: any) => void
+}) {
+  const media = useMedia()
+  const engine = (media as any)?.engine ?? null
+
+  useEffect(() => {
+    if (!engine) return
+    onEngine(engine)
+    if (shouldResume) return
+
+    // Call startLoad(0) immediately to override the preload mixin's startLoad(-1)
+    // that triggers live-edge logic for EVENT-type playlists.
+    console.log('[VideoJsPlayer] HLS engine ready, forcing startLoad(0)')
+    engine.startLoad(0)
+
+    // Also listen for subsequent re-loads (e.g. on audio track switch).
+    const onManifestLoaded = () => {
+      console.log('[VideoJsPlayer] HLS manifest re-loaded, forcing startLoad(0)')
+      engine.startLoad(0)
+    }
+    engine.on(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
+    return () => {
+      engine.off(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
+    }
+  }, [engine, shouldResume, onEngine])
+
+  return null
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>(
   function VideoJsPlayer(
@@ -237,6 +274,10 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
   ) {
     const videoRef = useRef<HTMLVideoElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
+    const hlsEngineRef = useRef<any>(null)
+    const handleEngine = useCallback((engine: any) => {
+      hlsEngineRef.current = engine
+    }, [])
 
     // ── Debug: log src changes and video element events ─────
     useEffect(() => {
@@ -1042,28 +1083,17 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       const v = videoRef.current
       if (!v) return
       const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: duration=', v.duration, 'seekable=', v.seekable?.length) }
-      const onPlaying = () => {
-        console.log('[VideoJsPlayer] playing event: currentTime=', v.currentTime)
-        // Force 0 for fresh content — hls.js treats EVENT playlists as live
-        // and starts at the live edge instead of position 0
-        if (!shouldResume && v.currentTime > 0.5) {
-          console.log('[VideoJsPlayer] live-edge offset detected, seeking to 0')
-          v.currentTime = 0
-        }
-      }
       const onPlay = () => { console.log('[VideoJsPlayer] play event: currentTime=', v.currentTime) }
       const onSeeked = () => { console.log('[VideoJsPlayer] seeked event: currentTime=', v.currentTime) }
       v.addEventListener('loadedmetadata', onMeta)
-      v.addEventListener('playing', onPlaying)
       v.addEventListener('play', onPlay)
       v.addEventListener('seeked', onSeeked)
       return () => {
         v.removeEventListener('loadedmetadata', onMeta)
-        v.removeEventListener('playing', onPlaying)
         v.removeEventListener('play', onPlay)
         v.removeEventListener('seeked', onSeeked)
       }
-    }, [src, shouldResume])
+    }, [src])
 
     // ── Audio language preference ──────────────────────────────────────
     useEffect(() => {
@@ -1110,6 +1140,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       >
         {/* ── Video element ─────────────────────────────────────── */}
         <Player.Provider>
+          <HlsStartFix shouldResume={shouldResume} onEngine={handleEngine} />
           <Container className={styles.videoContainer}>
             <HlsJsVideo
               key={`${src}-${shouldResume ? 'resume' : 'reset'}`}
