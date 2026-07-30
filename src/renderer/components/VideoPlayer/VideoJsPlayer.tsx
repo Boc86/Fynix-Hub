@@ -210,7 +210,6 @@ const AspectIcon = () => (
 const OSD_HIDE_DELAY = 5000 // 5s when OSD is open (longer than before for navigation)
 
 // ─── Inner helper: capture hls.js engine and force startLoad(0) ───────────
-// Fixed outside forwardRef to avoid re-creating on every render.
 function HlsStartFix({
   shouldResume,
   onEngine,
@@ -220,29 +219,85 @@ function HlsStartFix({
 }) {
   const media = useMedia()
   const engine = (media as any)?.engine ?? null
+  const tick = useRef(0)
+  tick.current++
+  const id = useRef(Math.random().toString(36).slice(2, 6)).current
 
+  console.log(`[HlsStartFix:${id}] RENDER #${tick.current} shouldResume=${shouldResume} media=${typeof media} engine=${typeof engine}`)
+
+  // ── Poll for engine if not immediately available ────────────────
   useEffect(() => {
-    if (!engine) return
+    console.log(`[HlsStartFix:${id}] EFFECT engine=${typeof engine} shouldResume=${shouldResume}`)
+    if (!engine) {
+      console.log(`[HlsStartFix:${id}] no engine yet, will retry`)
+      return
+    }
     onEngine(engine)
-    if (shouldResume) return
+    if (shouldResume) {
+      console.log(`[HlsStartFix:${id}] resume mode, not overriding startPosition`)
+      return
+    }
 
-    // Call startLoad(0) immediately to override the preload mixin's startLoad(-1)
-    // that triggers live-edge logic for EVENT-type playlists.
-    console.log('[VideoJsPlayer] HLS engine ready, forcing startLoad(0)')
-    engine.startLoad(0)
+    // Log current engine state
+    try {
+      console.log(`[HlsStartFix:${id}] hls state:`, engine.state, 'startPosition:', engine.startPosition, 'levels:', engine.levels?.length ?? 0, 'url:', engine.url?.slice(0, 60))
+    } catch (e) {
+      console.log(`[HlsStartFix:${id}] error reading engine state:`, e)
+    }
 
-    // Also listen for subsequent re-loads (e.g. on audio track switch).
+    // Force startLoad(0) — this overrides the preload mixin's startLoad(-1)
+    console.log(`[HlsStartFix:${id}] calling engine.startLoad(0)`)
+    try {
+      engine.startLoad(0)
+      console.log(`[HlsStartFix:${id}] startLoad(0) completed, startPosition now:`, engine.startPosition)
+    } catch (e) {
+      console.log(`[HlsStartFix:${id}] startLoad(0) failed:`, e)
+    }
+
+    // Also intercept MANIFEST_LOADED for re-loads
     const onManifestLoaded = () => {
-      console.log('[VideoJsPlayer] HLS manifest re-loaded, forcing startLoad(0)')
+      console.log(`[HlsStartFix:${id}] MANIFEST_LOADED, startPosition:`, engine.startPosition, 'forcing startLoad(0)')
       engine.startLoad(0)
     }
     engine.on(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
     return () => {
+      console.log(`[HlsStartFix:${id}] cleanup`)
       engine.off(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
     }
-  }, [engine, shouldResume, onEngine])
+  }, [engine, shouldResume, onEngine, id])
 
   return null
+}
+
+// ─── Seek fallback: directly observe video element currentTime ─────────
+function usePlaybackStartFix(videoRef: React.RefObject<HTMLVideoElement | null>, src: string, shouldResume: boolean) {
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || shouldResume) return
+    console.log(`[PlaybackStartFix] mounted for src=${src?.slice(0, 60)}`)
+
+    // Approach 1: Observe hls.js on the video element's custom-element API
+    // The @videojs/react HlsJsVideo renders a <video>; hls.js is attached via
+    // media.engine which attaches to the video. Check if any hls-like property exists.
+    const hlsKeys = Object.keys(v).filter(k => k.toLowerCase().includes('hls') || k.toLowerCase().includes('engine'))
+    console.log(`[PlaybackStartFix] video element hls-like keys:`, hlsKeys)
+
+    // Approach 2: Check for __reactFiber to walk up to the media instance
+    const fiberKeys = Object.keys(v).filter(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'))
+    console.log(`[PlaybackStartFix] video element fiber keys:`, fiberKeys)
+
+    // Approach 3: Listen for seekable/currentTime changes
+    let checkCount = 0
+    const check = setInterval(() => {
+      const ct = v.currentTime
+      const dur = v.duration
+      const sk = v.seekable?.length ?? 0
+      console.log(`[PlaybackStartFix] check #${++checkCount} currentTime=${ct.toFixed(1)} duration=${dur.toFixed(1)} seekable=${sk} readyState=${v.readyState}`)
+      if (checkCount >= 20) clearInterval(check)
+    }, 500)
+
+    return () => { clearInterval(check) }
+  }, [src, shouldResume])
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -283,6 +338,9 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
     useEffect(() => {
       console.log('[VideoJsPlayer] src changed:', src?.slice(0, 120))
     }, [src])
+
+    // ── Debug: trace start position for fresh content ─────────────────
+    usePlaybackStartFix(videoRef, src, shouldResume)
 
     // ── Fetch chapters when src changes ──────────────────────────────
     useEffect(() => {
