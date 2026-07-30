@@ -1110,7 +1110,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         <Player.Provider>
           <Container className={styles.videoContainer}>
             <HlsJsVideo
-              key={src}
+              key={`${src}-${shouldResume ? 'resume' : 'reset'}`}
               ref={videoRef}
               className={styles.video}
               src={src}
@@ -1178,9 +1178,9 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
                 onMouseDown={handleScrubDown}
               >
                 <div className={styles.scrubTrack}>
-                  <div className={styles.scrubBuffer} style={{ width: `${bufferProgress}%` }} />
-                  <div className={styles.scrubFilled} style={{ width: `${progress}%` }} />
-                  <div className={styles.scrubThumb} style={{ left: `${progress}%` }} />
+                  <div className={styles.scrubBuffer} style={{ width: bufferProgress + '%' }} />
+                  <div className={styles.scrubFilled} style={{ width: progress + '%' }} />
+                  <div className={styles.scrubThumb} style={{ left: progress + '%' }} />
                 </div>
                 <div className={styles.scrubTimeRow}>
                   <span className={styles.scrubTimeLabel}>{formatTime(currentTime)}</span>
