@@ -15,7 +15,7 @@ import EPG from './components/EPG/EPG'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
-import Prompt from './components/Prompt/Prompt'
+import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
@@ -67,6 +67,11 @@ export default function App() {
   const [updatePercent, setUpdatePercent] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [genreType, setGenreType] = useState<'movie' | 'tv' | undefined>()
+  const [deletePromptOpen, setDeletePromptOpen] = useState<{
+    infoHash?: string
+    usenetId?: string
+    isCompleted: boolean
+  } | null>(null)
   const autoPlayResultsRef = useRef<TorrentResult[]>([])
   const autoPlayIndexRef = useRef(0)
   const autoPlayUsenetRef = useRef<UsenetResult[]>([])
@@ -296,21 +301,7 @@ export default function App() {
     }
   }, [playerInfo?.resumePosition])
 
-  // Clean up torrent/usenet when leaving player view
-  useEffect(() => {
-    if (view !== 'player') {
-      window.api.player.stop().catch(() => {})
-      if (currentInfoHashRef.current) {
-        window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
-        currentInfoHashRef.current = null
-      }
-      if (currentUsenetIdRef.current) {
-        window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
-        currentUsenetIdRef.current = null
-      }
-      currentUsenetPathRef.current = null
-    }
-  }, [view])
+
 
   // Centralized focus management: save activeElement when a modal opens,
   // restore it when all modals close.  Saving is done here only as a
@@ -1275,11 +1266,46 @@ export default function App() {
     videoPlayerRef.current?.saveCurrentProgress()
     window.api.player.stop().catch(() => {})
     autoPlayResultsRef.current = []
+
+    const isCompleted = videoPlayerRef.current?.wasPlaybackCompleted() ?? false
+
     if (currentInfoHashRef.current) {
-      window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
+      if (isCompleted) {
+        // Fully watched — auto-delete
+        window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
+        currentInfoHashRef.current = null
+      } else {
+        // Not fully watched — ask user
+        setDeletePromptOpen({ infoHash: currentInfoHashRef.current, isCompleted: false })
+        // Don't clear the ref yet — wait for user response
+        setStreamUrl(undefined)
+        setDlhdEmbedUrl(null)
+        resumePositionRef.current = undefined
+        setStreamError(null)
+        setPlayerInfo(undefined)
+        setPlayerLoading(false)
+        goBack()
+        return
+      }
     }
-    currentInfoHashRef.current = null
-    currentUsenetIdRef.current = null
+
+    if (currentUsenetIdRef.current) {
+      if (isCompleted) {
+        window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
+        currentUsenetIdRef.current = null
+      } else {
+        setDeletePromptOpen({ usenetId: currentUsenetIdRef.current, isCompleted: false })
+        setStreamUrl(undefined)
+        setDlhdEmbedUrl(null)
+        resumePositionRef.current = undefined
+        setStreamError(null)
+        setPlayerInfo(undefined)
+        setPlayerLoading(false)
+        goBack()
+        return
+      }
+    }
+
     currentUsenetPathRef.current = null
     setStreamUrl(undefined)
     setDlhdEmbedUrl(null)
@@ -1825,6 +1851,33 @@ export default function App() {
             onClose={() => { setFreeSearchOpen(false); setFreeSearchQuery(''); setTorrentResults([]); setTorrentCachedMap({}); setTorrentSearchOpen(false); setUsenetResults([]) }}
           />
         )}
+        {deletePromptOpen && (() => {
+          const isTorrent = !!deletePromptOpen.infoHash
+          const label = isTorrent ? 'torrent' : 'usenet download'
+          return (
+            <Confirm
+              title={`Delete ${label}?`}
+              message={deletePromptOpen.isCompleted
+                ? `You've finished watching. The ${label} will be deleted.`
+                : `You exited before finishing. Delete the ${label} to free disk space?`}
+              confirmLabel="Delete"
+              destructive
+              onConfirm={() => {
+                if (deletePromptOpen.infoHash) {
+                  window.api.torrent.removeTorrent(deletePromptOpen.infoHash).catch(() => {})
+                }
+                if (deletePromptOpen.usenetId) {
+                  window.api.usenet.removeDownload(deletePromptOpen.usenetId).catch(() => {})
+                }
+                setDeletePromptOpen(null)
+              }}
+              onCancel={() => {
+                // Keep the file — just clear refs
+                setDeletePromptOpen(null)
+              }}
+            />
+          )
+        })()}
     </Layout>
   )
 }

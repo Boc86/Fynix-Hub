@@ -357,6 +357,31 @@ export function shutdown(): void {
   sessions.clear()
 }
 
+/** Kill all sessions and remove all temp files. Called on playback exit. */
+export function clearAllSessions(): void {
+  debug('Clearing all sessions and temp files')
+  for (const [id] of sessions) {
+    cleanupSession(id)
+  }
+  sessions.clear()
+  // Also clean up any orphaned session dirs
+  try {
+    if (fs.existsSync(REMUX_BASE)) {
+      const entries = fs.readdirSync(REMUX_BASE)
+      for (const entry of entries) {
+        const entryPath = path.join(REMUX_BASE, entry)
+        try {
+          fs.rmSync(entryPath, { recursive: true, force: true })
+        } catch (e: any) {
+          debug('Failed to remove orphaned session dir:', entry, e?.message)
+        }
+      }
+    }
+  } catch (e: any) {
+    debug('Failed to clean remux base dir:', e?.message)
+  }
+}
+
 // ─── Request Handling ────────────────────────────────────────────────────────
 
 /**

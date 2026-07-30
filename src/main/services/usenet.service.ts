@@ -85,7 +85,12 @@ export async function listDownloads(): Promise<any[]> {
 
 export async function removeDownload(id: string): Promise<boolean> {
   ACTIVE_DOWNLOADS.delete(id)
-  return downloaderRemoveDownload(id)
+  try {
+    return await downloaderRemoveDownload(id)
+  } catch (err: any) {
+    console.error(`[Usenet] Failed to remove download ${id}:`, err?.message)
+    throw err
+  }
 }
 
 export async function checkConnection(): Promise<{ connected: boolean; error?: string }> {

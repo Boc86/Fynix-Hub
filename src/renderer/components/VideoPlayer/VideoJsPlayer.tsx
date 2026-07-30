@@ -4,8 +4,9 @@ import React, {
 import { createPlayer } from '@videojs/react'
 import { videoFeatures } from '@videojs/react/video'
 import { HlsJsVideo } from '@videojs/react/media/hlsjs-video'
-import { Container } from '@videojs/react'
+import { Container, useMedia } from '@videojs/react'
 import styles from './VideoPlayer.module.css'
+import Hls from 'hls.js'
 
 // ─── Stub Google Cast to prevent Cast SDK script load in Electron ────────────
 if (!(globalThis as any).chrome?.cast) {
@@ -208,6 +209,97 @@ const AspectIcon = () => (
 // ─── OSD auto-hide ───────────────────────────────────────────────────────────
 const OSD_HIDE_DELAY = 5000 // 5s when OSD is open (longer than before for navigation)
 
+// ─── Inner helper: capture hls.js engine and force startLoad(0) ───────────
+function HlsStartFix({
+  shouldResume,
+  onEngine,
+}: {
+  shouldResume: boolean
+  onEngine: (engine: any) => void
+}) {
+  const media = useMedia()
+  const engine = (media as any)?.engine ?? null
+  const tick = useRef(0)
+  tick.current++
+  const id = useRef(Math.random().toString(36).slice(2, 6)).current
+
+  console.log(`[HlsStartFix:${id}] RENDER #${tick.current} shouldResume=${shouldResume} media=${typeof media} engine=${typeof engine}`)
+
+  // ── Poll for engine if not immediately available ────────────────
+  useEffect(() => {
+    console.log(`[HlsStartFix:${id}] EFFECT engine=${typeof engine} shouldResume=${shouldResume}`)
+    if (!engine) {
+      console.log(`[HlsStartFix:${id}] no engine yet, will retry`)
+      return
+    }
+    onEngine(engine)
+    if (shouldResume) {
+      console.log(`[HlsStartFix:${id}] resume mode, not overriding startPosition`)
+      return
+    }
+
+    // Log current engine state
+    try {
+      console.log(`[HlsStartFix:${id}] hls state:`, engine.state, 'startPosition:', engine.startPosition, 'levels:', engine.levels?.length ?? 0, 'url:', engine.url?.slice(0, 60))
+    } catch (e) {
+      console.log(`[HlsStartFix:${id}] error reading engine state:`, e)
+    }
+
+    // Force startLoad(0) — this overrides the preload mixin's startLoad(-1)
+    console.log(`[HlsStartFix:${id}] calling engine.startLoad(0)`)
+    try {
+      engine.startLoad(0)
+      console.log(`[HlsStartFix:${id}] startLoad(0) completed, startPosition now:`, engine.startPosition)
+    } catch (e) {
+      console.log(`[HlsStartFix:${id}] startLoad(0) failed:`, e)
+    }
+
+    // Also intercept MANIFEST_LOADED for re-loads
+    const onManifestLoaded = () => {
+      console.log(`[HlsStartFix:${id}] MANIFEST_LOADED, startPosition:`, engine.startPosition, 'forcing startLoad(0)')
+      engine.startLoad(0)
+    }
+    engine.on(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
+    return () => {
+      console.log(`[HlsStartFix:${id}] cleanup`)
+      engine.off(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
+    }
+  }, [engine, shouldResume, onEngine, id])
+
+  return null
+}
+
+// ─── Seek fallback: directly observe video element currentTime ─────────
+function usePlaybackStartFix(videoRef: React.RefObject<HTMLVideoElement | null>, src: string, shouldResume: boolean) {
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || shouldResume) return
+    console.log(`[PlaybackStartFix] mounted for src=${src?.slice(0, 60)}`)
+
+    // Approach 1: Observe hls.js on the video element's custom-element API
+    // The @videojs/react HlsJsVideo renders a <video>; hls.js is attached via
+    // media.engine which attaches to the video. Check if any hls-like property exists.
+    const hlsKeys = Object.keys(v).filter(k => k.toLowerCase().includes('hls') || k.toLowerCase().includes('engine'))
+    console.log(`[PlaybackStartFix] video element hls-like keys:`, hlsKeys)
+
+    // Approach 2: Check for __reactFiber to walk up to the media instance
+    const fiberKeys = Object.keys(v).filter(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'))
+    console.log(`[PlaybackStartFix] video element fiber keys:`, fiberKeys)
+
+    // Approach 3: Listen for seekable/currentTime changes
+    let checkCount = 0
+    const check = setInterval(() => {
+      const ct = v.currentTime
+      const dur = v.duration
+      const sk = v.seekable?.length ?? 0
+      console.log(`[PlaybackStartFix] check #${++checkCount} currentTime=${ct.toFixed(1)} duration=${dur.toFixed(1)} seekable=${sk} readyState=${v.readyState}`)
+      if (checkCount >= 20) clearInterval(check)
+    }, 500)
+
+    return () => { clearInterval(check) }
+  }, [src, shouldResume])
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>(
   function VideoJsPlayer(
@@ -237,12 +329,18 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
   ) {
     const videoRef = useRef<HTMLVideoElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
-    const startTimeSeekedRef = useRef(false)
+    const hlsEngineRef = useRef<any>(null)
+    const handleEngine = useCallback((engine: any) => {
+      hlsEngineRef.current = engine
+    }, [])
 
     // ── Debug: log src changes and video element events ─────
     useEffect(() => {
       console.log('[VideoJsPlayer] src changed:', src?.slice(0, 120))
     }, [src])
+
+    // ── Debug: trace start position for fresh content ─────────────────
+    usePlaybackStartFix(videoRef, src, shouldResume)
 
     // ── Fetch chapters when src changes ──────────────────────────────
     useEffect(() => {
@@ -292,7 +390,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         clearInterval(pollTimer)
         v.removeEventListener('error', logError)
       }
-    }, [])
+    }, [onError])
     // ── OSD state ──────────────────────────────────────────────────────
     const [osdOpen, setOsdOpen] = useState(false)
     const [osdRow, setOsdRow] = useState(0) // 0 = scrub bar, 1 = buttons
@@ -1024,52 +1122,25 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       },
     }), [refreshTracks])
 
-    // ── Seek to resume position ────────────────────────────────────────
+    // ── Seek to start time on resume ─────────────────────────────────
     useEffect(() => {
       const video = videoRef.current
-      console.log('[VideoJsPlayer] resume effect: startTime=', startTime, 'shouldResume=', shouldResume, 'startTimeSeekedRef=', startTimeSeekedRef.current)
-      if (!video || startTime <= 0 || startTimeSeekedRef.current || !shouldResume) {
-        console.log('[VideoJsPlayer] resume effect: skipping (startTime <= 0 or !shouldResume or already seeked)')
-        return
-      }
+      if (!video || !shouldResume || startTime <= 0) return
+      console.log('[VideoJsPlayer] resume: seeking to', startTime)
       const onLoaded = () => {
-        if (startTimeSeekedRef.current) return
-        startTimeSeekedRef.current = true
         video.currentTime = startTime
       }
       video.addEventListener('loadedmetadata', onLoaded, { once: true })
       if (video.readyState >= 1) {
-        startTimeSeekedRef.current = true
         video.currentTime = startTime
       }
       return () => video.removeEventListener('loadedmetadata', onLoaded)
     }, [startTime, src, shouldResume])
 
-    useEffect(() => { startTimeSeekedRef.current = false }, [src])
-
-    // ── Debug: intercept any currentTime set to catch resume seek source ─
     useEffect(() => {
       const v = videoRef.current
       if (!v) return
-
-      console.log('[VideoJsPlayer] video element currentTime at mount:', v.currentTime)
-
-      const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'currentTime')
-      // Override on the instance
-      let _ct = v.currentTime
-      Object.defineProperty(v, 'currentTime', {
-        get: () => _ct,
-        set: (val) => {
-          if (val > 1) {
-            console.log('[VideoJsPlayer] ⛔ currentTime set to', val, '— stack:', new Error().stack?.split('\n').slice(2, 6).map(l => l.trim()).join(' | '))
-          }
-          _ct = val
-          originalDescriptor?.set?.call(v, val)
-        },
-        configurable: true,
-      })
-
-      const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: currentTime=', v.currentTime, 'duration=', v.duration, 'seekable=', v.seekable?.length) }
+      const onMeta = () => { console.log('[VideoJsPlayer] loadedmetadata: duration=', v.duration, 'seekable=', v.seekable?.length) }
       const onPlay = () => { console.log('[VideoJsPlayer] play event: currentTime=', v.currentTime) }
       const onSeeked = () => { console.log('[VideoJsPlayer] seeked event: currentTime=', v.currentTime) }
       v.addEventListener('loadedmetadata', onMeta)
@@ -1079,8 +1150,6 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         v.removeEventListener('loadedmetadata', onMeta)
         v.removeEventListener('play', onPlay)
         v.removeEventListener('seeked', onSeeked)
-        // Restore original descriptor
-        delete (v as any).currentTime
       }
     }, [src])
 
@@ -1129,9 +1198,10 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       >
         {/* ── Video element ─────────────────────────────────────── */}
         <Player.Provider>
+          <HlsStartFix shouldResume={shouldResume} onEngine={handleEngine} />
           <Container className={styles.videoContainer}>
             <HlsJsVideo
-              key={src}
+              key={`${src}-${shouldResume ? 'resume' : 'reset'}`}
               ref={videoRef}
               className={styles.video}
               src={src}
@@ -1199,9 +1269,9 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
                 onMouseDown={handleScrubDown}
               >
                 <div className={styles.scrubTrack}>
-                  <div className={styles.scrubBuffer} style={{ width: `${bufferProgress}%` }} />
-                  <div className={styles.scrubFilled} style={{ width: `${progress}%` }} />
-                  <div className={styles.scrubThumb} style={{ left: `${progress}%` }} />
+                  <div className={styles.scrubBuffer} style={{ width: bufferProgress + '%' }} />
+                  <div className={styles.scrubFilled} style={{ width: progress + '%' }} />
+                  <div className={styles.scrubThumb} style={{ left: progress + '%' }} />
                 </div>
                 <div className={styles.scrubTimeRow}>
                   <span className={styles.scrubTimeLabel}>{formatTime(currentTime)}</span>

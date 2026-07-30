@@ -7,11 +7,12 @@ import ErrorModal from '../ErrorModal/ErrorModal'
 import { VideoJsPlayer, type VideoJsPlayerHandle } from './VideoJsPlayer'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
 /** Imperative handle exposed by VideoPlayer via ref. */
 export interface VideoPlayerHandle {
   /** Save current progress without unmounting. */
   saveCurrentProgress: () => void
+  /** Returns true if playback was completed (video ended naturally). */
+  wasPlaybackCompleted: () => boolean
 }
 
 interface MediaInfo {
@@ -43,6 +44,8 @@ interface VideoPlayerProps {
   clearlogoUrl?: string | null
   audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
   isRemux?: boolean
+  /** Called when playback ends naturally (video finished). */
+  onPlaybackComplete?: () => void
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -92,6 +95,7 @@ function VideoPlayerInner({
   clearlogoUrl,
   audioTracks,
   isRemux,
+  onPlaybackComplete,
 }, ref) {
   const videoJsRef = useRef<VideoJsPlayerHandle>(null)
   const scrobbleThrottle = useRef(0)
@@ -106,6 +110,7 @@ function VideoPlayerInner({
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
   const retryCountRef = useRef(0)
+  const playbackCompletedRef = useRef(false)
   const [displayError, setDisplayError] = useState<string | null>(null)
 
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
@@ -199,7 +204,8 @@ function VideoPlayerInner({
       saveProgress()
       scrobble('stop').catch(() => {})
     },
-  }), [saveProgress, scrobble])
+    wasPlaybackCompleted: () => playbackCompletedRef.current,
+  }), [saveProgress, scrobble, playbackCompletedRef])
 
   // ── Subtitle search ────────────────────────────────────────────────────
 
@@ -392,12 +398,6 @@ function VideoPlayerInner({
       // Up-next is handled by the React overlay — just trigger it once.
       // The state is managed by the parent (App.tsx) via hasNextEpisode.
     }
-
-    // ── End-of-playback detection ─────────────────────────────────────
-    if (mediaInfo && !exitedRef.current && d > 0 && time > 0 && d - time <= 2.5) {
-      exitedRef.current = true
-      finishPlayback(!!(mediaInfo.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
-    }
   }, [mediaInfo, hasNextEpisode, segments, saveProgress, scrobble, finishPlayback])
 
   const handlePlay = useCallback(() => {
@@ -421,8 +421,10 @@ function VideoPlayerInner({
   const handleEnded = useCallback(() => {
     if (exitedRef.current) return
     exitedRef.current = true
+    playbackCompletedRef.current = true
+    onPlaybackComplete?.()
     finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
-  }, [mediaInfo, hasNextEpisode, finishPlayback])
+  }, [mediaInfo, hasNextEpisode, finishPlayback, onPlaybackComplete])
 
   const handleError = useCallback((error?: MediaError | Error) => {
     if (exitedRef.current) return
@@ -449,6 +451,7 @@ function VideoPlayerInner({
       onRetryStream()
     } else {
       exitedRef.current = true
+      window.api.log(`[VideoPlayer] Playback error: ${errorMsg}`, error)
       setDisplayError(errorMsg)
     }
   }, [isReconnectableStream, onRetryStream])
