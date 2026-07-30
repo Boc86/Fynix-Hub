@@ -1024,27 +1024,6 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       },
     }), [refreshTracks])
 
-    // ── Seek to resume position ────────────────────────────────────────
-    useEffect(() => {
-      const video = videoRef.current
-      console.log('[VideoJsPlayer] resume effect: startTime=', startTime, 'shouldResume=', shouldResume, 'startTimeSeekedRef=', startTimeSeekedRef.current)
-      if (!video || startTime <= 0 || startTimeSeekedRef.current || !shouldResume) {
-        console.log('[VideoJsPlayer] resume effect: skipping (startTime <= 0 or !shouldResume or already seeked)')
-        return
-      }
-      const onLoaded = () => {
-        if (startTimeSeekedRef.current) return
-        startTimeSeekedRef.current = true
-        video.currentTime = startTime
-      }
-      video.addEventListener('loadedmetadata', onLoaded, { once: true })
-      if (video.readyState >= 1) {
-        startTimeSeekedRef.current = true
-        video.currentTime = startTime
-      }
-      return () => video.removeEventListener('loadedmetadata', onLoaded)
-    }, [startTime, src, shouldResume])
-
     useEffect(() => { startTimeSeekedRef.current = false }, [src])
 
     useEffect(() => {
