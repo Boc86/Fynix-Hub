@@ -316,10 +316,9 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     const key = `${ch.liveTvChannelId}:${programme.start}`
     setRecordMsg(null)
     try {
-      // Build source candidates. Order matters: try M3U sources first
-      // (stable direct HTTP URLs FFmpeg can fetch), then CDN types which are
-      // resolved fresh at record time. CDNLive uses P2P HLS that FFmpeg can't
-      // fetch directly, so M3U is the preferred recordable source.
+      // Only M3U sources are recordable — CDNLive/OnDemand/DLHD use P2P HLS
+      // whose tokens are consumed by the browser tracker and expire too fast
+      // for FFmpeg to grab. M3U URLs are stable direct HTTP streams.
       const m3uSources: { type: 'm3u'; url: string }[] = []
       const iptvApi = window.api.iptvM3u
       if (iptvApi) {
@@ -329,17 +328,9 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         }
       }
 
-      const sources: { type: 'cdnlive' | 'ondemand' | 'dlhd' | 'm3u'; url?: string }[] = [
-        ...m3uSources,
-        { type: 'cdnlive' },
-        { type: 'ondemand' },
-        { type: 'dlhd' },
-      ]
-
-      const cdnLiveOnly = m3uSources.length === 0
-      if (cdnLiveOnly) {
+      if (m3uSources.length === 0) {
         setRecordMsg({
-          text: `Cannot record ${ch.liveTvName}: CDNLive uses P2P streams. Add an M3U source in Settings to enable recording.`,
+          text: `Cannot record ${ch.liveTvName}: no M3U source found. Add one in Settings → IPTV/M3U.`,
           error: true,
         })
         setTimeout(() => setRecordMsg(null), 6000)
@@ -357,7 +348,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           countryCode: ch.liveTvCountryCode,
           playerUrl: ch.liveTvPlayerUrl,
         },
-        sources,
+        sources: m3uSources,
       })
 
       setRecordedKeys(prev => new Set(prev).add(key))
