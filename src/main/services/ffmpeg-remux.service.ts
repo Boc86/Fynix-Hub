@@ -36,6 +36,10 @@ interface RemuxSession {
   lastError: string | null
   /** Collects stderr lines for error reporting. */
   stderrBuffer: string[]
+  /** File size at open time (file:// inputs only) — used to detect growth. */
+  openedBytes: number
+  /** If this session was restarted into a new one, that new session's id. */
+  restartedInto?: string
 }
 
 interface RemuxRequest {
@@ -179,6 +183,29 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
   return args
 }
 
+/**
+ * Parse the last `time=HH:MM:SS.MS` line from FFmpeg stderr and return
+ * the duration in seconds. Used to find the playback position when we
+ * restart FFmpeg against a growing local file.
+ */
+function parseLastDuration(stderrLines: string[]): number | null {
+  let lastTime: number | null = null
+  // Match either "time=HH:MM:SS.MS" (HH up to 99 hours, MM/SS 2 digits, MS up to 6 digits)
+  // or "Duration: HH:MM:SS.MS" — prefer "time=" (the running clock, not the input duration)
+  const re = /time=(\d{1,3}):(\d{2}):(\d{2})(?:\.(\d+))?/
+  for (const line of stderrLines) {
+    const m = re.exec(line)
+    if (m) {
+      const h = parseInt(m[1], 10)
+      const mm = parseInt(m[2], 10)
+      const ss = parseInt(m[3], 10)
+      const ms = m[4] ? parseFloat('0.' + m[4]) : 0
+      lastTime = h * 3600 + mm * 60 + ss + ms
+    }
+  }
+  return lastTime
+}
+
 /** Probe the input file to detect HEVC video codec. */
 function probeIsHevc(inputUrl: string): boolean {
   try {
@@ -251,6 +278,7 @@ function probeIsHevc(inputUrl: string): boolean {
      readyResolve,
      lastError: null,
      stderrBuffer: [],
+     openedBytes: 0,
    }
 
    sessions.set(id, session)
@@ -288,16 +316,49 @@ function probeIsHevc(inputUrl: string): boolean {
          ? `FFmpeg exited with code ${code}: ${stderrTail}`
          : `FFmpeg exited with code ${code}`
      }
-     // Don't cleanup on normal completion (code 0) — segments are still
-     // being served to the player. Session is cleaned up on player.stop()
-     // or shutdown() instead.
+     // Growing-file restart: when input is a local file still being written
+     // (e.g. NZB download or recording), FFmpeg hits EOF when the current
+     // chunk ends. If the file has grown since we opened it, restart from
+     // the last reported duration to keep streaming.
+     if (code === 0 && inputUrl.startsWith('file://') && session.process === proc) {
+       const filePath = inputUrl.replace(/^file:\/\//, '')
+       try {
+         const stat = fs.statSync(filePath)
+         const totalBytes = stat.size
+         const lastDuration = parseLastDuration(session.stderrBuffer)
+         debug(`Growing-file check: input=${filePath} totalBytes=${totalBytes} lastDuration=${lastDuration}`)
+         // Heuristic: if the file is reasonably large (>1MB), assume it's
+         // still in-progress. Downloads/recordings always exceed this.
+         const looksInProgress = totalBytes > 1024 * 1024 && totalBytes > session.openedBytes
+         if (looksInProgress && typeof lastDuration === 'number' && lastDuration > 0) {
+           debug(`Restarting FFmpeg from duration ${lastDuration}s (file grew from ${session.openedBytes} to ${totalBytes})`)
+           const restart = createSession(inputUrl, lastDuration, headers, audioTrackIndex)
+           const newSession = sessions.get(restart.sessionId)
+           if (newSession) {
+             // Mark this session as superseded so cleanupSession doesn't kill the new one.
+             session.process = newSession.process
+             session.restartedInto = newSession.id
+           }
+           readyResolve()
+           return
+         }
+       } catch (err: any) {
+         debug('Growing-file check failed:', err?.message)
+       }
+     }
      if (code !== 0) {
        cleanupSession(id)
      } else {
-       // Mark session as complete so we don't wait for more segments.
        readyResolve()
      }
    })
+
+   // Track the file size at open time so we can detect growth on exit.
+   if (inputUrl.startsWith('file://')) {
+     try {
+       session.openedBytes = fs.statSync(inputUrl.replace(/^file:\/\//, '')).size
+     } catch { /* ignore */ }
+   }
 
    // Watch for the first real playlist write to mark the session as ready.
    const playlistPath = path.join(outputDir, 'playlist.m3u8')

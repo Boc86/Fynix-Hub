@@ -47,10 +47,18 @@ let fetchPromise: Promise<IPTVSource[]> | null = null // dedupe concurrent fetch
 export function isCategoryHeader(name: string): boolean {
   if (!name) return false
   const t = name.trim()
-  if (/^[-=_*\s]+$/.test(t)) return true
-  if (/^[-\s=*_]+[a-z][a-z\s]+[-\s=*_]+$/i.test(t) && /[-\s]/.test(t.slice(1, -1))) return true
-  if (/^={2,}\s*.+\s*={2,}$/.test(t)) return true
-  if (/^={2,}\s*[A-Z][A-Z\s]+\s*={2,}$/.test(t)) return true
+  // Strip a leading country prefix + separator so we can match the body of
+  // patterns like `UK: ----- MOVIES -----`, `DE | ----- DE DOKU -----`,
+  // `SP| ------ DOCUMENTALES ------`.
+  const stripped = t.replace(/^[A-Za-z]{2,3}\s*[:|\-]\s*/, '')
+  // Pure punctuation only
+  if (/^[-=_*\s]+$/.test(stripped)) return true
+  // `- - - - - TURKIYE SPOR - - - - -` style: surrounded by punctuation
+  if (/^[-\s=*_]+[a-z][a-z\s]+[-\s=*_]+$/i.test(stripped) && /[-\s]/.test(stripped.slice(1, -1))) return true
+  // `========= ... =========` style
+  if (/^={2,}\s*.+\s*={2,}$/.test(stripped)) return true
+  // `=== IT SPORTS ===`, `=== IT CINEMA ===`
+  if (/^={2,}\s*[A-Z][A-Z\s]+\s*={2,}$/.test(stripped)) return true
   return false
 }
 
@@ -70,7 +78,9 @@ function stripTrailingToken(s: string, tokens: string[]): string {
     const re = new RegExp(`[\\s,\\-]*\\b${tok.replace(/\./g, '\\.')}\\b\\s*$`, 'i')
     if (re.test(s)) {
       const stripped = s.replace(re, '').trim()
-      if (stripped.length >= 2) return stripped
+      // Don't strip if result would be empty/whitespace, but allow 1 char so
+      // single-letter channel names ("A", "X") still get suffixes removed.
+      if (stripped.length >= 1) return stripped
     }
   }
   return s

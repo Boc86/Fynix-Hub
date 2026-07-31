@@ -10,6 +10,15 @@ describe('cleanChannelName', () => {
     expect(cleanChannelName('BBC ONE 4K')).toBe('BBC ONE')
   })
 
+  it('strips dash-prefixed quality tokens (-HD, -FHD, -SD, -UHD)', () => {
+    expect(cleanChannelName('Movie-HD')).toBe('Movie')
+    expect(cleanChannelName('Channel-FHD')).toBe('Channel')
+    expect(cleanChannelName('A -UHD')).toBe('A')
+    expect(cleanChannelName('X -SD')).toBe('X')
+    expect(cleanChannelName('Movie -HD')).toBe('Movie')
+    expect(cleanChannelName('Movie -  HD')).toBe('Movie')
+  })
+
   it('strips FD 50fps / FD 25fps as one token', () => {
     expect(cleanChannelName('SKY SPORTS FD 50FPS')).toBe('SKY SPORTS')
     expect(cleanChannelName('BBC ONE FD 25FPS')).toBe('BBC ONE')
@@ -59,6 +68,15 @@ describe('isCategoryHeader', () => {
   it('detects pure punctuation', () => {
     expect(isCategoryHeader('---')).toBe(true)
     expect(isCategoryHeader('===')).toBe(true)
+  })
+
+  it('detects country-prefixed category headers', () => {
+    // Country prefix + punctuation + words + punctuation
+    expect(isCategoryHeader('UK: ----- MOVIES -----')).toBe(true)
+    expect(isCategoryHeader('DE | ----- DE DOKU -----')).toBe(true)
+    expect(isCategoryHeader('SP| ------ DOCUMENTALES ------')).toBe(true)
+    expect(isCategoryHeader('UK: ----- SPORT -----')).toBe(true)
+    expect(isCategoryHeader('HU: ----- HUNGARY -----')).toBe(true)
   })
 
   it('returns false for real channel names', () => {

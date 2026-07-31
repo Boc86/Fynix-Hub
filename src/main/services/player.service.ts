@@ -34,6 +34,8 @@ export interface StartPlaybackResult {
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentSessionId: string | null = null
+/** Last resume position passed to startPlayback — preserved across audio switches. */
+let currentResumePosition: number = 0
 let currentProxyId: string | null = null
 let currentChapters: Chapter[] = []
 
@@ -78,6 +80,7 @@ export async function startPlayback(
   audioTrackIndex?: number,
 ): Promise<StartPlaybackResult> {
   debug('startPlayback called url=', inputUrl.slice(0, 80), 'resumePosition=', resumePosition)
+  currentResumePosition = resumePosition ?? 0
   await stopPlayback()
 
   let resolvedUrl = inputUrl
@@ -218,8 +221,12 @@ export async function switchAudioTrack(audioIndex: number): Promise<string | nul
   const info = FfmpegRemux.getSessionInfo(currentSessionId)
   if (!info) return null
   const inputUrl = info.inputUrl
+  // Capture current playback position before tearing down the session —
+  // otherwise the user has to seek back to where they were after every
+  // language switch.
+  const resumePosition = currentResumePosition ?? 0
   await stopPlayback()
-  const result = await startPlayback(inputUrl, 0, undefined, false, audioIndex)
+  const result = await startPlayback(inputUrl, resumePosition, undefined, false, audioIndex)
   return result.streamUrl
 }
 

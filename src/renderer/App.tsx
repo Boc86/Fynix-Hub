@@ -1053,6 +1053,28 @@ export default function App() {
     setStreamUrl(hlsUrl)
     setAudioTracksInfo(result?.audioTracks ?? [])
     setIsRemux(result?.isRemux ?? false)
+    // Auto-select preferred-language audio track before the user sees anything.
+    // Fires once per playback start — a guard inside setAudioTracksInfo + the
+    // useEffect below prevents repeated switches on the same track list.
+    if (Array.isArray(result?.audioTracks) && result.audioTracks.length > 1) {
+      const prefs = useSettingsStore.getState().preferredLanguages || []
+      const match = result.audioTracks.find((t: any) => {
+        if (!prefs.length) return t.isDefault
+        const lang = (t.language || '').toLowerCase()
+        return prefs.some((p: string) => lang.startsWith(p.toLowerCase()))
+      })
+      if (match && !match.isDefault) {
+        window.api.log(`[App] auto-switching to preferred audio track #${match.index} (${match.language})`)
+        try {
+          const switched = await window.api.player.setAudioTrack(match.index)
+          if (switched?.streamUrl) {
+            setStreamUrl(switched.streamUrl)
+          }
+        } catch (err: any) {
+          window.api.log('[App] preferred audio switch failed:', err?.message)
+        }
+      }
+    }
     return result
   }, [])
 
@@ -1564,8 +1586,8 @@ export default function App() {
     setVirtualKeyboardOpen(true)
   }
       
-      // 'c' key - context menus
-      if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget) {
+      // 'c' key - context menus (skip in EPG view; EPG handles its own)
+      if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget && view !== 'epg') {
         e.preventDefault()
         savedFocusRef.current = e.target as HTMLElement
         const media = useMediaStore.getState().selectedMedia
@@ -1695,6 +1717,7 @@ export default function App() {
           clearlogoUrl={playerInfo?.clearlogoUrl}
           audioTracks={audioTracksInfo}
           isRemux={isRemux}
+          onStreamUrlChange={setStreamUrl}
         />
       ))}
       {view === 'settings' && (

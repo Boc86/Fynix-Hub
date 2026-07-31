@@ -122,6 +122,12 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   const containerRef = useRef<HTMLDivElement>(null)
   const channelListRef = useRef<HTMLDivElement>(null)
 
+  // Lazy loading — only render rows visible in the viewport + a small buffer.
+  // Channels list scrolls at the same rate as the grid; track both.
+  const [visibleRowStart, setVisibleRowStart] = useState(0)
+  const [visibleRowEnd, setVisibleRowEnd] = useState(50)
+  const ROW_BUFFER = 10
+
   // Context-menu state — opened by 'C' key or remote contextMenu button.
   // Position is the screen coordinates of the focused programme cell.
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; prog: EPGProgramme; ch: MappedChannel } | null>(null)
@@ -238,6 +244,44 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     }
     return result
   }, [channels, visibleChannels, channelOrder])
+
+  // Lazy row loading — recompute visible range on scroll. Track whichever
+  // container is currently scrolled (grid or channel list).
+  useEffect(() => {
+    const updateRange = () => {
+      const total = filteredChannels.length
+      if (total === 0) return
+      const rowH = ROW_HEIGHT
+      const gridEl = gridRef.current
+      const listEl = channelListRef.current
+      let first = 0
+      let last = Math.min(total - 1, 49)
+      if (gridEl) {
+        const top = gridEl.scrollTop
+        const h = gridEl.clientHeight
+        first = Math.max(0, Math.floor(top / rowH) - ROW_BUFFER)
+        last = Math.min(total - 1, Math.ceil((top + h) / rowH) + ROW_BUFFER)
+      } else if (listEl) {
+        const top = listEl.scrollTop
+        const h = listEl.clientHeight
+        first = Math.max(0, Math.floor(top / rowH) - ROW_BUFFER)
+        last = Math.min(total - 1, Math.ceil((top + h) / rowH) + ROW_BUFFER)
+      }
+      setVisibleRowStart(prev => prev !== first ? first : prev)
+      setVisibleRowEnd(prev => prev !== last ? last : prev)
+    }
+    updateRange()
+    const gridEl = gridRef.current
+    const listEl = channelListRef.current
+    gridEl?.addEventListener('scroll', updateRange, { passive: true })
+    listEl?.addEventListener('scroll', updateRange, { passive: true })
+    window.addEventListener('resize', updateRange)
+    return () => {
+      gridEl?.removeEventListener('scroll', updateRange)
+      listEl?.removeEventListener('scroll', updateRange)
+      window.removeEventListener('resize', updateRange)
+    }
+  }, [filteredChannels.length])
 
   const formatTime = (ts: number) => {
     const d = new Date(ts * 1000)
@@ -443,19 +487,32 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         return // ignore other keys while menu is open
       }
       if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); onBack(); return }
-      // Let focused buttons (record, etc.) handle Enter themselves
-      if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
+      // C/ContextMenu works on button focus too — opens EPG context menu
+      if (e.key === 'c' || e.key === 'C' || e.code === 'ContextMenu') {
+        // let the C handler below open the menu
+      } else if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setFocusedChannelIdx(i => Math.min(i + 1, channels.length - 1))
-        setSelectedChannelIdx(i => Math.min(i + 1, channels.length - 1))
+        const next = Math.min(focusedChannelIdx + 1, channels.length - 1)
+        setFocusedChannelIdx(next)
+        setSelectedChannelIdx(next)
         setFocusedProgrammeIdx(0)
+        if (next > visibleRowEnd - 2) {
+          // Scroll the range forward so the new focused row stays mounted
+          setVisibleRowStart(prev => prev + 1)
+          setVisibleRowEnd(prev => prev + 1)
+        }
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setFocusedChannelIdx(i => Math.max(i - 1, 0))
-        setSelectedChannelIdx(i => Math.max(i - 1, 0))
+        const next = Math.max(focusedChannelIdx - 1, 0)
+        setFocusedChannelIdx(next)
+        setSelectedChannelIdx(next)
         setFocusedProgrammeIdx(0)
+        if (next < visibleRowStart + 2) {
+          setVisibleRowStart(prev => Math.max(0, prev - 1))
+          setVisibleRowEnd(prev => Math.max(0, prev - 1))
+        }
       }
       if (e.key === 'ArrowLeft') { e.preventDefault(); navigateProgramme(-1) }
       if (e.key === 'ArrowRight') { e.preventDefault(); navigateProgramme(+1) }
@@ -479,8 +536,8 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           setSelectedChannel(ch); setFocusedSourceIndex(0)
         }
       }
-      // 'C' opens the context menu on the focused programme
-      if (e.key === 'c' || e.key === 'C') {
+      // 'C' / ContextMenu code opens the context menu on the focused programme
+      if (e.key === 'c' || e.key === 'C' || e.code === 'ContextMenu') {
         e.preventDefault()
         openContextMenu()
       }
@@ -497,7 +554,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId, gridData, contextMenu])
+  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId, gridData, contextMenu, visibleRowStart, visibleRowEnd])
 
   if (loading) {
     return (
@@ -667,18 +724,25 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         <div style={{ width: CHANNEL_WIDTH, flexShrink: 0, overflow: 'hidden', borderRight: '1px solid var(--border, #2a2a4a)', position: 'sticky', left: 0, zIndex: 5, background: 'var(--bg-primary, #0d0d1a)' }}>
           <div style={{ height: HEADER_HEIGHT, borderBottom: '1px solid var(--border, #2a2a4a)', padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>CHANNELS</div>
           <div ref={channelListRef} style={{ overflow: 'auto', height: `calc(100% - ${HEADER_HEIGHT}px)` }}>
-            {filteredChannels.map((ch, i) => (
-              <div key={`${ch.liveTvChannelId ?? i}`} data-ch-row={i}>
-                <EPGChannelRow
-                  ch={ch}
-                  focused={i === focusedChannelIdx}
-                  selected={i === selectedChannelIdx}
-                  onClick={() => { setFocusedChannelIdx(i); setSelectedChannelIdx(i) }}
-                  onDoubleClick={() => { setSelectedChannel(ch); setFocusedSourceIndex(0) }}
-                  onMouseEnter={() => setFocusedChannelIdx(i)}
-                />
-              </div>
-            ))}
+            {/* Top spacer — keeps scrollbar accurate while lazy rows are mounted */}
+            <div style={{ height: visibleRowStart * ROW_HEIGHT }} />
+            {filteredChannels.slice(visibleRowStart, visibleRowEnd + 1).map((ch, sliceIdx) => {
+              const i = visibleRowStart + sliceIdx
+              return (
+                <div key={`${ch.liveTvChannelId ?? i}`} data-ch-row={i}>
+                  <EPGChannelRow
+                    ch={ch}
+                    focused={i === focusedChannelIdx}
+                    selected={i === selectedChannelIdx}
+                    onClick={() => { setFocusedChannelIdx(i); setSelectedChannelIdx(i) }}
+                    onDoubleClick={() => { setSelectedChannel(ch); setFocusedSourceIndex(0) }}
+                    onMouseEnter={() => setFocusedChannelIdx(i)}
+                  />
+                </div>
+              )
+            })}
+            {/* Bottom spacer */}
+            <div style={{ height: (filteredChannels.length - visibleRowEnd - 1) * ROW_HEIGHT }} />
           </div>
         </div>
 
@@ -691,7 +755,10 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
             ))}
           </div>
 
-          {filteredChannels.map((ch, ci) => {
+          {/* Top spacer */}
+          <div style={{ height: visibleRowStart * ROW_HEIGHT }} />
+          {filteredChannels.slice(visibleRowStart, visibleRowEnd + 1).map((ch, sliceIdx) => {
+            const ci = visibleRowStart + sliceIdx
             const raw = (gridData[ch.liveTvChannelId] || []).slice().sort((a, b) => a.start - b.start)
             const progs: { p: EPGProgramme; clampedStop: number }[] = []
             let lastEnd = 0
@@ -763,6 +830,8 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
               </div>
             )
           })}
+          {/* Bottom spacer */}
+          <div style={{ height: (filteredChannels.length - visibleRowEnd - 1) * ROW_HEIGHT }} />
         </div>
       </div>
 
