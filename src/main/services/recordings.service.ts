@@ -229,51 +229,19 @@ async function updateFileSize(rec: Recording): Promise<void> {
 interface ResolvedSource {
   url: string
   headers: Record<string, string>
-  viaProxy: boolean
-  proxyId?: string
-  remoteUrl?: string
 }
 
 /**
  * Resolve candidate stream URLs for a recording at record time.
- * CDN types are extracted fresh (tokens are one-time-use); m3u URLs are
- * stable and used directly. Each URL carries the headers FFmpeg needs
- * (Referer/UA — CDN anti-hotlinking rejects bare requests with 5xx).
- *
- * CDNLive uses P2P HLS whose tokens are consumed by the browser tracker
- * handshake — FFmpeg can't hit the origin directly. Instead we route the
- * stream through the local cache proxy (which injects the required headers
- * and rewrites segment URLs), and record from the proxy URL instead.
+ * Only M3U sources are accepted (stable direct HTTP URLs FFmpeg can fetch).
+ * CDNLive/OnDemand/DLHD use P2P HLS whose tokens are consumed by the browser
+ * tracker and expire before FFmpeg can grab them — not recordable.
  */
 async function resolveSourceUrls(rec: Recording): Promise<ResolvedSource[]> {
-  const localCache = await import('./local-cache.service')
   const urls: ResolvedSource[] = []
   for (const src of rec.sources || []) {
     if (src.type === 'm3u' && src.url) {
-      urls.push({ url: src.url, headers: headersForUrl(src.url), viaProxy: false })
-      continue
-    }
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await extractChannelUrl({
-        id: rec.channel.id,
-        name: rec.channel.name,
-        countryCode: rec.channel.countryCode,
-        playerUrl: rec.channel.playerUrl,
-      })
-      if (!result.hlsUrl) continue
-      const isP2p = isP2pStream(result.hlsUrl)
-      if (isP2p) {
-        // Route through the local cache proxy — it injects headers and
-        // rewrites segment URLs so FFmpeg can grab a token-authed stream.
-        const { proxyId, proxyUrl } = localCache.createProxySession(result.hlsUrl)
-        debug(`CDNLive stream proxied for recording ${rec.id}: ${proxyUrl}`)
-        urls.push({ url: proxyUrl, headers: {}, viaProxy: true, proxyId, remoteUrl: result.hlsUrl })
-      } else {
-        urls.push({ url: result.hlsUrl, headers: headersForUrl(result.hlsUrl), viaProxy: false })
-      }
-    } catch (err: any) {
-      debug(`Source ${src.type} resolution failed for ${rec.id}: ${err?.message}`)
+      urls.push({ url: src.url, headers: headersForUrl(src.url) })
     }
   }
   return urls
@@ -340,11 +308,6 @@ async function startRecording(
       if (!fileOk) {
         debug(`Recording ${id} produced empty/no output from source: ${src.url.slice(0, 100)}`)
         lastError = 'Empty or invalid output'
-        // Clean up proxy session before trying next source
-        if (src.viaProxy && src.proxyId) {
-          const localCache = await import('./local-cache.service')
-          localCache.removeProxySession(src.proxyId)
-        }
         continue
       }
       debug(`Recording ${id} succeeded with source: ${src.url.slice(0, 100)}`)
@@ -354,23 +317,13 @@ async function startRecording(
         updateFileSize(rec).catch(() => {})
         saveRecordings()
       }
-      // Clean up: remove proxy session if we used one
-      if (src.viaProxy && src.proxyId) {
-        const localCache = await import('./local-cache.service')
-        localCache.removeProxySession(src.proxyId)
-      }
       scheduled.delete(id)
       return
     }
 
     lastError = `FFmpeg exit code ${exitCode}`
     debug(`Source failed for ${id}, trying next...`)
-    // Clean up proxy session before trying next source
-    if (src.viaProxy && src.proxyId) {
-      const localCache = await import('./local-cache.service')
-      localCache.removeProxySession(src.proxyId)
-    }
-    // Give the CDN a moment between attempts (transient 5xx)
+    // Brief backoff between attempts
     await new Promise(r => setTimeout(r, 3000))
   }
 
