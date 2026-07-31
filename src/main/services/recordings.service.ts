@@ -329,6 +329,24 @@ async function startRecording(
     })
 
     if (exitCode === 0) {
+      // Validate the output file has actual content — FFmpeg can exit 0
+      // on an error page (0 frames copied to output), producing a 0-byte file.
+      let fileOk = false
+      try {
+        const fs = await import('fs/promises')
+        const stat = await fs.stat(rec.filePath)
+        fileOk = stat.size > 0
+      } catch { /* file missing or inaccessible */ }
+      if (!fileOk) {
+        debug(`Recording ${id} produced empty/no output from source: ${src.url.slice(0, 100)}`)
+        lastError = 'Empty or invalid output'
+        // Clean up proxy session before trying next source
+        if (src.viaProxy && src.proxyId) {
+          const localCache = await import('./local-cache.service')
+          localCache.removeProxySession(src.proxyId)
+        }
+        continue
+      }
       debug(`Recording ${id} succeeded with source: ${src.url.slice(0, 100)}`)
       if (rec) {
         rec.status = 'completed'
