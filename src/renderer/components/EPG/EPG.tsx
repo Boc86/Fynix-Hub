@@ -113,6 +113,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   const [channels, setChannels] = useState<MappedChannel[]>([])
   const [selectedChannelIdx, setSelectedChannelIdx] = useState(0)
   const [focusedChannelIdx, setFocusedChannelIdx] = useState(0)
+  const [focusedProgrammeIdx, setFocusedProgrammeIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [playError, setPlayError] = useState<string | null>(null)
   const [nowNextMap, setNowNextMap] = useState<Record<string, { now: EPGProgramme | null; next: EPGProgramme | null }>>({})
@@ -257,6 +258,39 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     gridRef.current.scrollBy({ left: dir === 'left' ? -SCROLL_AMOUNT : SCROLL_AMOUNT, behavior: 'smooth' })
   }
 
+  // Get the visible (non-overlapping) programmes for a channel — same logic
+  // as the render path, so focusedProgrammeIdx indexes correctly.
+  const getVisibleProgs = (ch: MappedChannel) => {
+    const raw = (gridData[ch.liveTvChannelId] || []).slice().sort((a, b) => a.start - b.start)
+    const out: EPGProgramme[] = []
+    let lastEnd = 0
+    for (const p of raw) {
+      if (p.start < lastEnd) continue
+      out.push(p)
+      lastEnd = p.stop
+    }
+    return out
+  }
+
+  // Move focus between programme cells in the focused channel's row,
+  // scrolling the grid so the focused programme stays visible.
+  const navigateProgramme = (dir: -1 | 1) => {
+    const ch = filteredChannels[focusedChannelIdx]
+    if (!ch) return
+    const progs = getVisibleProgs(ch)
+    if (progs.length === 0) return
+    setFocusedProgrammeIdx(prev => {
+      const next = Math.max(0, Math.min(prev + dir, progs.length - 1))
+      const p = progs[next]
+      if (p && gridRef.current) {
+        const offset = programmeLeft(p) - 200
+        const maxScroll = gridRef.current.scrollWidth - gridRef.current.clientWidth
+        gridRef.current.scrollTo({ left: Math.max(0, Math.min(offset, maxScroll)), behavior: 'smooth' })
+      }
+      return next
+    })
+  }
+
   // When a channel is selected, fetch matching M3U sources
   useEffect(() => {
     if (!selectedChannel) { setM3uSources([]); return }
@@ -386,10 +420,20 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); onBack(); return }
       // Let focused buttons (record, etc.) handle Enter themselves
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
-      if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedChannelIdx(i => Math.min(i + 1, channels.length - 1)); setSelectedChannelIdx(i => Math.min(i + 1, channels.length - 1)) }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setFocusedChannelIdx(i => Math.max(i - 1, 0)); setSelectedChannelIdx(i => Math.max(i - 1, 0)) }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); scrollGrid('left') }
-      if (e.key === 'ArrowRight') { e.preventDefault(); scrollGrid('right') }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setFocusedChannelIdx(i => Math.min(i + 1, channels.length - 1))
+        setSelectedChannelIdx(i => Math.min(i + 1, channels.length - 1))
+        setFocusedProgrammeIdx(0)
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setFocusedChannelIdx(i => Math.max(i - 1, 0))
+        setSelectedChannelIdx(i => Math.max(i - 1, 0))
+        setFocusedProgrammeIdx(0)
+      }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); navigateProgramme(-1) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); navigateProgramme(+1) }
       // Stop active recording with 'S' key
       if ((e.key === 's' || e.key === 'S') && activeRecordingId) {
         e.preventDefault()
@@ -400,21 +444,30 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       if (e.key === 'Enter') {
         e.preventDefault()
         const ch = filteredChannels[focusedChannelIdx]
-        if (ch) { setSelectedChannel(ch); setFocusedSourceIndex(0) }
+        if (!ch) return
+        // If a programme is focused in the grid, record it (live or future).
+        const progs = getVisibleProgs(ch)
+        const focusedProg = progs[focusedProgrammeIdx]
+        if (focusedProg) {
+          recordProgramme(ch, focusedProg)
+        } else {
+          setSelectedChannel(ch); setFocusedSourceIndex(0)
+        }
       }
       // Record current focus with 'R'
       if (e.key === 'r' || e.key === 'R') {
         const ch = filteredChannels[focusedChannelIdx]
         if (ch) {
           e.preventDefault()
-          const chProg = (gridData[ch.liveTvChannelId] || []).find((p: EPGProgramme) => isLive(p))
-          if (chProg) recordProgramme(ch, chProg)
+          const progs = getVisibleProgs(ch)
+          const focusedProg = progs[focusedProgrammeIdx] || progs.find((p: EPGProgramme) => isLive(p))
+          if (focusedProg) recordProgramme(ch, focusedProg)
         }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId])
+  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId, gridData])
 
   if (loading) {
     return (
@@ -629,21 +682,27 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
                   const left = programmeLeft(p)
                   const live = isLive(p)
                   const recorded = isRecorded(ch, p)
+                  const isFocusedProg = ci === focusedChannelIdx && pi === focusedProgrammeIdx
                   return (
                     <div key={`${p.start}-${pi}`}
                       style={{
                         position: 'absolute', top: 4, left, width: w - 2, height: ROW_HEIGHT - 8, borderRadius: 6,
                         boxSizing: 'border-box',
-                        background: live ? 'rgba(var(--accent-rgb), 0.2)' : 'rgba(255,255,255,0.06)',
-                        border: live ? '1px solid var(--accent)' : (recorded ? '1px solid rgba(255,59,48,0.6)' : '1px solid rgba(255,255,255,0.08)'),
+                        background: live ? 'rgba(var(--accent-rgb), 0.2)' : (isFocusedProg ? 'rgba(var(--accent-rgb), 0.12)' : 'rgba(255,255,255,0.06)'),
+                        border: isFocusedProg
+                          ? '2px solid var(--accent)'
+                          : (live ? '1px solid var(--accent)' : (recorded ? '1px solid rgba(255,59,48,0.6)' : '1px solid rgba(255,255,255,0.08)')),
                         padding: '4px 8px', cursor: 'pointer', overflow: 'hidden',
                         display: 'flex', flexDirection: 'column',
+                        outline: isFocusedProg ? '2px solid rgba(var(--accent-rgb), 0.4)' : 'none',
+                        outlineOffset: isFocusedProg ? 1 : 0,
                       }}
                       onClick={() => {
                         setFocusedChannelIdx(ci)
                         setSelectedChannelIdx(ci)
+                        setFocusedProgrammeIdx(pi)
                       }}
-                      onDoubleClick={() => { setSelectedChannel(ch); setFocusedSourceIndex(0) }}
+                      onDoubleClick={() => recordProgramme(ch, p)}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                         <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: live ? 'var(--accent)' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>

@@ -141,8 +141,8 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
       e.preventDefault()
       const rec = recordings[focusedIdx]
       if (!rec) return
-      if (rec.status === 'completed') handlePlay(rec)
-      else if (rec.status === 'scheduled' || rec.status === 'recording') handleCancel(rec)
+      if (rec.status === 'completed' || rec.status === 'recording') handlePlay(rec)
+      else if (rec.status === 'scheduled') handleCancel(rec)
     }
   }, [recordings, focusedIdx, confirmDelete, onBack])
 
@@ -222,10 +222,10 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  {rec.status === 'completed' && (
+                  {(rec.status === 'completed' || rec.status === 'recording') && (
                     <button tabIndex={0} onClick={() => handlePlay(rec)}
                       style={{ padding: '7px 14px', borderRadius: 8, cursor: 'pointer', background: 'var(--accent)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700 }}>
-                      Play
+                      {rec.status === 'recording' ? 'Watch Live' : 'Play'}
                     </button>
                   )}
                   {active && (
