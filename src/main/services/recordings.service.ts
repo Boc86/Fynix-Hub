@@ -1,7 +1,6 @@
 import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import * as path from 'path'
-import { extractChannelUrl } from './dami-tv.service'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -124,14 +123,6 @@ function headersForUrl(url: string): Record<string, string> {
     headers['Referer'] = 'https://dlhd.st/'
   }
   return headers
-}
-
-/** CDNLive streams use P2P HLS (p2p-media-loader) whose tokens are consumed
- *  by the browser's tracker handshake. FFmpeg cannot record these — mark them
- *  so we skip them and fail fast with a helpful message instead of a
- *  cryptic "mime type not rfc8216" error. */
-function isP2pStream(url: string): boolean {
-  return /api\.cdnlivetv\.is\/secure/i.test(url) || /cdnlivetv\.(is|tv)/i.test(url)
 }
 
 function spawnFfmpeg(
