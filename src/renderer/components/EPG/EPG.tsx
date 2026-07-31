@@ -122,6 +122,10 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   const containerRef = useRef<HTMLDivElement>(null)
   const channelListRef = useRef<HTMLDivElement>(null)
 
+  // Context-menu state — opened by 'C' key or remote contextMenu button.
+  // Position is the screen coordinates of the focused programme cell.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; prog: EPGProgramme; ch: MappedChannel } | null>(null)
+
   // Source selection modal state
   const [selectedChannel, setSelectedChannel] = useState<MappedChannel | null>(null)
   const [sourceLoading, setSourceLoading] = useState(false)
@@ -272,6 +276,23 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     return out
   }
 
+  // Open the context menu at the focused programme's screen position.
+  // Triggered by 'C' key or remote contextMenu button.
+  const openContextMenu = () => {
+    const ch = filteredChannels[focusedChannelIdx]
+    if (!ch) return
+    const progs = getVisibleProgs(ch)
+    const prog = progs[focusedProgrammeIdx]
+    if (!prog) return
+    const cellEl = document.querySelector(`[data-epg-row="${focusedChannelIdx}"] [data-prog-start="${prog.start}"]`) as HTMLElement | null
+    const rect = cellEl?.getBoundingClientRect()
+    setContextMenu({
+      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+      y: rect ? rect.top + rect.height : window.innerHeight / 2,
+      prog, ch,
+    })
+  }
+
   // Move focus between programme cells in the focused channel's row,
   // scrolling the grid so the focused programme stays visible.
   const navigateProgramme = (dir: -1 | 1) => {
@@ -417,6 +438,10 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       }
 
       // Grid navigation (modal closed)
+      if (contextMenu) {
+        if (e.key === 'Escape') { e.preventDefault(); setContextMenu(null); return }
+        return // ignore other keys while menu is open
+      }
       if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); onBack(); return }
       // Let focused buttons (record, etc.) handle Enter themselves
       if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
@@ -454,6 +479,11 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           setSelectedChannel(ch); setFocusedSourceIndex(0)
         }
       }
+      // 'C' opens the context menu on the focused programme
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault()
+        openContextMenu()
+      }
       // Record current focus with 'R'
       if (e.key === 'r' || e.key === 'R') {
         const ch = filteredChannels[focusedChannelIdx]
@@ -467,7 +497,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId, gridData])
+  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId, gridData, contextMenu])
 
   if (loading) {
     return (
@@ -685,6 +715,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
                   const isFocusedProg = ci === focusedChannelIdx && pi === focusedProgrammeIdx
                   return (
                     <div key={`${p.start}-${pi}`}
+                      data-prog-start={p.start}
                       style={{
                         position: 'absolute', top: 4, left, width: w - 2, height: ROW_HEIGHT - 8, borderRadius: 6,
                         boxSizing: 'border-box',
@@ -734,6 +765,51 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           })}
         </div>
       </div>
+
+      {contextMenu && (
+        <div
+          role="menu"
+          style={{
+            position: 'fixed',
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+            top: Math.min(contextMenu.y, window.innerHeight - 100),
+            background: 'var(--bg-primary, #1a1a2e)',
+            border: '1px solid var(--accent)',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            padding: 4,
+            minWidth: 200,
+            zIndex: 100,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ padding: '6px 12px', fontSize: 11, color: 'rgba(255,255,255,0.5)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            {contextMenu.ch.liveTvName} • {contextMenu.prog.title}
+          </div>
+          <button
+            tabIndex={0}
+            autoFocus
+            role="menuitem"
+            onClick={() => {
+              const { prog, ch } = contextMenu
+              setContextMenu(null)
+              recordProgramme(ch, prog)
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              width: '100%', padding: '10px 12px', border: 'none',
+              background: 'transparent', color: '#ff6b6b', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, borderRadius: 6,
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.15)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>
+            {isRecorded(contextMenu.ch, contextMenu.prog) ? 'Already Recorded' : 'Record Programme'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

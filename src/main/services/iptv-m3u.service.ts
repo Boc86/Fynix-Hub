@@ -36,8 +36,62 @@ let cacheTimestamp = 0
 let fetchPromise: Promise<IPTVSource[]> | null = null // dedupe concurrent fetches
 
 /**
+ * Strip quality/format/region suffixes (HD, FHD, FD 50fps, BACKUP, EAST, ...)
+ * and filter out category-header lines (===== SPORT =====, - - - NEWS - - -)
+ * so they don't appear as fake channels.
+ *
+ * ponytail: aggressive regex stripping. Trade-off: a real channel literally
+ * named "HD" gets misclassified as the quality token. Acceptable risk vs the
+ * 70k-channel dumps where noise dominates.
+ */
+export function isCategoryHeader(name: string): boolean {
+  if (!name) return false
+  const t = name.trim()
+  if (/^[-=_*\s]+$/.test(t)) return true
+  if (/^[-\s=*_]+[a-z][a-z\s]+[-\s=*_]+$/i.test(t) && /[-\s]/.test(t.slice(1, -1))) return true
+  if (/^={2,}\s*.+\s*={2,}$/.test(t)) return true
+  if (/^={2,}\s*[A-Z][A-Z\s]+\s*={2,}$/.test(t)) return true
+  return false
+}
+
+const ALL_TOKENS = [
+  'BACKUP 2', 'BACKUP 3',
+  'FD 50FPS', 'FD 25FPS', 'FD-50FPS', 'FD-25FPS',
+  '1080P', '720P', 'HEVC', 'H.265', 'H265', 'H.264', 'H264', 'AVC', 'X264', 'X265',
+  '4K', 'UHD', 'FHD',
+  'BACKUP', 'DASH', 'MULTI', 'DUP',
+  '50FPS', '25FPS', '30FPS', '60FPS',
+  'HD', 'SD',
+  'EAST', 'WEST',
+]
+
+function stripTrailingToken(s: string, tokens: string[]): string {
+  for (const tok of tokens) {
+    const re = new RegExp(`[\\s,\\-]*\\b${tok.replace(/\./g, '\\.')}\\b\\s*$`, 'i')
+    if (re.test(s)) {
+      const stripped = s.replace(re, '').trim()
+      if (stripped.length >= 2) return stripped
+    }
+  }
+  return s
+}
+
+export function cleanChannelName(name: string): string {
+  if (!name) return ''
+  let s = name.trim()
+  for (let i = 0; i < 3; i++) {
+    const before = s
+    s = stripTrailingToken(s, ALL_TOKENS)
+    if (s === before) break
+  }
+  s = s.replace(/\s*backup\s*[a-z]?\s*$/i, '').trim()
+  return s || name
+}
+
+/**
  * Parse an M3U file's text content into channel entries.
  * Format: #EXTINF:...,<name>\n<play-url>
+ * Category-header lines (===== SPORT =====) are filtered out.
  */
 export function parseM3U(content: string): IPTVChannel[] {
   const lines = content.split('\n')
@@ -49,7 +103,7 @@ export function parseM3U(content: string): IPTVChannel[] {
       if (lastComma !== -1 && i + 1 < lines.length) {
         const name = line.slice(lastComma + 1).trim()
         const url = lines[i + 1].trim()
-        if (name && url && !url.startsWith('#')) {
+        if (name && url && !url.startsWith('#') && !isCategoryHeader(name)) {
           channels.push({ name, url })
         }
       }
@@ -246,12 +300,7 @@ export async function findChannelInSources(
   const sources = await getAllSources()
 
   const normalize = (name: string): string => {
-    let n = name.toLowerCase()
-    n = n.replace(/^[a-z]{1,3}-?hd:\s*/i, '')
-    n = n.replace(/^[a-z]{1,3}\s*\|\s*/i, '')
-    n = n.replace(/^[a-z]{1,3}:\s*/i, '')
-    n = n.replace(/\s*(?:fhd|uhd|sd|east|west)\s*$/i, '')
-    n = n.replace(/\s*-?hd\s*$/i, '')
+    let n = cleanChannelName(name).toLowerCase()
     n = n.replace(/\bzero\b/gi, '0')
     n = n.replace(/\bone\b/gi, '1')
     n = n.replace(/\btwo\b/gi, '2')

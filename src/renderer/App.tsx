@@ -195,7 +195,7 @@ export default function App() {
         }
       } else if (action === 'contextMenu') {
         if (!contextTarget) {
-          if (view === 'browser' || view === 'movies' || view === 'tv-shows' || view === 'live-tv') {
+          if (view === 'browser' || view === 'movies' || view === 'tv-shows' || view === 'live-tv' || view === 'epg') {
             const el = document.activeElement
             if (el) {
               el.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
