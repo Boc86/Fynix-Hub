@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../store/settingsStore'
 import type { CustomIndexer } from '../../../main/services/torrent-search.service'
 import type { SportarrSport } from '../../types.d'
 import Prompt, { Confirm } from '../Prompt/Prompt'
+import ChannelSelector from './ChannelSelector'
 import styles from './Settings.module.css'
 
 interface BuiltInDefinition {
@@ -297,6 +298,12 @@ export default function Settings({ onClose }: SettingsProps) {
   const [traktAuthError, setTraktAuthError] = useState('')
   const [userName, setUserName] = useState('')
 
+  const [mdblistAuthState, setMdblistAuthState] = useState<'idle' | 'connecting' | 'waiting' | 'connected' | 'error'>('idle')
+  const [mdblistUserCode, setMdblistUserCode] = useState('')
+  const [mdblistAuthError, setMdblistAuthError] = useState('')
+  const [mdblistUserName, setMdblistUserName] = useState('')
+  const [mdblistClientIdInput, setMdblistClientIdInput] = useState(store.mdblistClientId)
+
   const [rdAuthState, setRdAuthState] = useState<'idle' | 'waiting' | 'connected' | 'error'>('idle')
   const [rdUserCode, setRdUserCode] = useState('')
   const [rdAuthError, setRdAuthError] = useState('')
@@ -391,6 +398,82 @@ export default function Settings({ onClose }: SettingsProps) {
     store.setTraktConnected(false)
     setTraktAuthState('idle')
     setTraktUserCode('')
+  }, [store])
+
+  useEffect(() => {
+    if (store.mdblistConnected) {
+      setMdblistAuthState('connected')
+      window.api.mdblist.getSettings().then((s: any) => {
+        if (s?.username) setMdblistUserName(s.username)
+      }).catch(() => {})
+    }
+  }, [store.mdblistConnected])
+
+  const startMdblistAuth = useCallback(async () => {
+    setMdblistAuthState('connecting')
+    setMdblistAuthError('')
+
+    // Save the client ID override before starting the flow so the main
+    // process picks it up on the next device-code request.
+    if (mdblistClientIdInput.trim()) {
+      store.setMdblistClientId(mdblistClientIdInput.trim())
+    }
+
+    try {
+      const code = await window.api.mdblist.getDeviceCode()
+      setMdblistUserCode(code.user_code)
+      setMdblistAuthState('waiting')
+      pollMdblistToken(code.device_code, code.interval || 5)
+    } catch (err: any) {
+      setMdblistAuthError(err.message || 'Failed to connect')
+      setMdblistAuthState('error')
+    }
+  }, [mdblistClientIdInput, store])
+
+  const pollMdblistToken = useCallback(async (code: string, interval: number) => {
+    const maxAttempts = Math.floor(600 / interval)
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, interval * 1000))
+      try {
+        const result = await window.api.mdblist.pollForToken(code)
+        if (result.access_token) {
+          await window.api.mdblist.setTokens(result.access_token, result.refresh_token)
+          const activeId = useSettingsStore.getState().activeProfileId
+          if (activeId) {
+            useSettingsStore.getState().updateProfile(activeId, {
+              mdblistAccessToken: result.access_token,
+              mdblistRefreshToken: result.refresh_token
+            })
+          }
+          store.setMdblistConnected(true)
+          setMdblistAuthState('connected')
+          window.api.mdblist.getSettings().then((s: any) => {
+            if (s?.username) setMdblistUserName(s.username)
+          }).catch(() => {})
+          return
+        }
+      } catch (err: any) {
+        setMdblistAuthError(err.message || 'Authentication failed')
+        setMdblistAuthState('error')
+        return
+      }
+    }
+    setMdblistAuthError('Code expired. Try again.')
+    setMdblistAuthState('error')
+  }, [store])
+
+  const disconnectMdblist = useCallback(async () => {
+    await window.api.mdblist.setTokens(null, null)
+    const activeId = useSettingsStore.getState().activeProfileId
+    if (activeId) {
+      useSettingsStore.getState().updateProfile(activeId, {
+        mdblistAccessToken: undefined,
+        mdblistRefreshToken: undefined
+      })
+    }
+    store.setMdblistConnected(false)
+    setMdblistAuthState('idle')
+    setMdblistUserCode('')
   }, [store])
 
   const handleSave = async () => {
@@ -844,6 +927,103 @@ export default function Settings({ onClose }: SettingsProps) {
                 <div className={styles.errorBox}>
                   <p className={styles.errorText}>{traktAuthError}</p>
                   <button tabIndex={0} className={styles.connectBtn} onClick={() => { setTraktAuthState('idle'); setTraktAuthError('') }}>
+                    Try Again
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Watch Provider</h3>
+              <p className={styles.settingDesc}>Choose which service drives watched status, scrobbling, and playback resume. Both can be connected; the selected one is used by the app.</p>
+              <div className={styles.toggleGrid}>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.watchProvider === 'trakt' ? styles.toggleActive : ''}`}
+                  onClick={() => store.setWatchProvider('trakt')}
+                >
+                  Trakt
+                </button>
+                <button
+                  tabIndex={0}
+                  className={`${styles.toggle} ${store.watchProvider === 'mdblist' ? styles.toggleActive : ''}`}
+                  onClick={() => store.setWatchProvider('mdblist')}
+                >
+                  MDBList
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>MDBList</h3>
+              <p className={styles.settingDesc}>Scrobble, sync watch history, and get recommendations via MDBList (alternative to Trakt)</p>
+
+              <div className={styles.settingGroup} style={{ marginBottom: 12 }}>
+                <p className={styles.settingDesc}>Optional: paste your own MDBList Device Code app client ID (from mdblist.com/developer). Leave empty to use the built-in app.</p>
+                <input
+                  type="text"
+                  className={styles.input}
+                  placeholder="MDBList client ID (optional)"
+                  value={mdblistClientIdInput}
+                  onChange={(e) => setMdblistClientIdInput(e.target.value)}
+                  onBlur={() => {
+                    if (mdblistClientIdInput.trim() !== store.mdblistClientId) {
+                      store.setMdblistClientId(mdblistClientIdInput.trim())
+                      window.api.mdblist.reloadCredentials().catch(() => {})
+                    }
+                  }}
+                  tabIndex={0}
+                />
+              </div>
+
+              {mdblistAuthState === 'idle' && (
+                store.mdblistConnected ? (
+                  <div className={styles.connectedInfo}>
+                    <p className={styles.connected}>Connected{mdblistUserName ? ` as ${mdblistUserName}` : ''}</p>
+                    <button tabIndex={0} className={styles.disconnectBtn} onClick={disconnectMdblist}>
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <button tabIndex={0} className={styles.connectBtn} onClick={startMdblistAuth}>
+                    Connect to MDBList
+                  </button>
+                )
+              )}
+
+              {mdblistAuthState === 'connecting' && (
+                <p className={styles.authInfo}>Connecting to MDBList...</p>
+              )}
+
+              {mdblistAuthState === 'waiting' && (
+                <div className={styles.deviceAuth}>
+                  <p className={styles.authInfo}>
+                    Visit{' '}
+                    <a href="https://mdblist.com/oauth/device/" target="_blank" rel="noreferrer">
+                      mdblist.com/oauth/device
+                    </a>{' '}
+                    and enter the code below:
+                  </p>
+                  <div className={styles.userCode}>{mdblistUserCode}</div>
+                  <p className={styles.authHint}>Waiting for authorization...</p>
+                </div>
+              )}
+
+              {mdblistAuthState === 'connected' && (
+                <div className={styles.connectedInfo}>
+                  <p className={styles.connected}>
+                    Connected{mdblistUserName ? ` as ${mdblistUserName}` : ''}
+                  </p>
+                  <button tabIndex={0} className={styles.disconnectBtn} onClick={disconnectMdblist}>
+                    Disconnect
+                  </button>
+                </div>
+              )}
+
+              {mdblistAuthState === 'error' && (
+                <div className={styles.errorBox}>
+                  <p className={styles.errorText}>{mdblistAuthError}</p>
+                  <button tabIndex={0} className={styles.connectBtn} onClick={() => { setMdblistAuthState('idle'); setMdblistAuthError('') }}>
                     Try Again
                   </button>
                 </div>
@@ -1985,6 +2165,7 @@ export default function Settings({ onClose }: SettingsProps) {
             )}
 
             {store.liveTvEnabled && (
+              <>
               <div className={styles.settingGroup}>
                 <h3 className={styles.settingTitle}>Visible Countries</h3>
                 <p className={styles.settingDesc}>Select which countries' channels appear in Live TV. Leave empty to show all.</p>
@@ -2046,6 +2227,8 @@ export default function Settings({ onClose }: SettingsProps) {
                   </>
                 )}
               </div>
+              <ChannelSelector selectedCountries={localLiveTvCountries} />
+              </>
             )}
           </div>
         )
@@ -2239,9 +2422,12 @@ export default function Settings({ onClose }: SettingsProps) {
                     tabIndex={0}
                     style={{ fontSize: 16, fontWeight: 600, padding: '6px 8px' }}
                   />
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 12, color: profile.traktAccessToken ? 'var(--accent, #FF6B00)' : 'rgba(255,255,255,0.4)' }}>
                       {profile.traktAccessToken ? '● Trakt Logged In' : '○ Trakt Logged Out'}
+                    </span>
+                    <span style={{ fontSize: 12, color: profile.mdblistAccessToken ? 'var(--accent, #FF6B00)' : 'rgba(255,255,255,0.4)' }}>
+                      {profile.mdblistAccessToken ? '● MDBList Logged In' : '○ MDBList Logged Out'}
                     </span>
                     {profile.id === activeId && <span style={{ fontSize: 12, color: 'var(--accent, #FF6B00)' }}>● Active</span>}
                   </div>

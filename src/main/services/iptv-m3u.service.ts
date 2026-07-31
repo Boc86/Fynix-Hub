@@ -214,6 +214,29 @@ async function doFetch(): Promise<IPTVSource[]> {
 }
 
 /**
+ * Get ALL channel names from all M3U sources (flat, deduped).
+ * Returns just the channel names and which source label they come from.
+ * Used by Settings to build the merged CDN + M3U channel list.
+ */
+export async function getAllM3UChannels(
+  forceRefresh = false,
+): Promise<{ name: string; sourceLabel: string }[]> {
+  const sources = await getAllSources(forceRefresh)
+  const seen = new Set<string>()
+  const result: { name: string; sourceLabel: string }[] = []
+  for (const src of sources) {
+    for (const ch of src.channels) {
+      const key = ch.name.toLowerCase().trim()
+      if (!seen.has(key)) {
+        seen.add(key)
+        result.push({ name: ch.name, sourceLabel: src.label })
+      }
+    }
+  }
+  return result
+}
+
+/**
  * Search for a channel across all M3U sources.
  * Returns matching sources with the channel highlighted.
  */

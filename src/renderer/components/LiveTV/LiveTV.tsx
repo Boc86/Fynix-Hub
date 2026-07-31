@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
+import { loadMergedChannels } from '../../utils/channels'
+import { useChannelLogo, prewarmLogos } from '../../utils/useChannelLogo'
+import { normalizeLogoUrl } from '../../utils/logos'
+import Prompt from '../Prompt/Prompt'
 import styles from './LiveTV.module.css'
 
 interface Channel {
@@ -12,6 +16,7 @@ interface Channel {
   countryFlag: string
   playerUrl: string
   source: string
+  sources: string[]
   status: string
 }
 
@@ -35,6 +40,30 @@ function ChannelLogo({ logoImage, fallbackImage, name }: { logoImage: string; fa
     style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', height: 'calc(100% - 40px)', width: 'auto', maxWidth: '90%', objectFit: 'contain' }}
     onError={handleError}
   />
+}
+
+/**
+ * Channel tile with logo fallback.
+ * Calls useChannelLogo so it's a proper hook user.
+ *
+ * Priority: user-set custom logo -> real CDN image -> HEAD-checked
+ * tv-logos URL -> unverified tv-logos guess (main-process lookupLogo)
+ * -> nothing.
+ */
+function ChannelTile({ ch }: { ch: Channel }) {
+  const customLogo = useSettingsStore((s) => s.liveTvCustomLogos?.[ch.id] || '')
+  // Normalize at read time too: URLs saved before normalization existed
+  // (e.g. github.com/.../blob/... pages) must still render.
+  const primary = normalizeLogoUrl(customLogo) || ch.image || ''
+  // Always resolve the verified fallback (cdnLogo='' forces lookup);
+  // it's cached so repeated renders are cheap.
+  const verified = useChannelLogo(ch.name, '', ch.countryCode)
+  const fallback = verified || ch.logoImage || ''
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <ChannelLogo logoImage={primary} fallbackImage={fallback} name={ch.name} />
+    </div>
+  )
 }
 
 interface SourceItem {
@@ -69,16 +98,40 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
   const [focusedSourceIndex, setFocusedSourceIndex] = useState(0)
   const [m3uSources, setM3uSources] = useState<SourceItem[]>([])
 
+  // Channel context menu (right-click) state
+  const [menuChannel, setMenuChannel] = useState<Channel | null>(null)
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
+  const [logoPromptChannel, setLogoPromptChannel] = useState<Channel | null>(null)
+
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Load channels from cdnlive only
+  // Load merged channels (CDN + M3U) so M3U-only selections from Settings
+  // are visible here. CDN channels keep their images/playerUrl; M3U-only
+  // channels are playable via the M3U source modal.
   useEffect(() => {
     setLoading(true)
-    window.api.damiTv.getChannels('cdnlive').then(ch => {
-      window.api.log(`[LiveTV] ${ch.length} channels loaded from cdnlive`)
-      setChannels(ch)
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    loadMergedChannels()
+      .then(merged => {
+        const liveTvChannels: Channel[] = merged.map(ch => ({
+          id: ch.id,
+          name: ch.name,
+          image: ch.logo || '',
+          logoImage: ch.logoImage || ch.logo || '',
+          countryCode: ch.countryCode,
+          countryName: ch.countryName,
+          countryFlag: '',
+          playerUrl: '',
+          source: ch.sources.includes('cdnlive') ? 'cdnlive' : 'm3u',
+          sources: ch.sources,
+          status: '',
+        }))
+        window.api.log(`[LiveTV] ${liveTvChannels.length} channels loaded (${merged.filter(c => c.sources.includes('cdnlive')).length} CDN, ${merged.filter(c => c.sources.length === 1).length} M3U-only)`)
+        setChannels(liveTvChannels)
+        setLoading(false)
+        // Pre-warm fallback logos in the background
+        prewarmLogos(liveTvChannels.map(c => ({ name: c.name, countryCode: c.countryCode })))
+      })
+      .catch(() => setLoading(false))
   }, [])
 
   // When a channel is selected, fetch matching M3U sources
@@ -111,14 +164,41 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
 
   const filteredChannels = useMemo(() => {
     let result = channels
+    // Apply country filter
     if (settingsStore.selectedLiveTvCountries.length > 0) {
       result = result.filter(c => settingsStore.selectedLiveTvCountries.includes(c.countryCode))
     }
-    return result.sort((a, b) => {
-      if (a.countryCode !== b.countryCode) return a.countryCode.localeCompare(b.countryCode)
-      return a.name.localeCompare(b.name)
-    })
-  }, [channels, settingsStore.selectedLiveTvCountries])
+    // Apply channel visibility filter (A5)
+    if (settingsStore.liveTvVisibleChannels.length > 0) {
+      result = result.filter(c => settingsStore.liveTvVisibleChannels.includes(c.id))
+    }
+    // Apply custom channel order (A5)
+    if (settingsStore.liveTvChannelOrder.length > 0) {
+      const orderMap = new Map(settingsStore.liveTvChannelOrder.map((id, i) => [id, i]))
+      const ordered: typeof result = []
+      const unordered: typeof result = []
+      for (const ch of result) {
+        if (orderMap.has(ch.id)) {
+          ordered.push(ch)
+        } else {
+          unordered.push(ch)
+        }
+      }
+      ordered.sort((a, b) => (orderMap.get(a.id) ?? 999) - (orderMap.get(b.id) ?? 999))
+      // Unordered channels go after ordered ones, sorted by country+name
+      unordered.sort((a, b) => {
+        if (a.countryCode !== b.countryCode) return a.countryCode.localeCompare(b.countryCode)
+        return a.name.localeCompare(b.name)
+      })
+      result = [...ordered, ...unordered]
+    } else {
+      result = result.sort((a, b) => {
+        if (a.countryCode !== b.countryCode) return a.countryCode.localeCompare(b.countryCode)
+        return a.name.localeCompare(b.name)
+      })
+    }
+    return result
+  }, [channels, settingsStore.selectedLiveTvCountries, settingsStore.liveTvVisibleChannels, settingsStore.liveTvChannelOrder])
 
   const flatItems = useMemo(() => {
     const map = new Map<string, Channel[]>()
@@ -185,13 +265,15 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
   }, [focusedChannelIdx])
 
   const getSources = useCallback((): SourceItem[] => {
-    const defaults: SourceItem[] = [
+    // C1: For channels with only M3U sources (no CDN source), hide default servers
+    const hasCdnSource = selectedChannel?.sources?.some(s => s !== 'm3u') || false
+    const defaults: SourceItem[] = hasCdnSource ? [
       { id: 'cdnlive', label: 'CDNLive', color: styles.cdnlive, type: 'cdnlive' },
       { id: 'ondemand', label: 'OnDemand', color: styles.ondemand, type: 'ondemand' },
       { id: 'dlhd', label: 'DLHD', color: styles.dlhd, type: 'dlhd' },
-    ]
+    ] : []
     return [...defaults, ...m3uSources]
-  }, [m3uSources])
+  }, [selectedChannel, m3uSources])
 
   const playChannelWithSource = useCallback(async (ch: Channel, source: SourceItem) => {
     setSourceLoading(true)
@@ -231,6 +313,22 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
 
   // ── Export keyboard handler via ref (used by App.tsx's global handler) ──
   const handleKeyDown = useCallback((e: KeyboardEvent): boolean => {
+    // Logo URL prompt open — swallow ALL keys at the window level.
+    // The Prompt input itself handles Enter (confirm) and Escape (cancel)
+    // at the target phase, and Backspace must keep working as normal text
+    // editing. Swallowing here stops the grid-navigation handlers below
+    // (arrows move focus, Enter opens the source modal, Backspace/Escape
+    // navigate back) from hijacking keystrokes meant for the input.
+    if (logoPromptChannel) {
+      return true
+    }
+    // Context menu open — Escape/Backspace closes it before anything else
+    if (menuChannel) {
+      if (e.key === 'Escape' || e.key === 'Backspace') {
+        e.preventDefault(); setMenuChannel(null); setMenuPos(null); return true
+      }
+      return true
+    }
     if (selectedChannel) {
       // Modal is open — navigate sources
       const sources = getSources()
@@ -260,6 +358,19 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
     // Grid navigation (modal closed)
     if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); onBack(); return true }
     if (filteredChannels.length === 0) return false
+
+    // 'C' key or the keyboard ContextMenu key opens the channel context menu
+    if (e.key === 'c' || e.key === 'C' || e.code === 'KeyC' || e.code === 'ContextMenu') {
+      const t = e.target as HTMLElement
+      if (t && ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName)) return false
+      e.preventDefault()
+      const ch = filteredChannels[focusedChannelIdx]
+      if (ch) {
+        setMenuChannel(ch)
+        setMenuPos(null) // null = centered on screen (keyboard launch)
+      }
+      return true
+    }
 
     if (e.key === 'ArrowRight') {
       e.preventDefault()
@@ -312,7 +423,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       return true
     }
     return false
-  }, [selectedChannel, focusedSourceIndex, getSources, playChannelWithSource, filteredChannels, focusedChannelIdx, channelPos, rowChannels, allRows, onBack])
+  }, [menuChannel, logoPromptChannel, selectedChannel, focusedSourceIndex, getSources, playChannelWithSource, filteredChannels, focusedChannelIdx, channelPos, rowChannels, allRows, onBack])
 
   // Expose keyboard handler to parent via ref
   useEffect(() => {
@@ -412,6 +523,13 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
                     setSelectedChannel(ch); setFocusedSourceIndex(0)
                   }}
                   onMouseEnter={() => setFocusedChannelIdx(item.flatIdx)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setFocusedChannelIdx(item.flatIdx)
+                    setMenuChannel(ch)
+                    setMenuPos({ x: e.clientX, y: e.clientY })
+                  }}
                   style={{
                     position: 'relative', aspectRatio: '16/9',
                     background: focused ? 'rgba(255,255,255,0.05)' : '#111',
@@ -420,7 +538,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
                     transition: 'all 0.15s ease', padding: 0
                   }}
                 >
-                  <ChannelLogo logoImage={ch.logoImage} fallbackImage={ch.image} name={ch.name} />
+                  <ChannelTile ch={ch} />
                   <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '6px 8px', fontSize: 12, fontWeight: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {ch.name}
                   </div>
@@ -429,6 +547,88 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
             })}
           </div>
         </>
+      )}
+
+      {/* Channel context menu (right-click or C/ContextMenu key) */}
+      {menuChannel && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+          onClick={() => { setMenuChannel(null); setMenuPos(null) }}
+          onContextMenu={(e) => { e.preventDefault(); setMenuChannel(null); setMenuPos(null) }}
+        >
+          <div
+            style={menuPos
+              ? {
+                  position: 'fixed', left: Math.min(menuPos.x, window.innerWidth - 220),
+                  top: Math.min(menuPos.y, window.innerHeight - 130),
+                  background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 10, padding: 6, minWidth: 200,
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+                }
+              : {
+                  // Keyboard launch (C / ContextMenu key): center on the viewport
+                  position: 'fixed', top: '50%', left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 10, padding: 6, minWidth: 220,
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+                }}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>
+              {menuChannel.name}
+            </div>
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+            <button
+              tabIndex={0}
+              onClick={() => { setLogoPromptChannel(menuChannel); setMenuChannel(null); setMenuPos(null) }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px',
+                background: 'none', border: 'none', borderRadius: 6, color: '#fff',
+                fontSize: 13, cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
+            >
+              Set Logo URL…
+            </button>
+            {settingsStore.liveTvCustomLogos?.[menuChannel.id] && (
+              <button
+                tabIndex={0}
+                onClick={() => {
+                  settingsStore.setLiveTvCustomLogo(menuChannel.id, '')
+                  setMenuChannel(null); setMenuPos(null)
+                }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px',
+                  background: 'none', border: 'none', borderRadius: 6, color: '#ff6b6b',
+                  fontSize: 13, cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,60,60,0.1)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
+              >
+                Clear Logo
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Logo URL prompt */}
+      {logoPromptChannel && (
+        <Prompt
+          title={`Logo URL — ${logoPromptChannel.name}`}
+          message="Paste an image URL (png/jpg/webp) to use for this channel where no logo is found. Leave the field empty and press Cancel to keep the current logo."
+          placeholder="https://example.com/logo.png"
+          defaultValue={settingsStore.liveTvCustomLogos?.[logoPromptChannel.id] || ''}
+          confirmLabel="Set Logo"
+          onConfirm={(url) => {
+            settingsStore.setLiveTvCustomLogo(logoPromptChannel.id, url)
+            setLogoPromptChannel(null)
+          }}
+          onCancel={() => setLogoPromptChannel(null)}
+        />
       )}
     </div>
   )

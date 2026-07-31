@@ -182,28 +182,50 @@ describe('EPG Service', () => {
 
   describe('normalizeChannelName', () => {
     it('lowercases and trims', () => {
-      expect(EpgService.normalizeChannelName('  BBC One  ')).toBe('bbc one')
+      expect(EpgService.normalizeChannelName('  BBC One  ')).toBe('bbc 1')
     })
 
     it('strips HD/SD/UHD', () => {
-      expect(EpgService.normalizeChannelName('BBC One HD')).toBe('bbc one')
-      expect(EpgService.normalizeChannelName('ITV1 SD')).toBe('itv1')
+      expect(EpgService.normalizeChannelName('BBC One HD')).toBe('bbc 1')
+      expect(EpgService.normalizeChannelName('ITV1 SD')).toBe('itv 1')
       expect(EpgService.normalizeChannelName('Channel 4 UHD')).toBe('channel 4')
     })
 
     it('strips +N suffixes', () => {
-      expect(EpgService.normalizeChannelName('ITV1+1')).toBe('itv1')
+      expect(EpgService.normalizeChannelName('ITV1+1')).toBe('itv 1')
       expect(EpgService.normalizeChannelName('Channel 4+2')).toBe('channel 4')
     })
 
     it('strips FTA/live/online', () => {
-      expect(EpgService.normalizeChannelName('BBC One Live')).toBe('bbc one')
+      expect(EpgService.normalizeChannelName('BBC One Live')).toBe('bbc 1')
       expect(EpgService.normalizeChannelName('Sky FTA')).toBe('sky')
     })
 
     it('collapses whitespace and special chars', () => {
-      expect(EpgService.normalizeChannelName('BBC___One')).toBe('bbc one')
-      expect(EpgService.normalizeChannelName('BBC-One')).toBe('bbc one')
+      expect(EpgService.normalizeChannelName('BBC___One')).toBe('bbc 1')
+      expect(EpgService.normalizeChannelName('BBC-One')).toBe('bbc 1')
+    })
+
+    it('strips country prefixes', () => {
+      expect(EpgService.normalizeChannelName('UK: BBC One')).toBe('bbc 1')
+      expect(EpgService.normalizeChannelName('US|CNN')).toBe('cnn')
+      expect(EpgService.normalizeChannelName('FR : TF1')).toBe('tf 1')
+    })
+
+    it('converts number words to digits', () => {
+      expect(EpgService.normalizeChannelName('Channel Four')).toBe('channel 4')
+      expect(EpgService.normalizeChannelName('BBC Two')).toBe('bbc 2')
+    })
+
+    it('splits letter-digit boundaries so BBC One matches BBC1', () => {
+      expect(EpgService.normalizeChannelName('BBC1')).toBe('bbc 1')
+      expect(EpgService.normalizeChannelName('C4')).toBe('c 4')
+      expect(EpgService.normalizeChannelName('BBC One')).toBe('bbc 1')
+    })
+
+    it('drops parentheticals', () => {
+      expect(EpgService.normalizeChannelName('Sky News (UK)')).toBe('sky news')
+      expect(EpgService.normalizeChannelName('BBC One (HD)')).toBe('bbc 1')
     })
   })
 

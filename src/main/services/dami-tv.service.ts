@@ -60,7 +60,14 @@ const COUNTRY_NAMES: Record<string, string> = {
 function detectCountryCode(name: string): string {
   const t = ' ' + name.toLowerCase() + ' '
   for (const [kw, code] of CC_MAP) {
-    if (t.indexOf(kw) >= 0) return code
+    // Check for keyword as a standalone word, colon-prefixed, or in parentheses
+    if (t.indexOf(' ' + kw.toLowerCase() + ' ') >= 0 || 
+        t.indexOf(kw.toLowerCase() + ':') >= 0 ||
+        t.indexOf(kw.toLowerCase() + ' -') >= 0 ||
+        t.indexOf('(' + kw.toLowerCase() + ')') >= 0 ||
+        t.indexOf(' - ' + kw.toLowerCase()) >= 0) {
+      return code
+    }
   }
   return 'intl'
 }

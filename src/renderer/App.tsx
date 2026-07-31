@@ -22,6 +22,7 @@ import type { NavView } from './components/Sidebar/Sidebar'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
+import { getWatchApi, useWatchConnected } from './utils/watchProvider'
 
   type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg'
 
@@ -95,7 +96,7 @@ export default function App() {
   const savedFocusRef = useRef<HTMLElement | null>(null)
   const prevModalCountRef = useRef(0)
   const liveTvApiRef = useRef<LiveTVAPI | null>(null)
-  const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile, traktConnected } = useSettingsStore()
+  const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
   const playerInfoRef = useRef<PlayerInfo | undefined>(undefined)
 
@@ -193,7 +194,7 @@ export default function App() {
         }
       } else if (action === 'contextMenu') {
         if (!contextTarget) {
-          if (view === 'browser' || view === 'movies' || view === 'tv-shows') {
+          if (view === 'browser' || view === 'movies' || view === 'tv-shows' || view === 'live-tv') {
             const el = document.activeElement
             if (el) {
               el.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
@@ -231,11 +232,11 @@ export default function App() {
   const storeResume = useMediaStore((s) => s.resumeProgress)
 
   const fetchWatchedData = useCallback(async () => {
-    const authStatus = await window.api.trakt.getAuthStatus()
+    const authStatus = await getWatchApi().getAuthStatus()
     if (authStatus.authenticated) {
       const [watchedMovies, watchedShows] = await Promise.all([
-        window.api.trakt.getWatchedMovies().catch(() => null),
-        window.api.trakt.getWatchedShows().catch(() => null),
+        getWatchApi().getWatchedMovies().catch(() => null),
+        getWatchApi().getWatchedShows().catch(() => null),
       ])
 
       if (watchedMovies || watchedShows) {
@@ -278,14 +279,21 @@ export default function App() {
     return () => { cancelled = true }
   }, [loadFromDisk, fetchWatchedData])
 
-  // Re-fetch watched data when Trakt is newly connected after initial load
-  const prevTraktRef = useRef(false)
+  // Re-fetch watched data when the active watch provider is newly connected
+  // OR the user switches provider between two connected services (both stay
+  // "connected", so the boolean edge alone would miss the switch).
+  const watchProvider = useSettingsStore((s) => s.watchProvider)
+  const watchConnected = useWatchConnected()
+  const prevWatchRef = useRef({ provider: watchProvider, connected: watchConnected })
   useEffect(() => {
-    if (traktConnected && !prevTraktRef.current) {
+    const prev = prevWatchRef.current
+    const providerChanged = prev.provider !== watchProvider
+    const connectedNow = watchConnected && !prev.connected
+    if (providerChanged || connectedNow) {
       fetchWatchedData()
     }
-    prevTraktRef.current = traktConnected
-  }, [traktConnected, fetchWatchedData])
+    prevWatchRef.current = { provider: watchProvider, connected: watchConnected }
+  }, [watchConnected, watchProvider, fetchWatchedData])
 
   // Keep resumeDurationRef in sync with playerInfo for torrent prioritization
   useEffect(() => {
@@ -331,12 +339,24 @@ export default function App() {
   const selectedLiveTvCountries = useSettingsStore((s) => s.selectedLiveTvCountries)
   useEffect(() => {
     if (view !== 'epg') return
-    window.api.damiTv.getChannels().then((chs: any[]) => {
-      let filtered = chs
-      if (selectedLiveTvCountries.length > 0) {
-        filtered = chs.filter((c: any) => selectedLiveTvCountries.includes(c.countryCode))
-      }
-      setEpgLiveTvChannels(filtered)
+    import('./utils/channels').then(({ loadMergedChannels }) => {
+      loadMergedChannels().then((merged) => {
+        const chs = merged.map(ch => ({
+          id: ch.id,
+          name: ch.name,
+          image: ch.logo || '',
+          logoImage: ch.logo || '',
+          countryCode: ch.countryCode,
+          countryName: ch.countryName,
+          countryFlag: '',
+          playerUrl: '',
+        }))
+        let filtered = chs
+        if (selectedLiveTvCountries.length > 0) {
+          filtered = chs.filter((c: any) => selectedLiveTvCountries.includes(c.countryCode))
+        }
+        setEpgLiveTvChannels(filtered)
+      }).catch(() => setEpgLiveTvChannels([]))
     }).catch(() => setEpgLiveTvChannels([]))
   }, [view, selectedLiveTvCountries])
 
@@ -1354,11 +1374,11 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
-      await window.api.trakt.markUnwatched(payload)
+      await getWatchApi().markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
@@ -1369,11 +1389,11 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
-      await window.api.trakt.markWatched(payload)
+      await getWatchApi().markWatched(payload)
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
   }, [])
@@ -1383,11 +1403,11 @@ export default function App() {
       const payload = target.type === 'movie'
         ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
         : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season, episodes: [{ number: target.episode }] }] }] }
+          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
           : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ number: target.season }] }] }
+            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
-      await window.api.trakt.markUnwatched(payload)
+      await getWatchApi().markUnwatched(payload)
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
   }, [])
@@ -1415,7 +1435,7 @@ export default function App() {
 
   const handleDropShow = useCallback(async (target: ContextTarget) => {
     try {
-      await window.api.trakt.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
+      await getWatchApi().markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
   }, [])
