@@ -273,7 +273,7 @@ function decodeObfuscatedBase64(s: string): string {
 
 async function extractHlsUrlFromPlayerPage(playerUrl: string): Promise<string | null> {
   const res = await fetch(playerUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://cdnlivetv.tv/' }
+    headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Referer': 'https://cdnlivetv.is/' }
   })
   const html = await res.text()
 

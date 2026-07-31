@@ -12,6 +12,7 @@ import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import Sports from './components/Sports/Sports'
 import LiveTV, { type LiveTVAPI } from './components/LiveTV/LiveTV'
 import EPG from './components/EPG/EPG'
+import Recordings from './components/Recordings/Recordings'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
@@ -24,7 +25,7 @@ import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 import { getWatchApi, useWatchConnected } from './utils/watchProvider'
 
-  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg' | 'recordings'
 
 interface PlayerInfo {
   tmdbId: number
@@ -1514,14 +1515,14 @@ export default function App() {
         if (torrentSearchOpen) { setTorrentSearchOpen(false); return }
         if (searchOpen) { setSearchOpen(false); return }
         if (sidebarOpen) { setSidebarOpen(false); return }
-        if (view === 'sports' || view === 'live-tv' || view === 'epg') return
+        if (view === 'sports' || view === 'live-tv' || view === 'epg' || view === 'recordings') return
         if (view === 'player') { handlePlayerBack(); return }
         if (view !== 'browser') { goBack(); return }
       }
       
       if (e.key === 'Backspace') {
         if (isTyping) return
-        if (view === 'sports' || view === 'live-tv' || view === 'epg') return
+        if (view === 'sports' || view === 'live-tv' || view === 'epg' || view === 'recordings') return
         if (virtualKeyboardOpen) {
           e.preventDefault()
           setVirtualKeyboardOpen(false)
@@ -1638,7 +1639,7 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'sports' ? 'sports' : view === 'live-tv' ? 'live-tv' : view === 'epg' ? 'epg' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
+        currentView={view === 'sports' ? 'sports' : view === 'live-tv' ? 'live-tv' : view === 'epg' ? 'epg' : view === 'recordings' ? 'recordings' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -1812,6 +1813,32 @@ export default function App() {
             }}
             onBack={() => goBack()}
             liveTvChannels={epgLiveTvChannels}
+          />
+        </div>
+      )}
+      {view === 'recordings' && (
+        <div className="animate-fade">
+          <Recordings
+            onPlayUrl={async (url) => {
+              setTorrentSearchOpen(false)
+              setFreeSearchOpen(false)
+              setFreeSearchQuery('')
+              setPlayerLoading(true)
+              setStreamError(null)
+              navigate('player')
+              try {
+                currentInfoHashRef.current = null
+                resumePositionRef.current = undefined
+                lastStreamUrlRef.current = url
+                await startPlayerUrl(url, undefined, undefined)
+                setPlayerLoading(false)
+              } catch (err: any) {
+                window.api.log('[App] Recording playback failed:', err.message)
+                setStreamError(err?.message || 'Failed to play recording')
+                setPlayerLoading(false)
+              }
+            }}
+            onBack={() => goBack()}
           />
         </div>
       )}

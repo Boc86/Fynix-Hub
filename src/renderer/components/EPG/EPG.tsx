@@ -128,6 +128,10 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   const [focusedSourceIndex, setFocusedSourceIndex] = useState(0)
   const [m3uSources, setM3uSources] = useState<SourceItem[]>([])
 
+  // Recording state
+  const [recordMsg, setRecordMsg] = useState<{ text: string; error?: boolean } | null>(null)
+  const [recordedKeys, setRecordedKeys] = useState<Set<string>>(new Set())
+
   const today = new Date()
   const dateStr = today.toISOString().slice(0, 10)
 
@@ -280,6 +284,67 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     }
   }
 
+  // ── PVR: schedule a recording for a programme on a channel ──
+  const recordProgramme = async (ch: MappedChannel, programme: EPGProgramme) => {
+    const key = `${ch.liveTvChannelId}:${programme.start}`
+    setRecordMsg(null)
+    try {
+      // Build source candidates. Order matters: try M3U sources first
+      // (stable direct HTTP URLs FFmpeg can fetch), then CDN types which are
+      // resolved fresh at record time. CDNLive uses P2P HLS that FFmpeg can't
+      // fetch directly, so M3U is the preferred recordable source.
+      const m3uSources: { type: 'm3u'; url: string }[] = []
+      const iptvApi = window.api.iptvM3u
+      if (iptvApi) {
+        const matches: any[] = await iptvApi.findChannel(ch.liveTvName).catch(() => [])
+        for (const m of matches) {
+          if (m?.channel?.url) m3uSources.push({ type: 'm3u', url: m.channel.url })
+        }
+      }
+
+      const sources: { type: 'cdnlive' | 'ondemand' | 'dlhd' | 'm3u'; url?: string }[] = [
+        ...m3uSources,
+        { type: 'cdnlive' },
+        { type: 'ondemand' },
+        { type: 'dlhd' },
+      ]
+
+      const cdnLiveOnly = m3uSources.length === 0
+      if (cdnLiveOnly) {
+        setRecordMsg({
+          text: `Cannot record ${ch.liveTvName}: CDNLive uses P2P streams. Add an M3U source in Settings to enable recording.`,
+          error: true,
+        })
+        setTimeout(() => setRecordMsg(null), 6000)
+        return
+      }
+
+      await window.api.recordings.schedule({
+        title: programme.title,
+        channelName: ch.liveTvName,
+        startTime: programme.start * 1000,
+        endTime: programme.stop * 1000,
+        channel: {
+          id: ch.liveTvChannelId,
+          name: ch.liveTvName,
+          countryCode: ch.liveTvCountryCode,
+          playerUrl: ch.liveTvPlayerUrl,
+        },
+        sources,
+      })
+
+      setRecordedKeys(prev => new Set(prev).add(key))
+      setRecordMsg({ text: `Recording scheduled: ${programme.title}` })
+      setTimeout(() => setRecordMsg(null), 5000)
+    } catch (err: any) {
+      setRecordMsg({ text: `Failed to schedule recording: ${err?.message || err}`, error: true })
+      setTimeout(() => setRecordMsg(null), 5000)
+    }
+  }
+
+  const isRecorded = (ch: MappedChannel, p: EPGProgramme) =>
+    recordedKeys.has(`${ch.liveTvChannelId}:${p.start}`)
+
   // ── Window-level keyboard handler for source modal ──
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -301,6 +366,8 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
 
       // Grid navigation (modal closed)
       if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); onBack(); return }
+      // Let focused buttons (record, etc.) handle Enter themselves
+      if ((e.target as HTMLElement)?.tagName === 'BUTTON') return
       if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedChannelIdx(i => Math.min(i + 1, channels.length - 1)); setSelectedChannelIdx(i => Math.min(i + 1, channels.length - 1)) }
       if (e.key === 'ArrowUp') { e.preventDefault(); setFocusedChannelIdx(i => Math.max(i - 1, 0)); setSelectedChannelIdx(i => Math.max(i - 1, 0)) }
       if (e.key === 'ArrowLeft') { e.preventDefault(); scrollGrid('left') }
@@ -404,13 +471,34 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         </div>
       )}
 
+      {recordMsg && (
+        <div style={{ padding: '8px 16px', background: recordMsg.error ? 'rgba(255,59,48,0.15)' : 'rgba(52,199,89,0.15)', color: recordMsg.error ? '#ff3b30' : '#34c759', fontSize: 12 }}>
+          {recordMsg.text}
+        </div>
+      )}
+
       {selNN && (selNN.now || selNN.next) && (
         <div style={{ display: 'flex', gap: 12, padding: 12, background: 'var(--bg-primary, #0d0d1a)', borderBottom: '1px solid var(--border, #2a2a4a)', position: 'sticky', top: 0, zIndex: 10 }}>
-          {selNN.now && (
+          {selNN.now && selCh && (
             <div style={{ flex: 1, background: 'rgba(var(--accent-rgb, 255, 107, 0), 0.12)', borderRadius: 8, padding: 12, border: '1px solid var(--accent)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <span style={{ fontSize: 10, background: 'var(--accent)', color: '#fff', padding: '2px 6px', borderRadius: 3, fontWeight: 700 }}>NOW</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{formatTime(selNN.now.start)} - {formatTime(selNN.now.stop)}</span>
+                <button
+                  tabIndex={0}
+                  onClick={() => recordProgramme(selCh, selNN.now!)}
+                  style={{
+                    marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                    background: isRecorded(selCh, selNN.now) ? 'rgba(255,59,48,0.25)' : 'rgba(255,59,48,0.15)',
+                    border: '1px solid rgba(255,59,48,0.5)', color: '#ff6b6b',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.3)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = isRecorded(selCh, selNN.now!) ? 'rgba(255,59,48,0.25)' : 'rgba(255,59,48,0.15)' }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>
+                  {isRecorded(selCh, selNN.now) ? 'RECORDED' : 'RECORD'}
+                </button>
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{selNN.now.title}</div>
               {selNN.now.description && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selNN.now.description}</div>}
@@ -480,13 +568,14 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
                   const w = (dur / HOUR_MS) * SLOT_WIDTH
                   const left = programmeLeft(p)
                   const live = isLive(p)
+                  const recorded = isRecorded(ch, p)
                   return (
                     <div key={`${p.start}-${pi}`}
                       style={{
                         position: 'absolute', top: 4, left, width: w - 2, height: ROW_HEIGHT - 8, borderRadius: 6,
                         boxSizing: 'border-box',
                         background: live ? 'rgba(var(--accent-rgb), 0.2)' : 'rgba(255,255,255,0.06)',
-                        border: live ? '1px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)',
+                        border: live ? '1px solid var(--accent)' : (recorded ? '1px solid rgba(255,59,48,0.6)' : '1px solid rgba(255,255,255,0.08)'),
                         padding: '4px 8px', cursor: 'pointer', overflow: 'hidden',
                         display: 'flex', flexDirection: 'column',
                       }}
@@ -496,7 +585,22 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
                       }}
                       onDoubleClick={() => { setSelectedChannel(ch); setFocusedSourceIndex(0) }}
                     >
-                      <div style={{ fontSize: 11, fontWeight: 600, color: live ? 'var(--accent)' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                        <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: live ? 'var(--accent)' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+                        <button
+                          tabIndex={-1}
+                          title={recorded ? 'Recording scheduled' : 'Schedule recording'}
+                          onClick={(e) => { e.stopPropagation(); recordProgramme(ch, p) }}
+                          style={{
+                            flexShrink: 0, width: 16, height: 16, borderRadius: '50%', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: recorded ? 'rgba(255,59,48,0.5)' : 'rgba(255,59,48,0.2)',
+                            border: '1px solid rgba(255,59,48,0.7)', padding: 0, opacity: recorded ? 1 : 0.55,
+                          }}
+                        >
+                          <svg width="8" height="8" viewBox="0 0 24 24" fill="#ff6b6b"><circle cx="12" cy="12" r="7"/></svg>
+                        </button>
+                      </div>
                       <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{formatTime(p.start)}</div>
                       {live && (
                         <div style={{ marginTop: 'auto', height: 2, background: 'rgba(255,255,255,0.15)', borderRadius: 1, overflow: 'hidden' }}>

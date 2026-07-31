@@ -1,8 +1,24 @@
 import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import * as path from 'path'
+import { extractChannelUrl } from './dami-tv.service'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface RecordingChannel {
+  id: string
+  name: string
+  countryCode: string
+  playerUrl?: string
+}
+
+/** A candidate source for a recording. CDN types are resolved to a fresh
+ *  stream URL at record time (tokens are one-time-use); m3u carries its
+ *  stable direct URL. */
+export interface RecordingSource {
+  type: 'cdnlive' | 'ondemand' | 'dlhd' | 'm3u'
+  url?: string
+}
 
 export interface Recording {
   id: string
@@ -18,6 +34,8 @@ export interface Recording {
   durationSec: number
   sizeBytes: number
   source: string
+  channel: RecordingChannel
+  sources: RecordingSource[]
 }
 
 interface ScheduledRecording {
@@ -80,8 +98,30 @@ async function saveRecordings(): Promise<void> {
 
 // ─── FFmpeg ──────────────────────────────────────────────────────────────────
 
+const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
+/** Headers required to fetch a stream URL (CDN anti-hotlinking etc). */
+function headersForUrl(url: string): Record<string, string> {
+  const headers: Record<string, string> = { 'User-Agent': BROWSER_UA }
+  if (/cdnlivetv\.(is|tv)/i.test(url)) {
+    headers['Referer'] = 'https://cdnlivetv.is/'
+  } else if (/dlhd\.st/i.test(url)) {
+    headers['Referer'] = 'https://dlhd.st/'
+  }
+  return headers
+}
+
+/** CDNLive streams use P2P HLS (p2p-media-loader) whose tokens are consumed
+ *  by the browser's tracker handshake. FFmpeg cannot record these — mark them
+ *  so we skip them and fail fast with a helpful message instead of a
+ *  cryptic "mime type not rfc8216" error. */
+function isP2pStream(url: string): boolean {
+  return /api\.cdnlivetv\.is\/secure/i.test(url) || /cdnlivetv\.(is|tv)/i.test(url)
+}
+
 function spawnFfmpeg(
   sourceUrl: string,
+  headers: Record<string, string>,
   outputDir: string,
   durationSec: number,
   id: string,
@@ -92,11 +132,17 @@ function spawnFfmpeg(
     '-hide_banner',
     '-loglevel', 'warning',
     '-y',
+  ]
+  const headersArg = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n') + '\r\n'
+  if (headersArg) {
+    args.push('-headers', headersArg)
+  }
+  args.push(
     '-i', sourceUrl,
     '-t', String(durationSec),
     '-c', 'copy',
     outputPath,
-  ]
+  )
 
   debug(`Spawning FFmpeg: ffmpeg ${args.join(' ')}`)
 
@@ -163,14 +209,79 @@ async function updateFileSize(rec: Recording): Promise<void> {
   }
 }
 
+// ─── Source URL resolution ────────────────────────────────────────────────────
+
+interface ResolvedSource {
+  url: string
+  headers: Record<string, string>
+}
+
+/**
+ * Resolve candidate stream URLs for a recording at record time.
+ * CDN types are extracted fresh (tokens are one-time-use); m3u URLs are
+ * stable and used directly. Each URL carries the headers FFmpeg needs
+ * (Referer/UA — CDN anti-hotlinking rejects bare requests with 5xx).
+ */
+async function resolveSourceUrls(rec: Recording): Promise<ResolvedSource[]> {
+  const urls: ResolvedSource[] = []
+  for (const src of rec.sources || []) {
+    if (src.type === 'm3u' && src.url) {
+      urls.push({ url: src.url, headers: headersForUrl(src.url) })
+      continue
+    }
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await extractChannelUrl({
+        id: rec.channel.id,
+        name: rec.channel.name,
+        countryCode: rec.channel.countryCode,
+        playerUrl: rec.channel.playerUrl,
+      })
+      if (result.hlsUrl) urls.push({ url: result.hlsUrl, headers: headersForUrl(result.hlsUrl) })
+    } catch (err: any) {
+      debug(`Source ${src.type} resolution failed for ${rec.id}: ${err?.message}`)
+    }
+  }
+  return urls
+}
+
 // ─── Scheduled Recording Runner ─────────────────────────────────────────────
 
 async function startRecording(
   id: string,
-  sourceUrls: string[],
   actualStartTime: number,
   actualEndTime: number,
 ): Promise<void> {
+  const rec = recordings.get(id)
+  if (!rec) return
+
+  const sourceUrls = await resolveSourceUrls(rec)
+  if (sourceUrls.length === 0) {
+    debug(`No source URLs could be resolved for recording ${id}`)
+    rec.status = 'failed'
+    rec.error = 'No playable source found at record time'
+    await saveRecordings()
+    scheduled.delete(id)
+    return
+  }
+
+  // Filter out sources FFmpeg physically cannot record: CDNLive uses P2P HLS
+  // (p2p-media-loader) whose token is consumed by the browser's tracker
+  // handshake — FFmpeg requesting the m3u8 directly gets a dead token.
+  // Direct HTTP streams (m3u, ondemand, dlhd) are fine.
+  const recodable = sourceUrls.filter(s => !isP2pStream(s.url))
+  if (recodable.length === 0) {
+    const hasCdnLive = sourceUrls.some(s => isP2pStream(s.url))
+    debug(`No recordable sources for ${id}` + (hasCdnLive ? ' (CDNLive P2P streams cannot be recorded with FFmpeg)' : ''))
+    rec.status = 'failed'
+    rec.error = hasCdnLive
+      ? 'CDNLive streams use P2P — not recordable with FFmpeg. Use a direct M3U source.'
+      : 'No playable source found at record time'
+    await saveRecordings()
+    scheduled.delete(id)
+    return
+  }
+
   const durationSec = Math.round((actualEndTime - actualStartTime) / 1000)
   const recDir = getRecordingDir(id)
   const fs = await import('fs/promises')
@@ -181,10 +292,10 @@ async function startRecording(
   let lastError: string | undefined
   let proc: ChildProcess | undefined
 
-  for (const url of sourceUrls) {
-    debug(`Trying source URL for recording ${id}: ${url.slice(0, 100)}`)
+  for (const src of recodable) {
+    debug(`Trying source URL for recording ${id}: ${src.url.slice(0, 100)}`)
 
-    const child = spawnFfmpeg(url, recDir, durationSec, id)
+    const child = spawnFfmpeg(src.url, src.headers, recDir, durationSec, id)
 
     proc = child
 
@@ -201,11 +312,10 @@ async function startRecording(
     })
 
     if (exitCode === 0) {
-      debug(`Recording ${id} succeeded with source: ${url.slice(0, 100)}`)
-      const rec = recordings.get(id)
+      debug(`Recording ${id} succeeded with source: ${src.url.slice(0, 100)}`)
       if (rec) {
         rec.status = 'completed'
-        rec.source = url
+        rec.source = src.url
         updateFileSize(rec).catch(() => {})
         saveRecordings()
       }
@@ -216,11 +326,12 @@ async function startRecording(
 
     lastError = `FFmpeg exit code ${exitCode}`
     debug(`Source failed for ${id}, trying next...`)
+    // Give the CDN a moment between attempts (transient 5xx)
+    await new Promise(r => setTimeout(r, 3000))
   }
 
   // All sources failed
   debug(`All sources failed for recording ${id}`)
-  const rec = recordings.get(id)
   if (rec) {
     rec.status = 'failed'
     rec.error = lastError || 'All sources failed'
@@ -236,7 +347,8 @@ export async function scheduleRecording(params: {
   channelName: string
   startTime: number
   endTime: number
-  sourceUrls: string[]
+  channel: RecordingChannel
+  sources: RecordingSource[]
 }): Promise<string> {
   const id = generateId()
   const actualStartTime = params.startTime - 300_000  // 5 min before
@@ -259,6 +371,8 @@ export async function scheduleRecording(params: {
     durationSec,
     sizeBytes: 0,
     source: '',
+    channel: params.channel,
+    sources: params.sources,
   }
 
   recordings.set(id, recording)
@@ -272,7 +386,7 @@ export async function scheduleRecording(params: {
 
   const timeout = setTimeout(async () => {
     debug(`Starting scheduled recording ${id} ("${params.title}")`)
-    await startRecording(id, params.sourceUrls, actualStartTime, actualEndTime)
+    await startRecording(id, actualStartTime, actualEndTime)
   }, delay)
 
   scheduled.set(id, { id, timeout })
@@ -355,24 +469,24 @@ export async function init(): Promise<void> {
   await loadRecordings()
   loaded = true
 
-  // Reschedule any recordings that were 'scheduled' (they were pending when app closed)
-  // Only reschedule those whose actualStartTime is still in the future
+  // Reschedule any recordings that were 'scheduled' (they were pending when app closed).
+  // Channel + sources are persisted, so fresh stream URLs resolve at fire time.
   const now = Date.now()
   for (const rec of recordings.values()) {
+    // Migrate legacy recordings (pre channel/sources persistence)
+    if (!rec.channel || !rec.sources) {
+      if (rec.status === 'scheduled' || rec.status === 'recording') {
+        rec.status = 'failed'
+        rec.error = 'Recording created by an older version - please re-schedule'
+      }
+      continue
+    }
     if (rec.status === 'scheduled' && rec.actualStartTime > now) {
       const delay = rec.actualStartTime - now
       debug(`Rescheduling recording ${rec.id} ("${rec.title}") in ${Math.round(delay / 1000)}s`)
       const timeout = setTimeout(async () => {
         debug(`Starting rescheduled recording ${rec.id} ("${rec.title}")`)
-        // Source URLs are not persisted — the caller will need to re-schedule
-        // We mark it as failed since we don't have the source URLs on reload
-        const r = recordings.get(rec.id)
-        if (r) {
-          r.status = 'failed'
-          r.error = 'Source URLs not available after app restart - please re-schedule'
-          await saveRecordings()
-        }
-        scheduled.delete(rec.id)
+        await startRecording(rec.id, rec.actualStartTime, rec.actualEndTime)
       }, delay)
       scheduled.set(rec.id, { id: rec.id, timeout })
     } else if (rec.status === 'scheduled' || rec.status === 'recording') {

@@ -143,7 +143,7 @@ function createWindow(): void {
   // Inject Referer header for CDNLive requests — browsers block this via XHR
   // but Electron main process can intercept and add it. Matches old MPV --referrer behavior.
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
-    { urls: ['*://cdnlivetv.tv/*'] },
+    { urls: ['*://cdnlivetv.tv/*', '*://cdnlivetv.is/*', '*://api.cdnlivetv.is/*'] },
     (details, callback) => {
       details.requestHeaders['Referer'] = 'https://cdnlivetv.is/';
       callback({ requestHeaders: details.requestHeaders });
