@@ -91,9 +91,11 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
   useEffect(() => {
     const hasActive = recordings.some(r => r.status === 'scheduled' || r.status === 'recording')
     if (!hasActive) return
-    const iv = setInterval(refresh, 10000)
+    const iv = setInterval(refresh, 15000)
     return () => clearInterval(iv)
   }, [recordings, refresh])
+
+  useEffect(() => { refresh(); containerRef.current?.focus() }, [refresh])
 
   const flash = (text: string, error?: boolean) => {
     setMsg({ text, error })

@@ -299,6 +299,7 @@ const api = {
     cancel: (id: string) => ipcRenderer.invoke('recordings:cancel', id),
     deleteRecording: (id: string) => ipcRenderer.invoke('recordings:delete', id),
     list: () => ipcRenderer.invoke('recordings:list'),
+    cancelCurrent: () => ipcRenderer.invoke('recordings:cancel-current'),
   },
 }
 

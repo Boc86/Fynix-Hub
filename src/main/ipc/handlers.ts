@@ -931,6 +931,7 @@ export async function registerIpcHandlers(): Promise<void> {
   handle('recordings:cancel', async (_event, id) => RecordingsService.cancelRecording(id))
   handle('recordings:delete', async (_event, id) => RecordingsService.deleteRecording(id))
   handle('recordings:list', async () => RecordingsService.listRecordings())
+  handle('recordings:cancel-current', async () => RecordingsService.cancelCurrentRecording())
 
   // Initialize recordings service (load persisted state, resume pending schedules)
   await RecordingsService.init()

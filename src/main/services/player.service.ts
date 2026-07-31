@@ -57,7 +57,7 @@ function isBrowserPlayable(url: string): boolean {
  * Referer/Origin headers via hls.js XHR.
  */
 function needsCdnProxy(url: string): boolean {
-  return /okcdn\.ru|vkuser\.net|vk\.com|vkvideo|dlhd\.st/i.test(url)
+  return /okcdn\.ru|vkuser\.net|vk\.com|vkvideo|dlhd\.st|cdnlivetv\.is/i.test(url)
 }
 
 // ─── Public API ────────────────────────────────────────────────

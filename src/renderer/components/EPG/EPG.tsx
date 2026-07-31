@@ -131,6 +131,33 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   // Recording state
   const [recordMsg, setRecordMsg] = useState<{ text: string; error?: boolean } | null>(null)
   const [recordedKeys, setRecordedKeys] = useState<Set<string>>(new Set())
+  const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null)
+  const [activeRecordingChannel, setActiveRecordingChannel] = useState<string | null>(null)
+
+  // Check for an in-progress recording on mount + every 15s
+  useEffect(() => {
+    const checkActive = async () => {
+      try {
+        const list = await window.api.recordings.list()
+        const active = list.find((r: any) => r.status === 'recording' || r.status === 'scheduled')
+        if (active) {
+          setActiveRecordingId(active.id)
+          setActiveRecordingChannel(active.channelName)
+        } else {
+          setActiveRecordingId(null); setActiveRecordingChannel(null)
+        }
+        // Rebuild recordedKeys from persisted list
+        const keys = new Set<string>()
+        for (const r of list) {
+          if (r.channelName && r.startTime) keys.add(`${r.channelName}:${r.startTime}`)
+        }
+        setRecordedKeys(keys)
+      } catch { /* ignore */ }
+    }
+    checkActive()
+    const iv = setInterval(checkActive, 15000)
+    return () => clearInterval(iv)
+  }, [])
 
   const today = new Date()
   const dateStr = today.toISOString().slice(0, 10)
@@ -372,15 +399,31 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       if (e.key === 'ArrowUp') { e.preventDefault(); setFocusedChannelIdx(i => Math.max(i - 1, 0)); setSelectedChannelIdx(i => Math.max(i - 1, 0)) }
       if (e.key === 'ArrowLeft') { e.preventDefault(); scrollGrid('left') }
       if (e.key === 'ArrowRight') { e.preventDefault(); scrollGrid('right') }
+      // Stop active recording with 'S' key
+      if ((e.key === 's' || e.key === 'S') && activeRecordingId) {
+        e.preventDefault()
+        window.api.recordings.cancelCurrent().then(() => {
+          setActiveRecordingId(null); setActiveRecordingChannel(null)
+        })
+      }
       if (e.key === 'Enter') {
         e.preventDefault()
         const ch = filteredChannels[focusedChannelIdx]
         if (ch) { setSelectedChannel(ch); setFocusedSourceIndex(0) }
       }
+      // Record current focus with 'R'
+      if (e.key === 'r' || e.key === 'R') {
+        const ch = filteredChannels[focusedChannelIdx]
+        if (ch) {
+          e.preventDefault()
+          const chProg = (gridData[ch.liveTvChannelId] || []).find((p: EPGProgramme) => isLive(p))
+          if (chProg) recordProgramme(ch, chProg)
+        }
+      }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels])
+  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId])
 
   if (loading) {
     return (
@@ -484,20 +527,46 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <span style={{ fontSize: 10, background: 'var(--accent)', color: '#fff', padding: '2px 6px', borderRadius: 3, fontWeight: 700 }}>NOW</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{formatTime(selNN.now.start)} - {formatTime(selNN.now.stop)}</span>
+                {activeRecordingChannel === selCh.liveTvName && activeRecordingId && (
+                  <button
+                    tabIndex={0}
+                    title="Stop current recording"
+                    onClick={async () => {
+                      try {
+                        await window.api.recordings.cancelCurrent()
+                        setActiveRecordingId(null); setActiveRecordingChannel(null)
+                        setRecordMsg({ text: `Recording stopped: ${selNN?.now?.title || ''}` })
+                        setTimeout(() => setRecordMsg(null), 4000)
+                      } catch (err: any) {
+                        setRecordMsg({ text: `Failed to stop: ${err?.message || err}`, error: true })
+                        setTimeout(() => setRecordMsg(null), 4000)
+                      }
+                    }}
+                    style={{
+                      marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+                      padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                      background: 'rgba(255,59,48,0.2)', border: '1px solid rgba(255,59,48,0.5)', color: '#ff6b6b',
+                    }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="12" height="14" rx="1"/></svg>
+                    STOP REC
+                  </button>
+                )}
                 <button
                   tabIndex={0}
                   onClick={() => recordProgramme(selCh, selNN.now!)}
                   style={{
-                    marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+                    marginLeft: activeRecordingChannel === selCh.liveTvName && activeRecordingId ? 0 : 'auto',
+                    display: 'flex', alignItems: 'center', gap: 5,
                     padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                    background: isRecorded(selCh, selNN.now) ? 'rgba(255,59,48,0.25)' : 'rgba(255,59,48,0.15)',
+                    background: isRecorded(selCh, selNN.now!) ? 'rgba(255,59,48,0.25)' : 'rgba(255,59,48,0.15)',
                     border: '1px solid rgba(255,59,48,0.5)', color: '#ff6b6b',
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.3)' }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = isRecorded(selCh, selNN.now!) ? 'rgba(255,59,48,0.25)' : 'rgba(255,59,48,0.15)' }}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>
-                  {isRecorded(selCh, selNN.now) ? 'RECORDED' : 'RECORD'}
+                  {isRecorded(selCh, selNN.now!) ? 'RECORDED' : 'RECORD'}
                 </button>
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{selNN.now.title}</div>
