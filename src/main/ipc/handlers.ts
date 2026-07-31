@@ -7,6 +7,7 @@ const TMDB_CACHE_VERSION = 2 // bump when TMDB append_to_response fields change
 
 import * as TmdbService from '../services/tmdb.service'
 import * as TraktService from '../services/trakt.service'
+import * as MdbListService from '../services/mdblist.service'
 import * as WebTorrentService from '../services/webtorrent.service'
 import * as TorrentSearchService from '../services/torrent-search.service'
 import * as DebridService from '../services/debrid.service'
@@ -31,10 +32,12 @@ import * as UsenetSearchService from '../services/usenet-search.service'
 import * as UsenetService from '../services/usenet.service'
 import * as UpdaterService from '../services/updater.service'
 import { getDlhdEmbedUrl } from '../services/dlhd-window'
+import * as RecordingsService from '../services/recordings.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
   TraktService.loadCredentials()
+  MdbListService.loadCredentials()
   DebridService.loadKeys()
   FanartService.loadApiKey()
   OpenSubtitlesService.loadApiKey()
@@ -215,6 +218,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
+  handle('tmdb:find-by-imdb', async (_event, imdbId: string) => {
+    return TmdbService.findByImdb(imdbId)
+  })
+
   handle('trakt:poll-for-token', async (_event, deviceCode) => {
     return TraktService.pollForToken(deviceCode)
   })
@@ -279,6 +286,80 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('trakt:clear-cache', async () => {
     TraktService.clearCache()
+  })
+
+  handle('mdblist:poll-for-token', async (_event, deviceCode) => {
+    return MdbListService.pollForToken(deviceCode)
+  })
+
+  handle('mdblist:get-watched-movies', async () => {
+    return MdbListService.getWatchedMovies()
+  })
+
+  handle('mdblist:get-watched-shows', async () => {
+    return MdbListService.getWatchedShows()
+  })
+
+  handle('mdblist:scrobble', async (_event, action, media) => {
+    console.log('[MDBList] IPC scrobble called:', action)
+    return MdbListService.scrobble(action, media)
+  })
+
+  handle('mdblist:mark-watched', async (_event, media) => {
+    return MdbListService.markWatched(media)
+  })
+
+  handle('mdblist:mark-unwatched', async (_event, media) => {
+    return MdbListService.markUnwatched(media)
+  })
+
+  handle('mdblist:get-auth-status', () => {
+    return { authenticated: MdbListService.isAuthenticated() }
+  })
+
+  handle('mdblist:get-playback', async () => {
+    return MdbListService.getPlayback()
+  })
+
+  handle('mdblist:get-playback-movies', async () => {
+    return MdbListService.getPlaybackMovies()
+  })
+
+  handle('mdblist:get-playback-episodes', async () => {
+    return MdbListService.getPlaybackEpisodes()
+  })
+
+  handle('mdblist:get-watched-progress', async () => {
+    try {
+      return await MdbListService.getWatchedShowsWithProgress()
+    } catch (err: any) {
+      console.error('[Handler] mdblist:get-watched-progress failed:', err.message)
+      return []
+    }
+  })
+
+  handle('mdblist:get-tokens', async () => {
+    return MdbListService.getTokens()
+  })
+
+  handle('mdblist:get-device-code', async () => {
+    return MdbListService.getDeviceCode()
+  })
+
+  handle('mdblist:get-settings', async () => {
+    return MdbListService.getSettings()
+  })
+
+  handle('mdblist:set-tokens', async (_event, accessToken, refreshToken) => {
+    MdbListService.setTokens(accessToken, refreshToken)
+  })
+
+  handle('mdblist:clear-cache', async () => {
+    MdbListService.clearCache()
+  })
+
+  handle('mdblist:reload-credentials', async () => {
+    MdbListService.loadCredentials()
   })
 
   handle('torrent:search', async (event, query) => {
@@ -751,8 +832,8 @@ export async function registerIpcHandlers(): Promise<void> {
     return EpgService.getSchedule(channelId, date)
   })
 
-  handle('epg:refresh', async (_event, countryCodes?: string[]) => {
-    await EpgService.refreshEpg(countryCodes)
+  handle('epg:refresh', async (_event, countryCodes?: string[], options?: { includeAll?: boolean }) => {
+    await EpgService.refreshEpg(countryCodes, options)
   })
 
   handle('epg:build-map', async (_event, liveTvChannels: any[]) => {
@@ -843,4 +924,14 @@ export async function registerIpcHandlers(): Promise<void> {
   handle('usenet:delete-by-path', async (_event, filePath: string) => {
     return UsenetService.deleteUsenetByPath(filePath)
   })
+
+  // ── Recordings (PVR) ─────────────────────────────────────────────────────
+
+  handle('recordings:schedule', async (_event, params) => RecordingsService.scheduleRecording(params))
+  handle('recordings:cancel', async (_event, id) => RecordingsService.cancelRecording(id))
+  handle('recordings:delete', async (_event, id) => RecordingsService.deleteRecording(id))
+  handle('recordings:list', async () => RecordingsService.listRecordings())
+
+  // Initialize recordings service (load persisted state, resume pending schedules)
+  await RecordingsService.init()
 }

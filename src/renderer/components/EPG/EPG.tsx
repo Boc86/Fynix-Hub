@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
+import { useChannelLogo } from '../../utils/useChannelLogo'
+import { normalizeLogoUrl } from '../../utils/logos'
 
 interface EPGChannel {
   id: string
@@ -48,6 +50,56 @@ const ROW_HEIGHT = 80
 const CHANNEL_WIDTH = 200
 const HEADER_HEIGHT = 50
 const SCROLL_AMOUNT = 300
+
+/**
+ * EPG channel row with logo fallback.
+ * Calls useChannelLogo so it's a proper hook user.
+ *
+ * Priority: CDN/M3U logo -> HEAD-checked tv-logos URL -> text label.
+ */
+function EPGChannelRow({
+  ch,
+  focused,
+  selected,
+  onClick,
+  onDoubleClick,
+  onMouseEnter,
+}: {
+  ch: MappedChannel
+  focused: boolean
+  selected: boolean
+  onClick: () => void
+  onDoubleClick: () => void
+  onMouseEnter: () => void
+}) {
+  const customLogo = useSettingsStore((s) => s.liveTvCustomLogos?.[ch.liveTvChannelId] || '')
+  const primary = normalizeLogoUrl(customLogo) || ch.liveTvLogo || ''
+  const verified = useChannelLogo(ch.liveTvName, '', ch.liveTvCountryCode)
+  const [src, setSrc] = useState(primary || verified)
+  useEffect(() => {
+    setSrc(primary || verified)
+  }, [primary, verified])
+  return (
+    <div
+      key={`${ch.liveTvChannelId}`}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onMouseEnter={onMouseEnter}
+      style={{
+        height: ROW_HEIGHT, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', cursor: 'pointer',
+        background: focused ? 'rgba(var(--accent-rgb), 0.18)' : (selected ? 'rgba(255,255,255,0.06)' : 'transparent'),
+        borderLeft: focused ? '3px solid var(--accent)' : '3px solid transparent',
+        transition: 'background 0.1s',
+      }}
+    >
+      {src
+        ? <img src={src} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }} onError={() => { if (src !== verified) setSrc(verified) }} />
+        : <span style={{ fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
+      }
+      <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
+    </div>
+  )
+}
 
 interface SourceItem {
   id: string
@@ -131,6 +183,25 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     for (let t = dayStart; t < dayEnd; t += HOUR_MS) slots.push(t)
     return slots
   }, [dayStart])
+
+  // Apply channel visibility filter (matches LiveTV behavior).
+  // If the user has selected specific channels in Settings, only those are shown.
+  const visibleChannels = useSettingsStore((s) => s.liveTvVisibleChannels)
+  const channelOrder = useSettingsStore((s) => s.liveTvChannelOrder)
+  const filteredChannels = useMemo(() => {
+    let result = channels
+    if (visibleChannels.length > 0) {
+      result = result.filter(c => visibleChannels.includes(c.liveTvChannelId))
+    }
+    if (channelOrder.length > 0) {
+      const orderMap = new Map(channelOrder.map((id, i) => [id, i]))
+      const ordered = result.filter(c => orderMap.has(c.liveTvChannelId))
+      ordered.sort((a, b) => (orderMap.get(a.liveTvChannelId) ?? 999) - (orderMap.get(b.liveTvChannelId) ?? 999))
+      const unordered = result.filter(c => !orderMap.has(c.liveTvChannelId))
+      result = [...ordered, ...unordered]
+    }
+    return result
+  }, [channels, visibleChannels, channelOrder])
 
   const formatTime = (ts: number) => {
     const d = new Date(ts * 1000)
@@ -236,7 +307,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       if (e.key === 'ArrowRight') { e.preventDefault(); scrollGrid('right') }
       if (e.key === 'Enter') {
         e.preventDefault()
-        const ch = channels[focusedChannelIdx]
+        const ch = filteredChannels[focusedChannelIdx]
         if (ch) { setSelectedChannel(ch); setFocusedSourceIndex(0) }
       }
     }
@@ -257,14 +328,19 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16 }}>
         <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No EPG data available for your visible channels</div>
-        <button onClick={() => { setLoading(true); window.api.epg.refresh().then(() => window.location.reload()).catch(() => setLoading(false)) }}
-          style={{ padding: '8px 20px', borderRadius: 20, border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600 }}
-        >Refresh EPG</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => { setLoading(true); window.api.epg.refresh(undefined, { includeAll: false }).then(() => window.location.reload()).catch(() => setLoading(false)) }}
+            style={{ padding: '8px 20px', borderRadius: 20, border: 'none', cursor: 'pointer', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600 }}
+          >Refresh Selected Countries</button>
+          <button onClick={() => { setLoading(true); window.api.epg.refresh(undefined, { includeAll: true }).then(() => window.location.reload()).catch(() => setLoading(false)) }}
+            style={{ padding: '8px 20px', borderRadius: 20, border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: 13, fontWeight: 600 }}
+          >Refresh All Countries (EPG.pw)</button>
+        </div>
       </div>
     )
   }
 
-  const selCh = channels[selectedChannelIdx]
+  const selCh = filteredChannels[selectedChannelIdx]
   const selNN = selCh ? nowNextMap[selCh.liveTvChannelId] : null
 
   return (
@@ -360,22 +436,16 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         <div style={{ width: CHANNEL_WIDTH, flexShrink: 0, overflow: 'hidden', borderRight: '1px solid var(--border, #2a2a4a)', position: 'sticky', left: 0, zIndex: 5, background: 'var(--bg-primary, #0d0d1a)' }}>
           <div style={{ height: HEADER_HEIGHT, borderBottom: '1px solid var(--border, #2a2a4a)', padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>CHANNELS</div>
           <div ref={channelListRef} style={{ overflow: 'auto', height: `calc(100% - ${HEADER_HEIGHT}px)` }}>
-            {channels.map((ch, i) => (
-              <div key={`${ch.liveTvChannelId ?? i}`} data-ch-row={i}
-                onClick={() => { setFocusedChannelIdx(i); setSelectedChannelIdx(i) }}
-                onDoubleClick={() => { setSelectedChannel(ch); setFocusedSourceIndex(0) }}
-                style={{
-                  height: ROW_HEIGHT, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', cursor: 'pointer',
-                  background: i === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.18)' : (i === selectedChannelIdx ? 'rgba(255,255,255,0.06)' : 'transparent'),
-                  borderLeft: i === focusedChannelIdx ? '3px solid var(--accent)' : '3px solid transparent',
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={() => setFocusedChannelIdx(i)}
-              >
-                {ch.liveTvLogo
-                  ? <img src={ch.liveTvLogo} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                  : <span style={{ fontSize: 12, fontWeight: 500, color: i === focusedChannelIdx ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
-                }
+            {filteredChannels.map((ch, i) => (
+              <div key={`${ch.liveTvChannelId ?? i}`} data-ch-row={i}>
+                <EPGChannelRow
+                  ch={ch}
+                  focused={i === focusedChannelIdx}
+                  selected={i === selectedChannelIdx}
+                  onClick={() => { setFocusedChannelIdx(i); setSelectedChannelIdx(i) }}
+                  onDoubleClick={() => { setSelectedChannel(ch); setFocusedSourceIndex(0) }}
+                  onMouseEnter={() => setFocusedChannelIdx(i)}
+                />
               </div>
             ))}
           </div>
@@ -390,7 +460,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
             ))}
           </div>
 
-          {channels.map((ch, ci) => {
+          {filteredChannels.map((ch, ci) => {
             const raw = (gridData[ch.liveTvChannelId] || []).slice().sort((a, b) => a.start - b.start)
             const progs: { p: EPGProgramme; clampedStop: number }[] = []
             let lastEnd = 0

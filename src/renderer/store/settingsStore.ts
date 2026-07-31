@@ -3,6 +3,7 @@ import type { CustomIndexer } from '../../main/services/torrent-search.service'
 import type { UsenetIndexerConfig } from '../../main/services/usenet-search.service'
 import { useMediaStore } from './mediaStore'
 import { usePlayerStore } from './playerStore'
+import { normalizeLogoUrl } from '../utils/logos'
 
 export interface UserProfile {
   id: string
@@ -11,6 +12,8 @@ export interface UserProfile {
   avatarColor?: string
   traktAccessToken?: string
   traktRefreshToken?: string
+  mdblistAccessToken?: string
+  mdblistRefreshToken?: string
   sportsSelected: string[]
 }
 
@@ -30,6 +33,11 @@ interface SettingsState {
   tmdbApiKey: string
   fanartApiKey: string
   traktConnected: boolean
+  /** Which watch-tracking service drives watched status/scrobble: 'trakt' (default) or 'mdblist' */
+  watchProvider: 'trakt' | 'mdblist'
+  mdblistConnected: boolean
+  /** Optional user-provided MDBList Device Code app client ID (overrides baked-in) */
+  mdblistClientId: string
   realDebridApiKey: string
   realDebridConnected: boolean
   torboxApiKey: string
@@ -67,6 +75,10 @@ interface SettingsState {
   sportsTimezone: string
   liveTvEnabled: boolean
   selectedLiveTvCountries: string[]
+  liveTvVisibleChannels: string[]
+  liveTvChannelOrder: string[]
+  /** User-supplied logo URLs keyed by channel id (context menu override) */
+  liveTvCustomLogos: Record<string, string>
   usenetEnabled: boolean
   nzbgetHost: string
   nzbgetPort: number
@@ -90,6 +102,9 @@ interface SettingsState {
   setTmdbApiKey: (key: string) => void
   setFanartApiKey: (key: string) => void
   setTraktConnected: (connected: boolean) => void
+  setWatchProvider: (provider: 'trakt' | 'mdblist') => void
+  setMdblistConnected: (connected: boolean) => void
+  setMdblistClientId: (clientId: string) => void
   setRealDebridApiKey: (key: string) => void
   setRealDebridConnected: (connected: boolean) => void
   setTorboxApiKey: (key: string) => void
@@ -127,6 +142,10 @@ interface SettingsState {
   setSportsTimezone: (tz: string) => void
   setLiveTvEnabled: (enabled: boolean) => void
   setSelectedLiveTvCountries: (codes: string[]) => void
+  setLiveTvVisibleChannels: (ids: string[]) => void
+  setLiveTvChannelOrder: (ids: string[]) => void
+  /** Set a custom logo URL for a channel; empty/whitespace removes it. */
+  setLiveTvCustomLogo: (channelId: string, url: string) => void
   setUsenetEnabled: (enabled: boolean) => void
   setNzbgetHost: (host: string) => void
   setNzbgetPort: (port: number) => void
@@ -159,6 +178,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   tmdbApiKey: '',
   fanartApiKey: '',
   traktConnected: false,
+  watchProvider: 'trakt',
+  mdblistConnected: false,
+  mdblistClientId: '',
   realDebridApiKey: '',
   realDebridConnected: false,
   torboxApiKey: '',
@@ -196,6 +218,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   sportsTimezone: 'GMT',
   liveTvEnabled: false,
   selectedLiveTvCountries: [],
+  liveTvVisibleChannels: [],
+  liveTvChannelOrder: [],
+  liveTvCustomLogos: {},
   usenetEnabled: false,
   nzbgetHost: '',
   nzbgetPort: 6789,
@@ -219,6 +244,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
   setFanartApiKey: (key) => set({ fanartApiKey: key }),
   setTraktConnected: (connected) => set({ traktConnected: connected }),
+  setWatchProvider: (provider) => { set({ watchProvider: provider }); get().saveToDisk() },
+  setMdblistConnected: (connected) => { set({ mdblistConnected: connected }); get().saveToDisk() },
+  setMdblistClientId: (clientId) => { set({ mdblistClientId: clientId }); get().saveToDisk() },
   setRealDebridApiKey: (key) => set({ realDebridApiKey: key }),
   setRealDebridConnected: (connected) => set({ realDebridConnected: connected }),
   setTorboxApiKey: (key) => set({ torboxApiKey: key }),
@@ -280,6 +308,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
+  setLiveTvVisibleChannels: (ids) => { set({ liveTvVisibleChannels: ids }); get().saveToDisk() },
+  setLiveTvChannelOrder: (ids) => { set({ liveTvChannelOrder: ids }); get().saveToDisk() },
+  setLiveTvCustomLogo: (channelId, url) => {
+    const urlTrimmed = normalizeLogoUrl(url)
+    set((state) => {
+      const logos = { ...state.liveTvCustomLogos }
+      if (urlTrimmed) logos[channelId] = urlTrimmed
+      else delete logos[channelId]
+      return { liveTvCustomLogos: logos }
+    })
+    get().saveToDisk()
+  },
   setUsenetEnabled: (enabled) => { set({ usenetEnabled: enabled }); get().saveToDisk() },
   setNzbgetHost: (host) => { set({ nzbgetHost: host }); get().saveToDisk() },
   setNzbgetPort: (port) => { set({ nzbgetPort: port }); get().saveToDisk() },
@@ -465,6 +505,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         set({ traktConnected: false });
       }
 
+      // Sync MDBList state with active profile
+      if (activeProfile && activeProfile.mdblistAccessToken) {
+        try {
+          await window.api.mdblist.setTokens(
+            activeProfile.mdblistAccessToken,
+            activeProfile.mdblistRefreshToken || null
+          );
+        } catch { /* ignore */ }
+        set({ mdblistConnected: true });
+      } else {
+        set({ mdblistConnected: false });
+      }
+
       const rdKey = await window.api.settings.get('realDebridApiKey');
       if (rdKey) set({ realDebridConnected: true });
       const tbKey = await window.api.settings.get('torboxApiKey');
@@ -502,6 +555,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('tmdbApiKey', state.tmdbApiKey),
         window.api.settings.set('fanartApiKey', state.fanartApiKey),
         window.api.settings.set('traktConnected', state.traktConnected),
+        window.api.settings.set('watchProvider', state.watchProvider),
+        window.api.settings.set('mdblistConnected', state.mdblistConnected),
+        window.api.settings.set('mdblistClientId', state.mdblistClientId),
         window.api.settings.set('realDebridApiKey', state.realDebridApiKey),
         window.api.settings.set('realDebridConnected', state.realDebridConnected),
         window.api.settings.set('torboxApiKey', state.torboxApiKey),
@@ -541,6 +597,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('sportsTimezone', state.sportsTimezone),
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
         window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
+        window.api.settings.set('liveTvVisibleChannels', state.liveTvVisibleChannels),
+        window.api.settings.set('liveTvChannelOrder', state.liveTvChannelOrder),
+        window.api.settings.set('liveTvCustomLogos', state.liveTvCustomLogos),
         window.api.settings.set('usenetEnabled', state.usenetEnabled),
         window.api.settings.set('nzbgetHost', state.nzbgetHost),
         window.api.settings.set('nzbgetPort', String(state.nzbgetPort)),

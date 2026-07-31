@@ -107,18 +107,44 @@ function parseXmltvDate(dateStr: string): number {
 export function normalizeChannelName(name: string): string {
   return name
     .toLowerCase()
-    .replace(/\b(hd|sd|uhd|4k|fhd)\b/g, '')
-    .replace(/\+\d+/g, '')
+    // Country prefix "UK: Sky News" / "US|CNN" (colon/pipe only, safe for
+    // names like "us-news" which legitimately contain a hyphen)
+    .replace(/^[a-z]{2,3}\s*[:|]\s*/, '')
+    // Parentheticals: "Sky News (UK)", "BBC One (HD)"
+    .replace(/\(.*?\)/g, ' ')
+    // Apostrophes: "Sky Atlantic's" etc
+    .replace(/[’'`]/g, '')
+    // Ampersand
+    .replace(/&/g, ' and ')
+    // Separators -> spaces BEFORE number-word conversion so
+    // "BBC___One" / "BBC-One" / "5*Star" still normalize cleanly
+    .replace(/[._\-*]+/g, ' ')
+    // Number words -> digits so "BBC One" matches "BBC1"
+    .replace(/\bzero\b/g, '0')
+    .replace(/\bone\b/g, '1')
+    .replace(/\btwo\b/g, '2')
+    .replace(/\bthree\b/g, '3')
+    .replace(/\bfour\b/g, '4')
+    .replace(/\bfive\b/g, '5')
+    .replace(/\bsix\b/g, '6')
+    .replace(/\bseven\b/g, '7')
+    .replace(/\beight\b/g, '8')
+    .replace(/\bnine\b/g, '9')
+    .replace(/\b(hd|sd|uhd|4k|fhd|hq)\b/g, '')
+    .replace(/\+\s?\d+/g, '') // "+1" / "+ 1"
+    .replace(/\bplus\s?\d+\b/g, '') // "plus 1"
     .replace(/\b(fta|live|online|free|stream)\b/g, '')
-    .replace(/[._\-]+/g, ' ')
+    // Split letter-digit boundaries: "bbc1" -> "bbc 1", "c4" -> "c 4",
+    // so "BBC One" and "BBC1" normalize to the same key
+    .replace(/([a-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([a-z])/g, '$1 $2')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-export function channelNameMatch(livetvName: string, epgName: string): boolean {
-  const ltNorm = normalizeChannelName(livetvName)
-  const epgNorm = normalizeChannelName(epgName)
-
+/** Token-overlap check on already-normalized names. */
+export function normalizedNameMatch(ltNorm: string, epgNorm: string): boolean {
+  if (!ltNorm || !epgNorm) return false
   if (ltNorm === epgNorm) return true
   if (epgNorm.startsWith(ltNorm) || ltNorm.startsWith(epgNorm)) return true
 
@@ -130,6 +156,13 @@ export function channelNameMatch(livetvName: string, epgName: string): boolean {
   return false
 }
 
+export function channelNameMatch(livetvName: string, epgName: string): boolean {
+  return normalizedNameMatch(
+    normalizeChannelName(livetvName),
+    normalizeChannelName(epgName),
+  )
+}
+
 function extractText(val: any): string {
   if (!val) return ''
   if (typeof val === 'string') return val
@@ -138,8 +171,10 @@ function extractText(val: any): string {
   return String(val)
 }
 
-async function fetchAndParseXmltv(countryCode: string): Promise<{ channels: any[], programmes: any[] }> {
-  const url = `${EPG_BASE}/epg_${countryCode.toUpperCase()}.xml.gz`
+async function fetchAndParseXmltv(countryCode: string, isAll?: boolean): Promise<{ channels: any[], programmes: any[] }> {
+  const url = isAll
+    ? `${EPG_BASE}/epg.xml.gz`
+    : `${EPG_BASE}/epg_${countryCode.toUpperCase()}.xml.gz`
   console.log(`[EPG] Fetching ${url}`)
 
   const res = await fetch(url, {
@@ -164,11 +199,15 @@ async function fetchAndParseXmltv(countryCode: string): Promise<{ channels: any[
   const rawChannels = tv.channel || []
   for (const ch of rawChannels) {
     const id = ch['@_id'] || ''
-    const name = ch['display-name'] || ch['display_name'] || ''
-    const displayName = extractText(name)
+    const nameNode = ch['display-name']
+    const displayName = extractText(nameNode)
+    // EPG.pw puts the country code in the lang attribute of <display-name>
+    // e.g. <display-name lang="GB">Sky News</display-name>
+    const langFromName = (Array.isArray(nameNode) ? nameNode[0] : nameNode)?.['@_lang'] || ''
+    const chCountryCode = isAll ? langFromName.toLowerCase() : countryCode
     const iconNode = ch.icon
     const icon = iconNode?.['@_src'] || (typeof iconNode === 'string' ? iconNode : '')
-    channels.push({ id, displayName, icon, countryCode })
+    channels.push({ id, displayName, icon, countryCode: chCountryCode })
   }
 
   const programmes: any[] = []
@@ -191,12 +230,13 @@ async function fetchAndParseXmltv(countryCode: string): Promise<{ channels: any[
   return { channels, programmes }
 }
 
-export async function refreshEpg(countryCodes?: string[]): Promise<void> {
+export async function refreshEpg(countryCodes?: string[], options?: { includeAll?: boolean }): Promise<void> {
   if (!countryCodes) {
     const stored = CacheService.getSetting<string[]>('selectedLiveTvCountries')
     countryCodes = (stored && stored.length > 0) ? stored : ['gb']
   }
-  console.log('[EPG] Refreshing for countries:', countryCodes)
+  const includeAll = options?.includeAll === true
+  console.log('[EPG] Refreshing for countries:', countryCodes, includeAll ? '(+ all-in-one)' : '')
 
   const d = getDb()
   const insertChannel = d.prepare('INSERT OR REPLACE INTO channels (id, display_name, icon, country_code) VALUES (?, ?, ?, ?)')
@@ -206,18 +246,28 @@ export async function refreshEpg(countryCodes?: string[]): Promise<void> {
   const allChannels: { id: string; displayName: string; icon: string; countryCode: string }[] = []
   const allProgrammes: { chId: string; start: number; stop: number; title: string; desc: string; cat: string; ep: string; img: string }[] = []
 
+  // Build list of sources to fetch: per-country files + optional all-in-one
+  const sources: { cc: string; isAll?: boolean }[] = []
   for (const cc of countryCodes) {
+    sources.push({ cc })
+  }
+  if (includeAll) {
+    sources.push({ cc: '__all__', isAll: true })
+  }
+
+  for (const src of sources) {
     try {
-      const { channels, programmes } = await fetchAndParseXmltv(cc)
+      const { channels, programmes } = await fetchAndParseXmltv(src.cc, src.isAll)
       allChannels.push(...channels)
       allProgrammes.push(...programmes)
     } catch (err: any) {
-      console.warn(`[EPG] Failed to fetch ${cc}: ${err.message}`)
+      console.warn(`[EPG] Failed to fetch ${src.cc}: ${err.message}`)
     }
   }
 
   const deleteProgrammesForChannels = d.prepare('DELETE FROM programmes WHERE channel_id = ?')
   const deleteChannelsByCountry = d.prepare('DELETE FROM channels WHERE country_code = ?')
+  const deleteAllChannels = d.prepare('DELETE FROM channels')
 
   const tx = d.transaction(() => {
     for (const cc of countryCodes) {
@@ -226,6 +276,10 @@ export async function refreshEpg(countryCodes?: string[]): Promise<void> {
         deleteProgrammesForChannels.run(ch.id)
       }
       deleteChannelsByCountry.run(cc)
+    }
+    // When includeAll, wipe ALL channels not in our country list too
+    if (includeAll) {
+      deleteAllChannels.run()
     }
 
     for (const ch of allChannels) {
@@ -241,6 +295,7 @@ export async function refreshEpg(countryCodes?: string[]): Promise<void> {
     console.log(`[EPG] Inserted ${inserted} programmes`)
 
     setMeta.run('loaded_countries', JSON.stringify(countryCodes))
+    if (includeAll) setMeta.run('loaded_all', '1')
     setMeta.run('last_refresh', String(Date.now()))
   })
   tx()
@@ -253,28 +308,39 @@ export function buildChannelMap(liveTvChannels: { id: string; name: string; coun
   const insert = d.prepare('INSERT OR REPLACE INTO channel_map (live_tv_id, epg_channel_id) VALUES (?, ?)')
   const clear = d.prepare('DELETE FROM channel_map')
 
+  // Pre-normalize EPG names once — the loop below runs per LiveTV channel
+  const epgNormList = epgChannels.map((epgCh: any) => ({
+    ch: epgCh,
+    norm: normalizeChannelName(epgCh.display_name),
+    cc: String(epgCh.country_code || '').toLowerCase(),
+  }))
+
   const tx = d.transaction(() => {
     clear.run()
 
     for (const ltCh of liveTvChannels) {
       const ltNorm = normalizeChannelName(ltCh.name)
+      if (!ltNorm) continue
+      const ltCc = String(ltCh.countryCode || '').toLowerCase()
       let bestMatch: { id: string; display_name: string } | null = null
       let bestScore = 0
 
-      for (const epgCh of epgChannels) {
-        const epgNorm = normalizeChannelName(epgCh.display_name)
+      for (const epg of epgNormList) {
+        const epgNorm = epg.norm
+        if (!epgNorm) continue
+        // Prefer the EPG channel from the same country (e.g. two "Sky News")
+        const countryBonus = ltCc && epg.cc && ltCc === epg.cc ? 2 : 0
 
-        if (ltNorm === epgNorm) { bestMatch = epgCh; bestScore = 10; break }
-
-        if (epgNorm.startsWith(ltNorm) || ltNorm.startsWith(epgNorm)) {
-          const score = 8 - Math.abs(epgNorm.length - ltNorm.length)
-          if (score > bestScore) { bestMatch = epgCh; bestScore = score }
+        let score = 0
+        if (epgNorm === ltNorm) {
+          score = 10 + countryBonus
+        } else if (epgNorm.startsWith(ltNorm) || ltNorm.startsWith(epgNorm)) {
+          score = 8 - Math.abs(epgNorm.length - ltNorm.length) + countryBonus
+        } else if (normalizedNameMatch(ltNorm, epgNorm)) {
+          score = 5 - Math.abs(epgNorm.length - ltNorm.length) + countryBonus
         }
 
-        if (channelNameMatch(ltCh.name, epgCh.display_name)) {
-          const score = 5 - Math.abs(epgNorm.length - ltNorm.length)
-          if (score > bestScore) { bestMatch = epgCh; bestScore = score }
-        }
+        if (score > bestScore) { bestMatch = epg.ch; bestScore = score }
       }
 
       if (bestMatch && bestScore > 0) {
@@ -327,7 +393,8 @@ export function getMappedChannels(liveTvChannels: any[]): MappedChannel[] {
       displayName: epgCh.display_name,
       icon: epgCh.icon || '',
       liveTvName: ltCh.name,
-      liveTvLogo: ltCh.logoImage || '',
+      // Prefer the real CDN image; logoImage is an unverified tv-logos guess
+      liveTvLogo: ltCh.image || ltCh.logoImage || '',
       liveTvCountryCode: ltCh.countryCode || 'intl',
       liveTvCountryName: COUNTRY_NAMES[ltCh.countryCode] || ltCh.countryCode?.toUpperCase() || 'Unknown',
       liveTvCountryFlag: countryFlag(ltCh.countryCode),

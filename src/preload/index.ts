@@ -71,6 +71,8 @@ const api = {
       ipcRenderer.invoke('tmdb:get-similar', type, id, page),
     getRecommendations: (type: string, id: number, page?: number) =>
       ipcRenderer.invoke('tmdb:get-recommendations', type, id, page),
+    findByImdb: (imdbId: string) =>
+      ipcRenderer.invoke('tmdb:find-by-imdb', imdbId),
   },
   trakt: {
     getDeviceCode: () => ipcRenderer.invoke('trakt:get-device-code'),
@@ -93,6 +95,30 @@ const api = {
     getPlaybackMovies: () => ipcRenderer.invoke('trakt:get-playback-movies'),
     getPlaybackEpisodes: () => ipcRenderer.invoke('trakt:get-playback-episodes'),
     getWatchedProgress: () => ipcRenderer.invoke('trakt:get-watched-progress'),
+  },
+  mdblist: {
+    getDeviceCode: () => ipcRenderer.invoke('mdblist:get-device-code'),
+    pollForToken: (deviceCode: string) =>
+      ipcRenderer.invoke('mdblist:poll-for-token', deviceCode),
+    setTokens: (accessToken: string | null, refreshToken: string | null) =>
+      ipcRenderer.invoke('mdblist:set-tokens', accessToken, refreshToken),
+    getTokens: () => ipcRenderer.invoke('mdblist:get-tokens'),
+    clearCache: () => ipcRenderer.invoke('mdblist:clear-cache'),
+    getWatchedMovies: () => ipcRenderer.invoke('mdblist:get-watched-movies'),
+    getWatchedShows: () => ipcRenderer.invoke('mdblist:get-watched-shows'),
+    scrobble: (action: string, media: object) =>
+      ipcRenderer.invoke('mdblist:scrobble', action, media),
+    markWatched: (media: object) =>
+      ipcRenderer.invoke('mdblist:mark-watched', media),
+    markUnwatched: (media: object) =>
+      ipcRenderer.invoke('mdblist:mark-unwatched', media),
+    getAuthStatus: () => ipcRenderer.invoke('mdblist:get-auth-status'),
+    getPlayback: () => ipcRenderer.invoke('mdblist:get-playback'),
+    getPlaybackMovies: () => ipcRenderer.invoke('mdblist:get-playback-movies'),
+    getPlaybackEpisodes: () => ipcRenderer.invoke('mdblist:get-playback-episodes'),
+    getWatchedProgress: () => ipcRenderer.invoke('mdblist:get-watched-progress'),
+    getSettings: () => ipcRenderer.invoke('mdblist:get-settings'),
+    reloadCredentials: () => ipcRenderer.invoke('mdblist:reload-credentials'),
   },
   torrent: {
     onRiveResult: (callback: (result: any) => void) => {
@@ -216,7 +242,8 @@ const api = {
     getChannels: (liveTvChannels?: any[]) => ipcRenderer.invoke('epg:get-channels', liveTvChannels),
     getNowNext: (channelId: string) => ipcRenderer.invoke('epg:get-now-next', channelId),
     getSchedule: (channelId: string, date: string) => ipcRenderer.invoke('epg:get-schedule', channelId, date),
-    refresh: (countryCodes?: string[]) => ipcRenderer.invoke('epg:refresh', countryCodes),
+    refresh: (countryCodes?: string[], options?: { includeAll?: boolean }) =>
+      ipcRenderer.invoke('epg:refresh', countryCodes, options),
     buildMap: (liveTvChannels: any[]) => ipcRenderer.invoke('epg:build-map', liveTvChannels),
     ensureLoaded: () => ipcRenderer.invoke('epg:ensure-loaded'),
   },
@@ -241,6 +268,7 @@ const api = {
   },
   iptvM3u: {
     getAllSources: (forceRefresh?: boolean) => ipcRenderer.invoke('iptv-m3u:get-all-sources', forceRefresh),
+    getAllChannels: (forceRefresh?: boolean) => ipcRenderer.invoke('iptv-m3u:get-all-channels', forceRefresh),
     findChannel: (query: string) => ipcRenderer.invoke('iptv-m3u:find-channel', query)
   },
   xtream: {
@@ -252,11 +280,25 @@ const api = {
     importPortals: (portals: { url: string; user: string; pass: string }[]) =>
       ipcRenderer.invoke('xtream:import-portals', portals),
   },
+  channelLogo: {
+    resolve: (channelName: string, countryCode: string) =>
+      ipcRenderer.invoke('channel-logo:resolve', channelName, countryCode),
+    prewarm: (channels: { name: string; countryCode: string }[]) =>
+      ipcRenderer.invoke('channel-logo:prewarm', channels),
+    clearCache: () => ipcRenderer.invoke('channel-logo:clear-cache'),
+  },
   onDemand: {
     extractStream: (embedUrl: string) => ipcRenderer.invoke('ondemand:extract-stream', embedUrl)
   },
   dlhd: {
     getEmbedUrl: (url: string) => ipcRenderer.invoke('dlhd:get-embed-url', url),
+  },
+  recordings: {
+    schedule: (params: { title: string; channelName: string; startTime: number; endTime: number; sourceUrls: string[] }) =>
+      ipcRenderer.invoke('recordings:schedule', params),
+    cancel: (id: string) => ipcRenderer.invoke('recordings:cancel', id),
+    deleteRecording: (id: string) => ipcRenderer.invoke('recordings:delete', id),
+    list: () => ipcRenderer.invoke('recordings:list'),
   },
 }
 

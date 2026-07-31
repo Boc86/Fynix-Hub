@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { getWatchApi } from '../../utils/watchProvider'
 import type { IntroSegment } from '../../types.d'
 import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
@@ -172,10 +173,10 @@ function VideoPlayerInner({
         mediaInfo.tmdbId, mediaInfo.mediaType, progress,
         mediaInfo.season, mediaInfo.episode,
       )
-      await window.api.trakt.scrobble(action, payload)
-      window.api.log(`[Trakt] scrobble ${action} ${Math.round(progress * 100)}%`)
+      await getWatchApi().scrobble(action, payload)
+      window.api.log(`[Watch] scrobble ${action} ${Math.round(progress * 100)}%`)
     } catch (e: any) {
-      window.api.log(`[Trakt] scrobble ${action} failed: ${e?.message || e}`)
+      window.api.log(`[Watch] scrobble ${action} failed: ${e?.message || e}`)
     }
   }, [mediaInfo])
 
@@ -191,10 +192,10 @@ function VideoPlayerInner({
         mediaInfo.tmdbId, mediaInfo.mediaType,
         mediaInfo.season, mediaInfo.episode,
       )
-      await window.api.trakt.markWatched(payload)
-      console.log('[Trakt] markWatched ok', payload)
+      await getWatchApi().markWatched(payload)
+      console.log('[Watch] markWatched ok', payload)
     } catch (e: any) {
-      window.api.log(`[Trakt] markWatched failed: ${e?.message || e}`)
+      window.api.log(`[Watch] markWatched failed: ${e?.message || e}`)
     }
   }, [mediaInfo])
 

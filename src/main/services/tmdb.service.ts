@@ -150,6 +150,21 @@ export async function getExternalIds(type: 'movie' | 'tv', id: number): Promise<
   return imdbId ? { imdbId } : {}
 }
 
+/**
+ * Resolve an IMDb ID (tt...) to a TMDB ID via TMDB's find endpoint.
+ * Returns { tmdbId, mediaType } or null when unresolved.
+ * Used to map MDBList watched shows (which expose imdb but not tmdb ids).
+ */
+export async function findByImdb(imdbId: string): Promise<{ tmdbId: number; mediaType: 'movie' | 'tv' } | null> {
+  if (!imdbId || !/^tt\d+$/.test(imdbId)) return null
+  const data = await fetchTmdb(`/find/${imdbId}`, { external_source: 'imdb_id' })
+  const movie = data?.movie_results?.[0]
+  if (movie?.id) return { tmdbId: movie.id, mediaType: 'movie' }
+  const tv = data?.tv_results?.[0]
+  if (tv?.id) return { tmdbId: tv.id, mediaType: 'tv' }
+  return null
+}
+
 export async function getMoviesByCategory(genreId: number, page: number = 1) {
   return discoverByGenre('movie', genreId, page)
 }

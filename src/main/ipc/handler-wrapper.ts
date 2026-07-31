@@ -15,11 +15,15 @@ export function handle<TReturn>(
 }
 
 /* IPC handlers for IPTV M3U */
-import { getAllSources, findChannelInSources } from '../../main/services/iptv-m3u.service';
+import { getAllSources, getAllM3UChannels, findChannelInSources } from '../../main/services/iptv-m3u.service';
 import * as XtreamService from '../../main/services/xtream-portal.service';
 
 handle('iptv-m3u:get-all-sources', async (_event, forceRefresh?: boolean) => {
   return getAllSources(forceRefresh);
+});
+
+handle('iptv-m3u:get-all-channels', async (_event, forceRefresh?: boolean) => {
+  return getAllM3UChannels(forceRefresh);
 });
 
 handle('iptv-m3u:find-channel', async (_event, query: string) => {
@@ -41,4 +45,19 @@ handle('xtream:remove-portal', async (_event, url: string, user: string, pass: s
 
 handle('xtream:import-portals', async (_event, portals: { url: string; user: string; pass: string }[]) => {
   return XtreamService.importPortals(portals);
+});
+
+/* IPC handlers for channel logo fallback (tv-logo/tv-logos GitHub repo) */
+import { resolveChannelLogo, prewarmChannelLogos, clearChannelLogoCache } from '../../main/services/channel-logos.service';
+
+handle('channel-logo:resolve', async (_event, channelName: string, countryCode: string) => {
+  return resolveChannelLogo(channelName, countryCode);
+});
+
+handle('channel-logo:prewarm', async (_event, channels: { name: string; countryCode: string }[]) => {
+  await prewarmChannelLogos(channels);
+});
+
+handle('channel-logo:clear-cache', async () => {
+  clearChannelLogoCache();
 });

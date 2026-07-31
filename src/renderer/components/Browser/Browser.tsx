@@ -4,6 +4,8 @@ import HeroBanner from './HeroBanner'
 import type { MediaItem } from '../../types'
 import type { ContextTarget } from '../ContextMenu/ContextMenu'
 import { useMediaStore } from '../../store/mediaStore'
+import { useSettingsStore } from '../../store/settingsStore'
+import { getWatchApi, useWatchConnected } from '../../utils/watchProvider'
 import styles from './Browser.module.css'
 
 interface ContinueInfo {
@@ -46,6 +48,9 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const [providerRows, setProviderRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
 
+  const watchProvider = useSettingsStore((s) => s.watchProvider)
+  const watchConnected = useWatchConnected()
+
   const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !traktWatched.has(item.id))
   const continueTv = continueWatching.filter(item => item.mediaType === 'tv')
   const upNextItems = upNext.map(u => u.item)
@@ -78,14 +83,15 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
   const fetchTraktDataRef = useRef<() => Promise<void>>(async () => {})
   fetchTraktDataRef.current = async () => {
-    const authStatus = await window.api.trakt.getAuthStatus()
-    console.log('[Browser] Trakt auth:', authStatus.authenticated)
+    const watchApi = getWatchApi()
+    const authStatus = await watchApi.getAuthStatus()
+    console.log('[Browser] Watch provider auth:', authStatus.authenticated)
     if (authStatus.authenticated) {
       const [watchedMovies, watchedShows, moviePlayback, episodePlayback] = await Promise.all([
-        window.api.trakt.getWatchedMovies().catch((err: any) => { console.log('[Browser] getWatchedMovies failed:', err?.message); return null }),
-        window.api.trakt.getWatchedShows().catch((err: any) => { console.log('[Browser] getWatchedShows failed:', err?.message); return null }),
-        window.api.trakt.getPlaybackMovies().catch((err: any) => { console.log('[Browser] getPlaybackMovies failed:', err?.message); return null }),
-        window.api.trakt.getPlaybackEpisodes().catch((err: any) => { console.log('[Browser] getPlaybackEpisodes failed:', err?.message); return null }),
+        watchApi.getWatchedMovies().catch((err: any) => { console.log('[Browser] getWatchedMovies failed:', err?.message); return null }),
+        watchApi.getWatchedShows().catch((err: any) => { console.log('[Browser] getWatchedShows failed:', err?.message); return null }),
+        watchApi.getPlaybackMovies().catch((err: any) => { console.log('[Browser] getPlaybackMovies failed:', err?.message); return null }),
+        watchApi.getPlaybackEpisodes().catch((err: any) => { console.log('[Browser] getPlaybackEpisodes failed:', err?.message); return null }),
       ])
 
       console.log('[Browser] moviePlayback count:', moviePlayback?.length ?? 0)
@@ -134,7 +140,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       let episodeItems = episodePlayback
       if (!episodeItems || !Array.isArray(episodeItems) || episodeItems.length === 0) {
         console.log('[Browser] Falling back to /sync/playback for episodes')
-        const fallback = await window.api.trakt.getPlayback().catch((err: any) => { console.log('[Browser] getPlayback fallback failed:', err?.message); return null })
+        const fallback = await watchApi.getPlayback().catch((err: any) => { console.log('[Browser] getPlayback fallback failed:', err?.message); return null })
         if (fallback && Array.isArray(fallback)) {
           episodeItems = fallback.filter((p: any) => p.type === 'episode' || (p.show && p.episode))
           console.log('[Browser] fallback episode count:', episodeItems.length)
@@ -190,7 +196,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
       // Fetch Up Next (shows with next episode to watch)
       try {
-        const progress = await window.api.trakt.getWatchedProgress()
+        const progress = await watchApi.getWatchedProgress()
             if (progress && Array.isArray(progress) && progress.length > 0) {
               const now = Date.now()
               const thirtyDays = 30 * 24 * 60 * 60 * 1000
@@ -359,7 +365,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   useEffect(() => {
     if (!loadedRef.current) return
     fetchTraktData()
-  }, [refreshVersion, fetchTraktData])
+  }, [refreshVersion, fetchTraktData, watchProvider, watchConnected])
 
   // Fetch provider-filtered content when a provider is selected
   useEffect(() => {
