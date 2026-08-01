@@ -173,36 +173,70 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   }, [])
 
   const today = new Date()
-  const dateStr = today.toISOString().slice(0, 10)
+  // Local calendar date (toISOString is UTC — wrong day between midnight and
+  // 1am in UTC+ timezones like the UK in summer).
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    window.api.epg.getChannels(liveTvChannels).then(async (chs: MappedChannel[]) => {
-      setChannels(chs)
-      if (chs.length === 0) { setLoading(false); return }
+    ;(async () => {
+      // Re-check staleness every time the EPG opens. The provider's window is
+      // only ~2-3 days, so a long-running app or a day rollover can leave the
+      // cache without today's data even inside the 24h startup TTL.
+      try { await window.api.epg.ensureLoaded() } catch { /* keep cached */ }
+      if (cancelled) return
+      try {
+        const chs: MappedChannel[] = await window.api.epg.getChannels(liveTvChannels)
+        if (cancelled) return
+        setChannels(chs)
+        if (chs.length === 0) { setLoading(false); return }
 
-      const [nnMap, schedMap] = await Promise.all([
-        Promise.all(chs.map(async (ch) => {
-          try {
-            const nn = await window.api.epg.getNowNext(ch.epgChannelId)
-            return [ch.liveTvChannelId, nn] as const
-          } catch { return [ch.liveTvChannelId, { now: null, next: null }] as const }
-        })),
-        Promise.all(chs.map(async (ch) => {
-          try {
-            const sched = await window.api.epg.getSchedule(ch.epgChannelId, dateStr)
-            return [ch.liveTvChannelId, sched] as const
-          } catch { return [ch.liveTvChannelId, [] as EPGProgramme[]] as const }
-        })),
-      ])
-
-      setNowNextMap(Object.fromEntries(nnMap))
-      setGridData(Object.fromEntries(schedMap))
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [liveTvChannels])
+        const [nnMap, schedMap] = await Promise.all([
+          Promise.all(chs.map(async (ch) => {
+            try {
+              const nn = await window.api.epg.getNowNext(ch.epgChannelId)
+              return [ch.liveTvChannelId, nn] as const
+            } catch { return [ch.liveTvChannelId, { now: null, next: null }] as const }
+          })),
+          Promise.all(chs.map(async (ch) => {
+            try {
+              const sched = await window.api.epg.getSchedule(ch.epgChannelId, dateStr)
+              return [ch.liveTvChannelId, sched] as const
+            } catch { return [ch.liveTvChannelId, [] as EPGProgramme[]] as const }
+          })),
+        ])
+        if (cancelled) return
+        setNowNextMap(Object.fromEntries(nnMap))
+        setGridData(Object.fromEntries(schedMap))
+        setLoading(false)
+      } catch {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [liveTvChannels, dateStr, refreshNonce])
 
   useEffect(() => { containerRef.current?.focus() }, [loading])
+
+  // Manual re-fetch: pull fresh data from the provider, then reload the grid.
+  const handleRefresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      const codes = useSettingsStore.getState().selectedLiveTvCountries
+      await window.api.epg.refresh(codes && codes.length > 0 ? codes : undefined)
+    } catch (err: any) {
+      setRecordMsg({ text: `EPG refresh failed: ${err?.message || err}`, error: true })
+      setTimeout(() => setRecordMsg(null), 4000)
+    } finally {
+      setRefreshing(false)
+      setRefreshNonce((n) => n + 1)
+    }
+  }
 
   useEffect(() => {
     if (loading || !gridRef.current) return
@@ -219,7 +253,9 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   }, [focusedChannelIdx])
 
   const now = Math.floor(Date.now() / 1000)
-  const dayStart = Math.floor(new Date(dateStr).getTime() / 1000)
+  // Local midnight (matches getSchedule's local-day parse in main).
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dayStart = Math.floor(new Date(y, m - 1, d).getTime() / 1000)
   const dayEnd = dayStart + 86400
 
   const timeSlots = useMemo(() => {
@@ -645,8 +681,25 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         </div>
       )}
 
-      <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border, #2a2a4a)' }}>
+      <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border, #2a2a4a)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: 0 }}>TV Guide</h2>
+        <button
+          tabIndex={0}
+          onClick={handleRefresh}
+          disabled={refreshing}
+          title="Re-fetch today's schedule from the EPG provider"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6,
+            cursor: refreshing ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600,
+            background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border, #2a2a4a)',
+            color: refreshing ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.75)',
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={refreshing ? { animation: 'spin 0.8s linear infinite' } : undefined}>
+            <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
       {playError && (

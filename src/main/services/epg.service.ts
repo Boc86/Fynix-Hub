@@ -425,7 +425,9 @@ export function getNowNext(channelId: string): { now: EPGProgramme | null; next:
 
 export function getSchedule(channelId: string, dateStr: string): EPGProgramme[] {
   const d = getDb()
-  const dayStart = Math.floor(new Date(dateStr).getTime() / 1000)
+  // Parse as LOCAL midnight (not UTC) so the grid day matches the user's day.
+  const [y, m, dd] = dateStr.split('-').map(Number)
+  const dayStart = Math.floor(new Date(y, (m || 1) - 1, dd || 1).getTime() / 1000)
   const dayEnd = dayStart + 86400
 
   const rows = d.prepare('SELECT * FROM programmes WHERE channel_id = ? AND start >= ? AND start < ? ORDER BY start').all(channelId, dayStart, dayEnd) as any[]
