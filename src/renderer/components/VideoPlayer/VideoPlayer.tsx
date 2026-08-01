@@ -45,6 +45,10 @@ interface VideoPlayerProps {
   clearlogoUrl?: string | null
   audioTracks?: { index: number; language: string; title: string; codec: string; channels: number; isDefault: boolean }[]
   isRemux?: boolean
+  /** Called when the underlying stream URL changes (e.g. audio track switch).
+   *  App.tsx uses this to push the new HLS URL into the video element so the
+   *  player doesn't freeze loading the dead old session. */
+  onStreamUrlChange?: (url: string) => void
   /** Called when playback ends naturally (video finished). */
   onPlaybackComplete?: () => void
 }
@@ -96,6 +100,7 @@ function VideoPlayerInner({
   clearlogoUrl,
   audioTracks,
   isRemux,
+  onStreamUrlChange,
   onPlaybackComplete,
 }, ref) {
   const videoJsRef = useRef<VideoJsPlayerHandle>(null)
@@ -460,14 +465,15 @@ function VideoPlayerInner({
   const handleAudioTrackSelect = useCallback(async (trackIndex: number) => {
     try {
       const result = await (window.api.player as any).setAudioTrack(trackIndex)
-      if (result?.streamUrl) {
-        // The new stream URL will be picked up by streamUrl state in App.tsx
-        // which triggers the video element to reload
+      // The new session has a fresh HLS URL — push it to the video element
+      // so playback doesn't freeze on the now-dead old session's URL.
+      if (result?.streamUrl && onStreamUrlChange) {
+        onStreamUrlChange(result.streamUrl)
       }
     } catch (err: any) {
       setDisplayError(err?.message || 'Failed to switch audio track')
     }
-  }, [])
+  }, [onStreamUrlChange])
 
   // Reset state when streamUrl changes.
   useEffect(() => {

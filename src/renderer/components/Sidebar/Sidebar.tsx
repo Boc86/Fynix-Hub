@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './Sidebar.module.css'
 import { useSettingsStore } from '../../store/settingsStore'
 
-export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'live-tv' | 'epg' | 'settings'
+export type NavView = 'browser' | 'movies' | 'tv-shows' | 'youtube' | 'sports' | 'live-tv' | 'epg' | 'recordings' | 'settings'
 
 export const SIDEBAR_VIEWS: NavView[] = ['browser', 'movies', 'tv-shows', 'youtube', 'sports', 'live-tv', 'epg', 'settings']
 
@@ -57,6 +57,7 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
     ...(sportsEnabled ? [{ view: 'sports' as NavView, label: 'Sports', icon: 'sports' }] : []),
     ...(liveTvEnabled ? [{ view: 'live-tv' as NavView, label: 'Live TV', icon: 'live-tv' }] : []),
     ...(liveTvEnabled ? [{ view: 'epg' as NavView, label: 'EPG', icon: 'epg' }] : []),
+    ...(liveTvEnabled ? [{ view: 'recordings' as NavView, label: 'Recordings', icon: 'recordings' }] : []),
   ]
 
   const bottomItems = [
@@ -226,6 +227,12 @@ export default function Sidebar({ open, currentView, onNavigate, onSearch, onClo
         <line x1="3" y1="10" x2="21" y2="10"/>
         <line x1="8" y1="14" x2="12" y2="14"/>
         <line x1="8" y1="18" x2="14" y2="18"/>
+      </svg>
+    )
+    if (icon === 'recordings') return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <circle cx="12" cy="12" r="3" fill="currentColor"/>
       </svg>
     )
     if (icon === 'settings') return (

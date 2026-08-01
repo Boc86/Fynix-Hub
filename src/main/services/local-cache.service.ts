@@ -27,7 +27,7 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
   const isVkUser = /vkuser\.net/i.test(url)
   const isVk = /vk\.com|vkvideo/i.test(url)
   const isDailymotion = /dailymotion\.com/i.test(url)
-  const isCdnLive = /cdnlivetv\.tv/i.test(url)
+  const isCdnLive = /cdnlivetv\.(is|tv)/i.test(url)
 
   if (isOkCdn || isVkUser || isVk) {
     return {

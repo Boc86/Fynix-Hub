@@ -7,6 +7,7 @@ import zlib from 'zlib'
 import * as CacheService from './cache.service'
 
 const EPG_BASE = 'https://epg.pw/xmltv'
+const OPEN_EPG_URL = 'https://www.open-epg.com/files/unitedkingdom.xml'
 const REFRESH_INTERVAL = 86400000
 const DB_VERSION = 3
 
@@ -171,21 +172,30 @@ function extractText(val: any): string {
   return String(val)
 }
 
-async function fetchAndParseXmltv(countryCode: string, isAll?: boolean): Promise<{ channels: any[], programmes: any[] }> {
-  const url = isAll
-    ? `${EPG_BASE}/epg.xml.gz`
-    : `${EPG_BASE}/epg_${countryCode.toUpperCase()}.xml.gz`
+async function fetchAndParseXmltv(countryCode: string, isAll?: boolean, useOpenEpg?: boolean): Promise<{ channels: any[], programmes: any[] }> {
+  let url: string
+  if (useOpenEpg) {
+    // open-epg.com unitedkingdom.xml — plain (un-gzipped) XMLTV, UK-only feed
+    url = OPEN_EPG_URL
+  } else {
+    url = isAll
+      ? `${EPG_BASE}/epg.xml.gz`
+      : `${EPG_BASE}/epg_${countryCode.toUpperCase()}.xml.gz`
+  }
   console.log(`[EPG] Fetching ${url}`)
 
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
     signal: AbortSignal.timeout(30000),
   })
-  if (!res.ok) throw new Error(`EPG HTTP ${res.status} for ${countryCode}`)
+  if (!res.ok) throw new Error(`EPG HTTP ${res.status} for ${url}`)
 
-  const buffer = Buffer.from(await res.arrayBuffer())
-  const xml = zlib.gunzipSync(buffer).toString('utf-8')
-  console.log(`[EPG] Parsed ${(xml.length / 1024 / 1024).toFixed(1)}MB for ${countryCode}`)
+  const raw = Buffer.from(await res.arrayBuffer())
+  // open-epg.com serves plain (un-gzipped) XML; epg.pw serves gzip.
+  // Detect by the gzip magic bytes (0x1f 0x8b) rather than hard-coding.
+  const isGzipped = raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b
+  const xml = isGzipped ? zlib.gunzipSync(raw).toString('utf-8') : raw.toString('utf-8')
+  console.log(`[EPG] Parsed ${(xml.length / 1024 / 1024).toFixed(1)}MB for ${url}`)
 
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -204,7 +214,7 @@ async function fetchAndParseXmltv(countryCode: string, isAll?: boolean): Promise
     // EPG.pw puts the country code in the lang attribute of <display-name>
     // e.g. <display-name lang="GB">Sky News</display-name>
     const langFromName = (Array.isArray(nameNode) ? nameNode[0] : nameNode)?.['@_lang'] || ''
-    const chCountryCode = isAll ? langFromName.toLowerCase() : countryCode
+    const chCountryCode = useOpenEpg ? 'gb' : (isAll ? langFromName.toLowerCase() : countryCode)
     const iconNode = ch.icon
     const icon = iconNode?.['@_src'] || (typeof iconNode === 'string' ? iconNode : '')
     channels.push({ id, displayName, icon, countryCode: chCountryCode })
@@ -247,9 +257,10 @@ export async function refreshEpg(countryCodes?: string[], options?: { includeAll
   const allProgrammes: { chId: string; start: number; stop: number; title: string; desc: string; cat: string; ep: string; img: string }[] = []
 
   // Build list of sources to fetch: per-country files + optional all-in-one
-  const sources: { cc: string; isAll?: boolean }[] = []
+  // GB uses open-epg.com's unitedkingdom.xml (epg.pw's GB data is stale/frozen).
+  const sources: { cc: string; isAll?: boolean; useOpenEpg?: boolean }[] = []
   for (const cc of countryCodes) {
-    sources.push({ cc })
+    sources.push({ cc, useOpenEpg: cc.toLowerCase() === 'gb' })
   }
   if (includeAll) {
     sources.push({ cc: '__all__', isAll: true })
@@ -257,7 +268,7 @@ export async function refreshEpg(countryCodes?: string[], options?: { includeAll
 
   for (const src of sources) {
     try {
-      const { channels, programmes } = await fetchAndParseXmltv(src.cc, src.isAll)
+      const { channels, programmes } = await fetchAndParseXmltv(src.cc, src.isAll, src.useOpenEpg)
       allChannels.push(...channels)
       allProgrammes.push(...programmes)
     } catch (err: any) {
@@ -425,7 +436,9 @@ export function getNowNext(channelId: string): { now: EPGProgramme | null; next:
 
 export function getSchedule(channelId: string, dateStr: string): EPGProgramme[] {
   const d = getDb()
-  const dayStart = Math.floor(new Date(dateStr).getTime() / 1000)
+  // Parse as LOCAL midnight (not UTC) so the grid day matches the user's day.
+  const [y, m, dd] = dateStr.split('-').map(Number)
+  const dayStart = Math.floor(new Date(y, (m || 1) - 1, dd || 1).getTime() / 1000)
   const dayEnd = dayStart + 86400
 
   const rows = d.prepare('SELECT * FROM programmes WHERE channel_id = ? AND start >= ? AND start < ? ORDER BY start').all(channelId, dayStart, dayEnd) as any[]

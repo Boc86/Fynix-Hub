@@ -12,6 +12,7 @@ import TorrentSearch from './components/TorrentSearch/TorrentSearch'
 import Sports from './components/Sports/Sports'
 import LiveTV, { type LiveTVAPI } from './components/LiveTV/LiveTV'
 import EPG from './components/EPG/EPG'
+import Recordings from './components/Recordings/Recordings'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
@@ -24,7 +25,7 @@ import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 import { getWatchApi, useWatchConnected } from './utils/watchProvider'
 
-  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg' | 'recordings'
 
 interface PlayerInfo {
   tmdbId: number
@@ -194,7 +195,7 @@ export default function App() {
         }
       } else if (action === 'contextMenu') {
         if (!contextTarget) {
-          if (view === 'browser' || view === 'movies' || view === 'tv-shows' || view === 'live-tv') {
+          if (view === 'browser' || view === 'movies' || view === 'tv-shows' || view === 'live-tv' || view === 'epg') {
             const el = document.activeElement
             if (el) {
               el.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
@@ -1052,6 +1053,28 @@ export default function App() {
     setStreamUrl(hlsUrl)
     setAudioTracksInfo(result?.audioTracks ?? [])
     setIsRemux(result?.isRemux ?? false)
+    // Auto-select preferred-language audio track before the user sees anything.
+    // Fires once per playback start — a guard inside setAudioTracksInfo + the
+    // useEffect below prevents repeated switches on the same track list.
+    if (Array.isArray(result?.audioTracks) && result.audioTracks.length > 1) {
+      const prefs = useSettingsStore.getState().preferredLanguages || []
+      const match = result.audioTracks.find((t: any) => {
+        if (!prefs.length) return t.isDefault
+        const lang = (t.language || '').toLowerCase()
+        return prefs.some((p: string) => lang.startsWith(p.toLowerCase()))
+      })
+      if (match && !match.isDefault) {
+        window.api.log(`[App] auto-switching to preferred audio track #${match.index} (${match.language})`)
+        try {
+          const switched = await window.api.player.setAudioTrack(match.index)
+          if (switched?.streamUrl) {
+            setStreamUrl(switched.streamUrl)
+          }
+        } catch (err: any) {
+          window.api.log('[App] preferred audio switch failed:', err?.message)
+        }
+      }
+    }
     return result
   }, [])
 
@@ -1514,14 +1537,14 @@ export default function App() {
         if (torrentSearchOpen) { setTorrentSearchOpen(false); return }
         if (searchOpen) { setSearchOpen(false); return }
         if (sidebarOpen) { setSidebarOpen(false); return }
-        if (view === 'sports' || view === 'live-tv' || view === 'epg') return
+        if (view === 'sports' || view === 'live-tv' || view === 'epg' || view === 'recordings') return
         if (view === 'player') { handlePlayerBack(); return }
         if (view !== 'browser') { goBack(); return }
       }
       
       if (e.key === 'Backspace') {
         if (isTyping) return
-        if (view === 'sports' || view === 'live-tv' || view === 'epg') return
+        if (view === 'sports' || view === 'live-tv' || view === 'epg' || view === 'recordings') return
         if (virtualKeyboardOpen) {
           e.preventDefault()
           setVirtualKeyboardOpen(false)
@@ -1563,8 +1586,8 @@ export default function App() {
     setVirtualKeyboardOpen(true)
   }
       
-      // 'c' key - context menus
-      if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget) {
+      // 'c' key - context menus (skip in EPG view; EPG handles its own)
+      if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget && view !== 'epg') {
         e.preventDefault()
         savedFocusRef.current = e.target as HTMLElement
         const media = useMediaStore.getState().selectedMedia
@@ -1638,7 +1661,7 @@ export default function App() {
     <Layout>
       <Sidebar
         open={sidebarOpen}
-        currentView={view === 'sports' ? 'sports' : view === 'live-tv' ? 'live-tv' : view === 'epg' ? 'epg' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
+        currentView={view === 'sports' ? 'sports' : view === 'live-tv' ? 'live-tv' : view === 'epg' ? 'epg' : view === 'recordings' ? 'recordings' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
         onNavigate={navigateSidebar}
         onSearch={() => setSearchOpen(true)}
         onClose={() => setSidebarOpen(false)}
@@ -1694,6 +1717,7 @@ export default function App() {
           clearlogoUrl={playerInfo?.clearlogoUrl}
           audioTracks={audioTracksInfo}
           isRemux={isRemux}
+          onStreamUrlChange={setStreamUrl}
         />
       ))}
       {view === 'settings' && (
@@ -1812,6 +1836,32 @@ export default function App() {
             }}
             onBack={() => goBack()}
             liveTvChannels={epgLiveTvChannels}
+          />
+        </div>
+      )}
+      {view === 'recordings' && (
+        <div className="animate-fade">
+          <Recordings
+            onPlayUrl={async (url) => {
+              setTorrentSearchOpen(false)
+              setFreeSearchOpen(false)
+              setFreeSearchQuery('')
+              setPlayerLoading(true)
+              setStreamError(null)
+              navigate('player')
+              try {
+                currentInfoHashRef.current = null
+                resumePositionRef.current = undefined
+                lastStreamUrlRef.current = url
+                await startPlayerUrl(url, undefined, undefined)
+                setPlayerLoading(false)
+              } catch (err: any) {
+                window.api.log('[App] Recording playback failed:', err.message)
+                setStreamError(err?.message || 'Failed to play recording')
+                setPlayerLoading(false)
+              }
+            }}
+            onBack={() => goBack()}
           />
         </div>
       )}

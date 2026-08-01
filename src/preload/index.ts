@@ -294,11 +294,12 @@ const api = {
     getEmbedUrl: (url: string) => ipcRenderer.invoke('dlhd:get-embed-url', url),
   },
   recordings: {
-    schedule: (params: { title: string; channelName: string; startTime: number; endTime: number; sourceUrls: string[] }) =>
+    schedule: (params: { title: string; channelName: string; startTime: number; endTime: number; channel: { id: string; name: string; countryCode: string; playerUrl?: string }; sources: { type: 'cdnlive' | 'ondemand' | 'dlhd' | 'm3u'; url?: string }[] }) =>
       ipcRenderer.invoke('recordings:schedule', params),
     cancel: (id: string) => ipcRenderer.invoke('recordings:cancel', id),
     deleteRecording: (id: string) => ipcRenderer.invoke('recordings:delete', id),
     list: () => ipcRenderer.invoke('recordings:list'),
+    cancelCurrent: () => ipcRenderer.invoke('recordings:cancel-current'),
   },
 }
 

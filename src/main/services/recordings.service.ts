@@ -4,6 +4,21 @@ import * as path from 'path'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export interface RecordingChannel {
+  id: string
+  name: string
+  countryCode: string
+  playerUrl?: string
+}
+
+/** A candidate source for a recording. CDN types are resolved to a fresh
+ *  stream URL at record time (tokens are one-time-use); m3u carries its
+ *  stable direct URL. */
+export interface RecordingSource {
+  type: 'cdnlive' | 'ondemand' | 'dlhd' | 'm3u'
+  url?: string
+}
+
 export interface Recording {
   id: string
   title: string
@@ -18,6 +33,8 @@ export interface Recording {
   durationSec: number
   sizeBytes: number
   source: string
+  channel: RecordingChannel
+  sources: RecordingSource[]
 }
 
 interface ScheduledRecording {
@@ -73,15 +90,44 @@ async function saveRecordings(): Promise<void> {
     const fs = await import('fs/promises')
     const arr = Array.from(recordings.values())
     await fs.writeFile(recordingsFilePath, JSON.stringify(arr, null, 2), 'utf-8')
+    notifyRecordingsChanged()
   } catch (err: any) {
     console.error(`[Recordings] Failed to save recordings: ${err?.message}`)
   }
 }
 
+// Broadcast recording-list changes to all renderer windows immediately
+// (so the Recordings view updates on status transitions without waiting
+// for the 10s poll).
+function notifyRecordingsChanged(): void {
+  try {
+    const { BrowserWindow } = require('electron') as typeof import('electron')
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('recordings:changed')
+      }
+    }
+  } catch { /* app may be shutting down */ }
+}
+
 // ─── FFmpeg ──────────────────────────────────────────────────────────────────
+
+const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
+/** Headers required to fetch a stream URL (CDN anti-hotlinking etc). */
+function headersForUrl(url: string): Record<string, string> {
+  const headers: Record<string, string> = { 'User-Agent': BROWSER_UA }
+  if (/cdnlivetv\.(is|tv)/i.test(url)) {
+    headers['Referer'] = 'https://cdnlivetv.is/'
+  } else if (/dlhd\.st/i.test(url)) {
+    headers['Referer'] = 'https://dlhd.st/'
+  }
+  return headers
+}
 
 function spawnFfmpeg(
   sourceUrl: string,
+  headers: Record<string, string>,
   outputDir: string,
   durationSec: number,
   id: string,
@@ -92,17 +138,33 @@ function spawnFfmpeg(
     '-hide_banner',
     '-loglevel', 'warning',
     '-y',
+  ]
+  const headersArg = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n') + '\r\n'
+  if (headersArg) {
+    args.push('-headers', headersArg)
+  }
+  args.push(
     '-i', sourceUrl,
     '-t', String(durationSec),
     '-c', 'copy',
     outputPath,
-  ]
+  )
 
   debug(`Spawning FFmpeg: ffmpeg ${args.join(' ')}`)
 
   const proc = spawn('ffmpeg', args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'ignore', 'pipe'],
   })
+
+  // Transition to 'recording' immediately — stdout data can't be relied on
+  // (FFmpeg -loglevel warning emits to stderr only, so the stdout listener
+  // below would never fire for many streams).
+  const rec = recordings.get(id)
+  if (rec && rec.status === 'scheduled') {
+    rec.status = 'recording'
+    rec.filePath = outputPath
+    saveRecordings()
+  }
 
   let stderr = ''
   proc.stderr?.on('data', (chunk: Buffer) => {
@@ -139,16 +201,6 @@ function spawnFfmpeg(
     scheduled.delete(id)
   })
 
-  // Also update status to 'recording' once we get first data
-  proc.stdout?.on('data', () => {
-    const rec = recordings.get(id)
-    if (rec && rec.status === 'scheduled') {
-      rec.status = 'recording'
-      rec.filePath = outputPath
-      saveRecordings()
-    }
-  })
-
   return proc
 }
 
@@ -163,14 +215,49 @@ async function updateFileSize(rec: Recording): Promise<void> {
   }
 }
 
+// ─── Source URL resolution ────────────────────────────────────────────────────
+
+interface ResolvedSource {
+  url: string
+  headers: Record<string, string>
+}
+
+/**
+ * Resolve candidate stream URLs for a recording at record time.
+ * Only M3U sources are accepted (stable direct HTTP URLs FFmpeg can fetch).
+ * CDNLive/OnDemand/DLHD use P2P HLS whose tokens are consumed by the browser
+ * tracker and expire before FFmpeg can grab them — not recordable.
+ */
+async function resolveSourceUrls(rec: Recording): Promise<ResolvedSource[]> {
+  const urls: ResolvedSource[] = []
+  for (const src of rec.sources || []) {
+    if (src.type === 'm3u' && src.url) {
+      urls.push({ url: src.url, headers: headersForUrl(src.url) })
+    }
+  }
+  return urls
+}
+
 // ─── Scheduled Recording Runner ─────────────────────────────────────────────
 
 async function startRecording(
   id: string,
-  sourceUrls: string[],
   actualStartTime: number,
   actualEndTime: number,
 ): Promise<void> {
+  const rec = recordings.get(id)
+  if (!rec) return
+
+  const sourceUrls = await resolveSourceUrls(rec)
+  if (sourceUrls.length === 0) {
+    debug(`No source URLs could be resolved for recording ${id}`)
+    rec.status = 'failed'
+    rec.error = 'No playable source found at record time'
+    await saveRecordings()
+    scheduled.delete(id)
+    return
+  }
+
   const durationSec = Math.round((actualEndTime - actualStartTime) / 1000)
   const recDir = getRecordingDir(id)
   const fs = await import('fs/promises')
@@ -181,10 +268,10 @@ async function startRecording(
   let lastError: string | undefined
   let proc: ChildProcess | undefined
 
-  for (const url of sourceUrls) {
-    debug(`Trying source URL for recording ${id}: ${url.slice(0, 100)}`)
+  for (const src of sourceUrls) {
+    debug(`Trying source URL for recording ${id}: ${src.url.slice(0, 100)}`)
 
-    const child = spawnFfmpeg(url, recDir, durationSec, id)
+    const child = spawnFfmpeg(src.url, src.headers, recDir, durationSec, id)
 
     proc = child
 
@@ -201,26 +288,38 @@ async function startRecording(
     })
 
     if (exitCode === 0) {
-      debug(`Recording ${id} succeeded with source: ${url.slice(0, 100)}`)
-      const rec = recordings.get(id)
+      // Validate the output file has actual content — FFmpeg can exit 0
+      // on an error page (0 frames copied to output), producing a 0-byte file.
+      let fileOk = false
+      try {
+        const fs = await import('fs/promises')
+        const stat = await fs.stat(rec.filePath)
+        fileOk = stat.size > 0
+      } catch { /* file missing or inaccessible */ }
+      if (!fileOk) {
+        debug(`Recording ${id} produced empty/no output from source: ${src.url.slice(0, 100)}`)
+        lastError = 'Empty or invalid output'
+        continue
+      }
+      debug(`Recording ${id} succeeded with source: ${src.url.slice(0, 100)}`)
       if (rec) {
         rec.status = 'completed'
-        rec.source = url
+        rec.source = src.url
         updateFileSize(rec).catch(() => {})
         saveRecordings()
       }
-      // Clean up timeout reference (remove it since recording completed)
       scheduled.delete(id)
       return
     }
 
     lastError = `FFmpeg exit code ${exitCode}`
     debug(`Source failed for ${id}, trying next...`)
+    // Brief backoff between attempts
+    await new Promise(r => setTimeout(r, 3000))
   }
 
   // All sources failed
   debug(`All sources failed for recording ${id}`)
-  const rec = recordings.get(id)
   if (rec) {
     rec.status = 'failed'
     rec.error = lastError || 'All sources failed'
@@ -236,7 +335,8 @@ export async function scheduleRecording(params: {
   channelName: string
   startTime: number
   endTime: number
-  sourceUrls: string[]
+  channel: RecordingChannel
+  sources: RecordingSource[]
 }): Promise<string> {
   const id = generateId()
   const actualStartTime = params.startTime - 300_000  // 5 min before
@@ -259,6 +359,8 @@ export async function scheduleRecording(params: {
     durationSec,
     sizeBytes: 0,
     source: '',
+    channel: params.channel,
+    sources: params.sources,
   }
 
   recordings.set(id, recording)
@@ -272,7 +374,7 @@ export async function scheduleRecording(params: {
 
   const timeout = setTimeout(async () => {
     debug(`Starting scheduled recording ${id} ("${params.title}")`)
-    await startRecording(id, params.sourceUrls, actualStartTime, actualEndTime)
+    await startRecording(id, actualStartTime, actualEndTime)
   }, delay)
 
   scheduled.set(id, { id, timeout })
@@ -337,6 +439,17 @@ export async function listRecordings(): Promise<Recording[]> {
   return Array.from(recordings.values()).sort((a, b) => b.startTime - a.startTime)
 }
 
+/**
+ * Cancel the recording currently in progress (status 'recording').
+ * If a schedule timeout is pending for the same recording, clear it too.
+ */
+export async function cancelCurrentRecording(): Promise<string | null> {
+  const rec = Array.from(recordings.values()).find(r => r.status === 'recording')
+  if (!rec) return null
+  await cancelRecording(rec.id)
+  return rec.id
+}
+
 export async function init(): Promise<void> {
   if (loaded) return
 
@@ -355,24 +468,24 @@ export async function init(): Promise<void> {
   await loadRecordings()
   loaded = true
 
-  // Reschedule any recordings that were 'scheduled' (they were pending when app closed)
-  // Only reschedule those whose actualStartTime is still in the future
+  // Reschedule any recordings that were 'scheduled' (they were pending when app closed).
+  // Channel + sources are persisted, so fresh stream URLs resolve at fire time.
   const now = Date.now()
   for (const rec of recordings.values()) {
+    // Migrate legacy recordings (pre channel/sources persistence)
+    if (!rec.channel || !rec.sources) {
+      if (rec.status === 'scheduled' || rec.status === 'recording') {
+        rec.status = 'failed'
+        rec.error = 'Recording created by an older version - please re-schedule'
+      }
+      continue
+    }
     if (rec.status === 'scheduled' && rec.actualStartTime > now) {
       const delay = rec.actualStartTime - now
       debug(`Rescheduling recording ${rec.id} ("${rec.title}") in ${Math.round(delay / 1000)}s`)
       const timeout = setTimeout(async () => {
         debug(`Starting rescheduled recording ${rec.id} ("${rec.title}")`)
-        // Source URLs are not persisted — the caller will need to re-schedule
-        // We mark it as failed since we don't have the source URLs on reload
-        const r = recordings.get(rec.id)
-        if (r) {
-          r.status = 'failed'
-          r.error = 'Source URLs not available after app restart - please re-schedule'
-          await saveRecordings()
-        }
-        scheduled.delete(rec.id)
+        await startRecording(rec.id, rec.actualStartTime, rec.actualEndTime)
       }, delay)
       scheduled.set(rec.id, { id: rec.id, timeout })
     } else if (rec.status === 'scheduled' || rec.status === 'recording') {
