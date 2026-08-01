@@ -14,6 +14,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { refreshAllPortalM3Us } from './xtream-portal.service'
+import { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
+
+export { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
 
 export interface IPTVChannel {
   name: string
@@ -60,42 +63,6 @@ export function isCategoryHeader(name: string): boolean {
   // `=== IT SPORTS ===`, `=== IT CINEMA ===`
   if (/^={2,}\s*[A-Z][A-Z\s]+\s*={2,}$/.test(stripped)) return true
   return false
-}
-
-const ALL_TOKENS = [
-  'BACKUP 2', 'BACKUP 3',
-  'FD 50FPS', 'FD 25FPS', 'FD-50FPS', 'FD-25FPS',
-  '1080P', '720P', 'HEVC', 'H.265', 'H265', 'H.264', 'H264', 'AVC', 'X264', 'X265',
-  '4K', 'UHD', 'FHD',
-  'BACKUP', 'DASH', 'MULTI', 'DUP',
-  '50FPS', '25FPS', '30FPS', '60FPS',
-  'HD', 'SD',
-  'EAST', 'WEST',
-]
-
-function stripTrailingToken(s: string, tokens: string[]): string {
-  for (const tok of tokens) {
-    const re = new RegExp(`[\\s,\\-]*\\b${tok.replace(/\./g, '\\.')}\\b\\s*$`, 'i')
-    if (re.test(s)) {
-      const stripped = s.replace(re, '').trim()
-      // Don't strip if result would be empty/whitespace, but allow 1 char so
-      // single-letter channel names ("A", "X") still get suffixes removed.
-      if (stripped.length >= 1) return stripped
-    }
-  }
-  return s
-}
-
-export function cleanChannelName(name: string): string {
-  if (!name) return ''
-  let s = name.trim()
-  for (let i = 0; i < 3; i++) {
-    const before = s
-    s = stripTrailingToken(s, ALL_TOKENS)
-    if (s === before) break
-  }
-  s = s.replace(/\s*backup\s*[a-z]?\s*$/i, '').trim()
-  return s || name
 }
 
 /**

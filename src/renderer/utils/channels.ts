@@ -3,6 +3,7 @@
 // applying country code detection for M3U-only channels.
 
 import { detectCountryCode, COUNTRY_NAMES, channelKey, displayName } from './countryCode'
+import { cleanChannelName } from '@/shared/cleanChannelName'
 
 export interface MergedChannel {
   id: string
@@ -38,7 +39,7 @@ export async function loadMergedChannels(): Promise<MergedChannel[]> {
     const key = channelKey(ch.name)
     map.set(key, {
       id: ch.id || key,
-      name: displayName(ch.name),
+      name: cleanChannelName(displayName(ch.name)),
       // Real CDN logo only — logoImage is an unverified tv-logos guess
       // from the main process and should NOT be treated as the primary
       logo: ch.image || '',
@@ -68,7 +69,7 @@ export async function loadMergedChannels(): Promise<MergedChannel[]> {
     } else {
       map.set(key, {
         id: ch.id || key,
-        name: displayName(ch.name),
+        name: cleanChannelName(displayName(ch.name)),
         logo: (ch as any).logo || (ch as any).image || '',
         logoImage: '',
         countryCode: cc,

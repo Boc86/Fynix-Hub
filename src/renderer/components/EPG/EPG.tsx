@@ -50,6 +50,8 @@ const ROW_HEIGHT = 80
 const CHANNEL_WIDTH = 200
 const HEADER_HEIGHT = 50
 const SCROLL_AMOUNT = 300
+const MENU_WIDTH = 220
+const MENU_HEIGHT = 120
 
 /**
  * EPG channel row with logo fallback.
@@ -129,7 +131,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   const ROW_BUFFER = 10
 
   // Context-menu state — opened by 'C' key or remote contextMenu button.
-  // Position is the screen coordinates of the focused programme cell.
+  // Position is fixed (centred on screen), not anchored to a grid cell.
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; prog: EPGProgramme; ch: MappedChannel } | null>(null)
 
   // Source selection modal state
@@ -306,33 +308,39 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
     gridRef.current.scrollBy({ left: dir === 'left' ? -SCROLL_AMOUNT : SCROLL_AMOUNT, behavior: 'smooth' })
   }
 
-  // Get the visible (non-overlapping) programmes for a channel — same logic
-  // as the render path, so focusedProgrammeIdx indexes correctly.
-  const getVisibleProgs = (ch: MappedChannel) => {
+  // Programmes for a channel as rendered in the grid: non-overlapping, with
+  // each cell's visible end clamped to the next programme's start. This is
+  // the single source of truth for rendering AND for focus/menu indexing, so
+  // focusedProgrammeIdx always matches the highlighted cell.
+  const getRowProgs = (ch: MappedChannel): { p: EPGProgramme; clampedStop: number }[] => {
     const raw = (gridData[ch.liveTvChannelId] || []).slice().sort((a, b) => a.start - b.start)
-    const out: EPGProgramme[] = []
+    const out: { p: EPGProgramme; clampedStop: number }[] = []
     let lastEnd = 0
-    for (const p of raw) {
+    for (let ri = 0; ri < raw.length; ri++) {
+      const p = raw[ri]
       if (p.start < lastEnd) continue
-      out.push(p)
-      lastEnd = p.stop
+      const nextStart = ri < raw.length - 1 ? raw[ri + 1].start : dayEnd
+      const clampedStop = Math.min(p.stop, nextStart)
+      out.push({ p, clampedStop })
+      lastEnd = clampedStop
     }
     return out
   }
 
-  // Open the context menu at the focused programme's screen position.
-  // Triggered by 'C' key or remote contextMenu button.
+  // Open the context menu centred on screen (fixed position — never anchored
+  // to a cell that may be scrolled off-screen). Triggered by 'C' key or the
+  // remote contextMenu button. Programmes that already ended can't be
+  // recorded, so no menu for them.
   const openContextMenu = () => {
     const ch = filteredChannels[focusedChannelIdx]
     if (!ch) return
-    const progs = getVisibleProgs(ch)
-    const prog = progs[focusedProgrammeIdx]
+    const row = getRowProgs(ch)
+    const prog = row[focusedProgrammeIdx]?.p
     if (!prog) return
-    const cellEl = document.querySelector(`[data-epg-row="${focusedChannelIdx}"] [data-prog-start="${prog.start}"]`) as HTMLElement | null
-    const rect = cellEl?.getBoundingClientRect()
+    if (prog.stop * 1000 <= Date.now()) return
     setContextMenu({
-      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
-      y: rect ? rect.top + rect.height : window.innerHeight / 2,
+      x: Math.max(0, (window.innerWidth - MENU_WIDTH) / 2),
+      y: Math.max(0, (window.innerHeight - MENU_HEIGHT) / 2),
       prog, ch,
     })
   }
@@ -342,11 +350,11 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   const navigateProgramme = (dir: -1 | 1) => {
     const ch = filteredChannels[focusedChannelIdx]
     if (!ch) return
-    const progs = getVisibleProgs(ch)
-    if (progs.length === 0) return
+    const row = getRowProgs(ch)
+    if (row.length === 0) return
     setFocusedProgrammeIdx(prev => {
-      const next = Math.max(0, Math.min(prev + dir, progs.length - 1))
-      const p = progs[next]
+      const next = Math.max(0, Math.min(prev + dir, row.length - 1))
+      const p = row[next]?.p
       if (p && gridRef.current) {
         const offset = programmeLeft(p) - 200
         const maxScroll = gridRef.current.scrollWidth - gridRef.current.clientWidth
@@ -528,10 +536,11 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         const ch = filteredChannels[focusedChannelIdx]
         if (!ch) return
         // If a programme is focused in the grid, record it (live or future).
-        const progs = getVisibleProgs(ch)
-        const focusedProg = progs[focusedProgrammeIdx]
+        const row = getRowProgs(ch)
+        const focusedProg = row[focusedProgrammeIdx]?.p
         if (focusedProg) {
-          recordProgramme(ch, focusedProg)
+          // Don't schedule recordings for programmes that already ended.
+          if (focusedProg.stop * 1000 > Date.now()) recordProgramme(ch, focusedProg)
         } else {
           setSelectedChannel(ch); setFocusedSourceIndex(0)
         }
@@ -546,15 +555,16 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         const ch = filteredChannels[focusedChannelIdx]
         if (ch) {
           e.preventDefault()
-          const progs = getVisibleProgs(ch)
-          const focusedProg = progs[focusedProgrammeIdx] || progs.find((p: EPGProgramme) => isLive(p))
-          if (focusedProg) recordProgramme(ch, focusedProg)
+          const row = getRowProgs(ch)
+          const focusedProg = row[focusedProgrammeIdx]?.p || row.find((x) => isLive(x.p))?.p
+          // Skip programmes that already ended — nothing to record.
+          if (focusedProg && focusedProg.stop * 1000 > Date.now()) recordProgramme(ch, focusedProg)
         }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, channels, activeRecordingId, gridData, contextMenu, visibleRowStart, visibleRowEnd])
+  }, [selectedChannel, focusedSourceIndex, focusedChannelIdx, focusedProgrammeIdx, channels, activeRecordingId, gridData, contextMenu, visibleRowStart, visibleRowEnd])
 
   if (loading) {
     return (
@@ -759,17 +769,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           <div style={{ height: visibleRowStart * ROW_HEIGHT }} />
           {filteredChannels.slice(visibleRowStart, visibleRowEnd + 1).map((ch, sliceIdx) => {
             const ci = visibleRowStart + sliceIdx
-            const raw = (gridData[ch.liveTvChannelId] || []).slice().sort((a, b) => a.start - b.start)
-            const progs: { p: EPGProgramme; clampedStop: number }[] = []
-            let lastEnd = 0
-            for (let ri = 0; ri < raw.length; ri++) {
-              const p = raw[ri]
-              if (p.start < lastEnd) continue
-              const nextStart = ri < raw.length - 1 ? raw[ri + 1].start : dayEnd
-              const clampedStop = Math.min(p.stop, nextStart)
-              progs.push({ p, clampedStop })
-              lastEnd = clampedStop
-            }
+            const progs = getRowProgs(ch)
             const totalWidth = timeSlots.length * SLOT_WIDTH
             return (
               <div key={`${ch.liveTvChannelId ?? ci}`} data-epg-row={ci} style={{ height: ROW_HEIGHT, position: 'relative', minWidth: totalWidth, borderBottom: '1px solid rgba(255,255,255,0.04)', background: ci === focusedChannelIdx ? 'rgba(var(--accent-rgb), 0.06)' : 'transparent' }}>
@@ -840,20 +840,25 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
           role="menu"
           style={{
             position: 'fixed',
-            left: Math.min(contextMenu.x, window.innerWidth - 220),
-            top: Math.min(contextMenu.y, window.innerHeight - 100),
+            left: contextMenu.x,
+            top: contextMenu.y,
+            width: MENU_WIDTH,
             background: 'var(--bg-primary, #1a1a2e)',
             border: '1px solid var(--accent)',
             borderRadius: 8,
             boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             padding: 4,
-            minWidth: 200,
             zIndex: 100,
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ padding: '6px 12px', fontSize: 11, color: 'rgba(255,255,255,0.5)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            {contextMenu.ch.liveTvName} • {contextMenu.prog.title}
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {contextMenu.ch.liveTvName || contextMenu.ch.displayName}
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {contextMenu.prog.title} • {formatTime(contextMenu.prog.start)} – {formatTime(contextMenu.prog.stop)}
+            </div>
           </div>
           <button
             tabIndex={0}

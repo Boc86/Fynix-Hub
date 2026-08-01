@@ -27,7 +27,9 @@ describe('cleanChannelName', () => {
   it('strips region suffixes EAST/WEST', () => {
     expect(cleanChannelName('AMC EAST')).toBe('AMC')
     expect(cleanChannelName('AMC WEST')).toBe('AMC')
-    expect(cleanChannelName('US-HD: A&E TV WEST')).toBe('US-HD: A&E TV')
+    // Dash conversion also applies to the US-HD: prefix (prefix itself is
+    // stripped separately at display time via displayName()).
+    expect(cleanChannelName('US-HD: A&E TV WEST')).toBe('US HD: A&E TV')
   })
 
   it('strips BACKUP and BACKUP 2/3', () => {
@@ -45,6 +47,19 @@ describe('cleanChannelName', () => {
     expect(cleanChannelName('BBC One')).toBe('BBC One')
     expect(cleanChannelName('CNN')).toBe('CNN')
     expect(cleanChannelName('Sky News')).toBe('Sky News')
+  })
+
+  it('converts word-joining dashes to spaces', () => {
+    expect(cleanChannelName('Nat-Geo')).toBe('Nat Geo')
+    expect(cleanChannelName('Nat-Geo HD')).toBe('Nat Geo')
+    expect(cleanChannelName('X-Files')).toBe('X Files')
+    expect(cleanChannelName('Spider-Man')).toBe('Spider Man')
+  })
+
+  it('keeps hyphens when the name starts with a digit', () => {
+    // Digit guard: titles like "24/7 The X-Files" must keep their hyphens.
+    expect(cleanChannelName('24/7 The X-Files')).toBe('24/7 The X-Files')
+    expect(cleanChannelName('24/7 Spider-Man')).toBe('24/7 Spider-Man')
   })
 
   it('returns empty string for empty input', () => {
