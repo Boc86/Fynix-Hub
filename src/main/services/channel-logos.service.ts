@@ -22,6 +22,9 @@ type Cache = Record<string, CacheEntry>
 
 let cache: Cache | null = null
 
+// Per-URL verification cache for the logo picker (avoids repeat HEAD checks).
+const urlOkCache = new Map<string, boolean>()
+
 function loadCache(): Cache {
   if (cache) return cache
   try {
@@ -187,6 +190,30 @@ export async function resolveChannelLogo(channelName: string, countryCode: strin
   c[key] = { url: resolved, ok: !!resolved, ts: Date.now() }
   saveCache()
   return resolved
+}
+
+/**
+ * Verify which of the given logo URLs actually exist (HEAD check), returning
+ * only the working ones. Uses a per-URL cache so repeat lookups are instant.
+ * Used by the logo picker so fuzzy-matched candidates only show real logos.
+ */
+export async function verifyLogoUrls(urls: string[]): Promise<string[]> {
+  const ok: string[] = []
+  for (const url of urls) {
+    if (!url) continue
+    let good = urlOkCache.get(url)
+    if (good === undefined) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        good = await headOk(url)
+      } catch {
+        good = false
+      }
+      urlOkCache.set(url, good)
+    }
+    if (good) ok.push(url)
+  }
+  return ok
 }
 
 /**

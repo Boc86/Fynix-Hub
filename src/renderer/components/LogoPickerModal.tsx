@@ -19,11 +19,10 @@ interface LogoPickerModalProps {
 /**
  * Set Logo dialog: shows fuzzy-matched logo candidates from the tv-logos
  * GitHub repo (via candidateLogoUrls) as thumbnails, plus a text input for a
- * custom URL. Clicking a candidate (or arrowing to it) fills the input;
- * Enter / "Set Logo" applies, Escape / Cancel closes.
- *
- * Broken candidates are hidden via <img> onError (no HEAD-checking here — the
- * main-process fallback does that; this is a picker).
+ * custom URL. Candidates are HEAD-verified in the main process (cached) before
+ * being shown, so only real logos appear — and they stay. Clicking a candidate
+ * (or arrowing to it) fills the input; Enter / "Set Logo" applies,
+ * Escape / Cancel closes.
  *
  * Portaled to document.body: any non-none transform on an ancestor (e.g. the
  * .animate-fade entrance animation leaves an identity transform) makes it the
@@ -37,38 +36,55 @@ export default function LogoPickerModal({ channel, currentUrl, onConfirm, onCanc
   )
 
   const [url, setUrl] = useState(currentUrl || '')
-  // Index into the live (non-failed) candidate list; -1 = nothing highlighted.
+  // Index into the verified candidate list; -1 = nothing highlighted.
   const [selectedIdx, setSelectedIdx] = useState(-1)
-  const [failed, setFailed] = useState<Set<string>>(() => new Set())
+  const [verified, setVerified] = useState<string[] | null>(null) // null = verifying
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Pre-highlight a candidate when the current logo matches one of them.
+  // Verify candidates in the main process (HEAD check, cached) so only real
+  // logos are shown — the fuzzy guesses that 404 never appear, and the list
+  // never collapses after images fail to load.
   useEffect(() => {
-    if (currentUrl) {
-      const idx = candidates.indexOf(currentUrl)
+    let cancelled = false
+    if (candidates.length === 0) { setVerified([]); return }
+    window.api.channelLogo
+      .verify(candidates)
+      .then((ok: string[]) => { if (!cancelled) setVerified(ok) })
+      .catch(() => { if (!cancelled) setVerified([]) })
+    return () => { cancelled = true }
+  }, [candidates])
+
+  // Pre-highlight a candidate when the current logo matches one of the verified ones.
+  useEffect(() => {
+    if (verified && currentUrl) {
+      const idx = verified.indexOf(currentUrl)
       if (idx >= 0) setSelectedIdx(idx)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [verified])
 
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
   }, [])
 
-  const liveCandidates = useMemo(() => candidates.filter((c) => !failed.has(c)), [candidates, failed])
+  const liveCandidates = verified ?? []
 
-  const markFailed = (candidateUrl: string) => {
-    setFailed((prev) => {
-      if (prev.has(candidateUrl)) return prev
-      const next = new Set(prev)
-      next.add(candidateUrl)
-      return next
+  // Pure navigation: move the highlight; the value follows via the effect below.
+  const moveSelection = (dir: 1 | -1) => {
+    if (liveCandidates.length === 0) return
+    setSelectedIdx((i) => {
+      const n = liveCandidates.length
+      return i + dir < 0 ? n - 1 : (i + dir) % n
     })
-    // Drop the highlight if the highlighted thumbnail turned out broken, so
-    // "Use Selected" can't apply a dead URL.
-    if (liveCandidates[selectedIdx] === candidateUrl) setSelectedIdx(-1)
   }
+
+  // Keep the input value in sync with the highlighted candidate.
+  useEffect(() => {
+    if (selectedIdx >= 0 && selectedIdx < liveCandidates.length) {
+      setUrl(liveCandidates[selectedIdx])
+    }
+  }, [selectedIdx, liveCandidates])
 
   const applyUrl = (value: string) => {
     const trimmed = value.trim()
@@ -77,10 +93,7 @@ export default function LogoPickerModal({ channel, currentUrl, onConfirm, onCanc
 
   // Keyboard: Escape closes, arrows move the highlighted candidate, Enter
   // applies the highlighted candidate or the typed URL. stopPropagation keeps
-  // the event from double-firing on the root and from reaching App's global
-  // handler (which would otherwise swallow it — LiveTV's handleKeyDown already
-  // returns true while the modal is open, but this makes the modal
-  // self-contained regardless of focus location).
+  // the event from reaching App's global handler.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault(); e.stopPropagation(); onCancel(); return
@@ -89,24 +102,10 @@ export default function LogoPickerModal({ channel, currentUrl, onConfirm, onCanc
       e.preventDefault(); e.stopPropagation(); applyUrl(url); return
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-      e.preventDefault(); e.stopPropagation()
-      if (liveCandidates.length === 0) return
-      setSelectedIdx((i) => {
-        const next = i + 1 >= liveCandidates.length ? 0 : i + 1
-        setUrl(liveCandidates[next])
-        return next
-      })
-      return
+      e.preventDefault(); e.stopPropagation(); moveSelection(1); return
     }
     if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-      e.preventDefault(); e.stopPropagation()
-      if (liveCandidates.length === 0) return
-      setSelectedIdx((i) => {
-        const next = i - 1 < 0 ? liveCandidates.length - 1 : i - 1
-        setUrl(liveCandidates[next])
-        return next
-      })
-      return
+      e.preventDefault(); e.stopPropagation(); moveSelection(-1); return
     }
   }
 
@@ -164,12 +163,18 @@ export default function LogoPickerModal({ channel, currentUrl, onConfirm, onCanc
                     src={candidateUrl}
                     alt=""
                     loading="lazy"
-                    onError={() => markFailed(candidateUrl)}
                     style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                   />
                 </button>
               )
             })}
+          </div>
+        )}
+
+        {verified === null && candidates.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+            <div style={{ width: 14, height: 14, border: '2px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+            Checking candidate logos…
           </div>
         )}
 

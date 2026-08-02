@@ -54,10 +54,14 @@ handle('xtream:auto-import', async (_event, portals: { url: string; user: string
 });
 
 /* IPC handlers for channel logo fallback (tv-logo/tv-logos GitHub repo) */
-import { resolveChannelLogo, prewarmChannelLogos, clearChannelLogoCache } from '../../main/services/channel-logos.service';
+import { resolveChannelLogo, prewarmChannelLogos, clearChannelLogoCache, verifyLogoUrls } from '../../main/services/channel-logos.service';
 
 handle('channel-logo:resolve', async (_event, channelName: string, countryCode: string) => {
   return resolveChannelLogo(channelName, countryCode);
+});
+
+handle('channel-logo:verify', async (_event, urls: string[]) => {
+  return verifyLogoUrls(urls);
 });
 
 handle('channel-logo:prewarm', async (_event, channels: { name: string; countryCode: string }[]) => {
