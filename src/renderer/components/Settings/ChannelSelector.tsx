@@ -12,6 +12,7 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
   const [visibleChannels, setVisibleChannels] = useState<string[]>(store.liveTvVisibleChannels)
   const [focusedOrderIdx, setFocusedOrderIdx] = useState<number | null>(null)
   const [pickingIdx, setPickingIdx] = useState<number | null>(null)
+  const [focusedVisibleIdx, setFocusedVisibleIdx] = useState<number | null>(null)
   const orderRowRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const orderSnapshot = useRef<string[] | null>(null)
 
@@ -123,6 +124,9 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
     if (el) el.focus()
   }, [focusedOrderIdx])
 
+  // Reset each render; used to track the flattened row index of Visible Channels rows.
+  let visibleRowIdx = -1
+
   return (
     <div className={styles.settingGroup}>
       <h3 className={styles.settingTitle}>Visible Channels</h3>
@@ -162,9 +166,13 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
                   </div>
                   {chs.map(ch => {
                     const isVisible = visibleChannels.includes(ch.id)
+                    const rowIdx = ++visibleRowIdx
+                    const isFocused = focusedVisibleIdx === rowIdx
                     return (
                       <label
                         key={ch.id}
+                        onFocus={() => setFocusedVisibleIdx(rowIdx)}
+                        onBlur={() => setFocusedVisibleIdx(null)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -172,7 +180,11 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
                           padding: '4px 8px',
                           cursor: 'pointer',
                           borderRadius: 3,
-                          background: isVisible ? 'rgba(255,255,255,0.04)' : 'transparent',
+                          outline: isFocused ? '2px solid var(--accent)' : 'none',
+                          outlineOffset: -2,
+                          background: isFocused
+                            ? 'rgba(var(--accent-rgb), 0.10)'
+                            : (isVisible ? 'rgba(255,255,255,0.04)' : 'transparent'),
                         }}
                       >
                         <input
@@ -233,6 +245,8 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
                   else if (e.key === ' ') { e.preventDefault() }
                 }}
                 onClick={() => startPicking(i)}
+                onFocus={() => setFocusedOrderIdx(i)}
+                onBlur={() => setFocusedOrderIdx(null)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -241,6 +255,8 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
                   borderRadius: 3,
                   background: pickingIdx === i ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(255,255,255,0.04)',
                   border: pickingIdx === i ? '2px solid var(--accent)' : '2px solid transparent',
+                  outline: focusedOrderIdx === i && pickingIdx !== i ? '2px solid var(--accent)' : 'none',
+                  outlineOffset: -2,
                   cursor: 'default',
                 }}
               >

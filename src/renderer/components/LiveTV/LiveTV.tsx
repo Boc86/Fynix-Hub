@@ -101,7 +101,12 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
   // Channel context menu (right-click) state
   const [menuChannel, setMenuChannel] = useState<Channel | null>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
+  const [menuFocusedIdx, setMenuFocusedIdx] = useState(0)
   const [logoPromptChannel, setLogoPromptChannel] = useState<Channel | null>(null)
+  const [renameChannel, setRenameChannel] = useState<Channel | null>(null)
+  // Pick-up-and-place reordering: the channel being moved + the full visible
+  // id order at move start (restored on Escape/cancel).
+  const [moveMode, setMoveMode] = useState<{ channelId: string; originalOrder: string[] } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -311,21 +316,100 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
     }
   }, [onPlayUrl])
 
+  // Context menu items — keyboard-navigable (ArrowUp/Down + Enter in handleKeyDown)
+  const menuItems = useMemo(() => {
+    if (!menuChannel) return [] as Array<{ label: string; action: () => void; danger?: boolean }>
+    const items: Array<{ label: string; action: () => void; danger?: boolean }> = [
+      {
+        label: 'Set Logo URL…',
+        action: () => { setLogoPromptChannel(menuChannel); setMenuChannel(null); setMenuPos(null); setMenuFocusedIdx(0) },
+      },
+      {
+        label: 'Move Channel…',
+        action: () => {
+          // Work on the FULL visible id list so the swap survives the
+          // ordered/unordered merge in filteredChannels.
+          setMoveMode({ channelId: menuChannel.id, originalOrder: filteredChannels.map(c => c.id) })
+          setMenuChannel(null); setMenuPos(null); setMenuFocusedIdx(0)
+        },
+      },
+      {
+        label: 'Rename Channel…',
+        action: () => { setRenameChannel(menuChannel); setMenuChannel(null); setMenuPos(null); setMenuFocusedIdx(0) },
+      },
+    ]
+    if (settingsStore.liveTvCustomLogos?.[menuChannel.id]) {
+      items.push({
+        label: 'Clear Logo',
+        danger: true,
+        action: () => {
+          settingsStore.setLiveTvCustomLogo(menuChannel.id, '')
+          setMenuChannel(null); setMenuPos(null); setMenuFocusedIdx(0)
+        },
+      })
+    }
+    return items
+  }, [menuChannel, filteredChannels, settingsStore.liveTvCustomLogos])
+
   // ── Export keyboard handler via ref (used by App.tsx's global handler) ──
   const handleKeyDown = useCallback((e: KeyboardEvent): boolean => {
-    // Logo URL prompt open — swallow ALL keys at the window level.
+    // Logo URL / Rename prompts open — swallow ALL keys at the window level.
     // The Prompt input itself handles Enter (confirm) and Escape (cancel)
     // at the target phase, and Backspace must keep working as normal text
     // editing. Swallowing here stops the grid-navigation handlers below
     // (arrows move focus, Enter opens the source modal, Backspace/Escape
     // navigate back) from hijacking keystrokes meant for the input.
-    if (logoPromptChannel) {
+    if (logoPromptChannel || renameChannel) {
       return true
     }
-    // Context menu open — Escape/Backspace closes it before anything else
+    // Context menu open — navigate items with arrows, activate with Enter,
+    // Escape/Backspace closes it before anything else
     if (menuChannel) {
       if (e.key === 'Escape' || e.key === 'Backspace') {
         e.preventDefault(); setMenuChannel(null); setMenuPos(null); return true
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault(); setMenuFocusedIdx(i => Math.min(i + 1, menuItems.length - 1)); return true
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault(); setMenuFocusedIdx(i => Math.max(i - 1, 0)); return true
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const item = menuItems[menuFocusedIdx]
+        if (item) item.action()
+        return true
+      }
+      return true
+    }
+    // Move mode — pick up & place reordering (grid navigation is suspended)
+    if (moveMode) {
+      const ids = filteredChannels.map(c => c.id)
+      const idx = ids.indexOf(moveMode.channelId)
+      if (e.key === 'ArrowDown' && idx >= 0 && idx < ids.length - 1) {
+        e.preventDefault()
+        const next = [...ids]
+        ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
+        settingsStore.setLiveTvChannelOrder(next)
+        setFocusedChannelIdx(idx + 1)
+        return true
+      }
+      if (e.key === 'ArrowUp' && idx > 0) {
+        e.preventDefault()
+        const next = [...ids]
+        ;[next[idx], next[idx - 1]] = [next[idx - 1], next[idx]]
+        settingsStore.setLiveTvChannelOrder(next)
+        setFocusedChannelIdx(idx - 1)
+        return true
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault(); setMoveMode(null); return true
+      }
+      if (e.key === 'Escape' || e.key === 'Backspace') {
+        e.preventDefault()
+        settingsStore.setLiveTvChannelOrder(moveMode.originalOrder)
+        setMoveMode(null)
+        return true
       }
       return true
     }
@@ -367,6 +451,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       const ch = filteredChannels[focusedChannelIdx]
       if (ch) {
         setMenuChannel(ch)
+        setMenuFocusedIdx(0)
         setMenuPos(null) // null = centered on screen (keyboard launch)
       }
       return true
@@ -423,7 +508,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       return true
     }
     return false
-  }, [menuChannel, logoPromptChannel, selectedChannel, focusedSourceIndex, getSources, playChannelWithSource, filteredChannels, focusedChannelIdx, channelPos, rowChannels, allRows, onBack])
+  }, [menuChannel, logoPromptChannel, renameChannel, moveMode, menuItems, menuFocusedIdx, selectedChannel, focusedSourceIndex, getSources, playChannelWithSource, filteredChannels, focusedChannelIdx, channelPos, rowChannels, allRows, onBack])
 
   // Expose keyboard handler to parent via ref
   useEffect(() => {
@@ -500,6 +585,18 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
               No channels found for selected countries
             </div>
           )}
+          {moveMode && (
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 5, marginBottom: 12,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              padding: '8px 14px', borderRadius: 8,
+              background: '#1f1f1f', border: '1px solid var(--accent)',
+              color: '#fff', fontSize: 13, fontWeight: 600, letterSpacing: 0.3,
+            }}>
+              <span style={{ background: 'var(--accent)', color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: 0.8, padding: '2px 8px', borderRadius: 4 }}>MOVING</span>
+              Move with ↑/↓, Enter to place, Escape to cancel
+            </div>
+          )}
           <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))`, gap: 10 }}>
             {flatItems.map((item) => {
               if (item.type === 'header') {
@@ -512,6 +609,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
               }
               const ch = item.channel
               const focused = isChannelFocused(item.flatIdx)
+              const isMoving = moveMode?.channelId === ch.id
               return (
                 <div
                   key={ch.id}
@@ -519,6 +617,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
                   data-focus-index={item.flatIdx}
                   tabIndex={0}
                   onClick={() => {
+                    if (moveMode) return
                     if (ignoreNextClick.current) { ignoreNextClick.current = false; return }
                     setSelectedChannel(ch); setFocusedSourceIndex(0)
                   }}
@@ -528,19 +627,30 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
                     e.stopPropagation()
                     setFocusedChannelIdx(item.flatIdx)
                     setMenuChannel(ch)
+                    setMenuFocusedIdx(0)
                     setMenuPos({ x: e.clientX, y: e.clientY })
                   }}
                   style={{
                     position: 'relative', aspectRatio: '16/9',
                     background: focused ? 'rgba(255,255,255,0.05)' : '#111',
-                    border: focused ? '2px solid var(--accent)' : '1px solid var(--border)',
+                    border: isMoving ? '2px solid var(--accent)' : (focused ? '2px solid var(--accent)' : '1px solid var(--border)'),
                     borderRadius: 8, overflow: 'hidden', cursor: 'pointer',
                     transition: 'all 0.15s ease', padding: 0
                   }}
                 >
                   <ChannelTile ch={ch} />
+                  {isMoving && (
+                    <div style={{
+                      position: 'absolute', top: 6, left: 6, zIndex: 2,
+                      background: 'var(--accent)', color: '#fff',
+                      fontSize: 10, fontWeight: 700, letterSpacing: 0.8,
+                      padding: '2px 8px', borderRadius: 4,
+                    }}>
+                      MOVING
+                    </div>
+                  )}
                   <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '6px 8px', fontSize: 12, fontWeight: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {ch.name}
+                    {settingsStore.liveTvCustomNames?.[ch.id] || ch.name}
                   </div>
                 </div>
               )
@@ -577,40 +687,26 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
             onContextMenu={(e) => e.stopPropagation()}
           >
             <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>
-              {menuChannel.name}
+              {settingsStore.liveTvCustomNames?.[menuChannel.id] || menuChannel.name}
             </div>
             <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
-            <button
-              tabIndex={0}
-              onClick={() => { setLogoPromptChannel(menuChannel); setMenuChannel(null); setMenuPos(null) }}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px',
-                background: 'none', border: 'none', borderRadius: 6, color: '#fff',
-                fontSize: 13, cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
-            >
-              Set Logo URL…
-            </button>
-            {settingsStore.liveTvCustomLogos?.[menuChannel.id] && (
+            {menuItems.map((item, i) => (
               <button
+                key={item.label}
                 tabIndex={0}
-                onClick={() => {
-                  settingsStore.setLiveTvCustomLogo(menuChannel.id, '')
-                  setMenuChannel(null); setMenuPos(null)
-                }}
+                onClick={item.action}
+                onMouseEnter={() => setMenuFocusedIdx(i)}
                 style={{
                   display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px',
-                  background: 'none', border: 'none', borderRadius: 6, color: '#ff6b6b',
+                  background: menuFocusedIdx === i ? 'rgba(255,255,255,0.08)' : 'none',
+                  border: 'none', borderRadius: 6,
+                  color: item.danger ? '#ff6b6b' : '#fff',
                   fontSize: 13, cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,60,60,0.1)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
               >
-                Clear Logo
+                {item.label}
               </button>
-            )}
+            ))}
           </div>
         </div>
       )}
@@ -628,6 +724,22 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
             setLogoPromptChannel(null)
           }}
           onCancel={() => setLogoPromptChannel(null)}
+        />
+      )}
+
+      {/* Rename channel prompt */}
+      {renameChannel && (
+        <Prompt
+          title={`Rename Channel — ${renameChannel.name}`}
+          message="Enter a custom display name for this channel. It replaces the original name in the Live TV grid and TV Guide. Re-enter the original name to restore it."
+          placeholder={renameChannel.name}
+          defaultValue={settingsStore.liveTvCustomNames?.[renameChannel.id] || renameChannel.name}
+          confirmLabel="Rename"
+          onConfirm={(name) => {
+            settingsStore.setLiveTvCustomName(renameChannel.id, name)
+            setRenameChannel(null)
+          }}
+          onCancel={() => setRenameChannel(null)}
         />
       )}
     </div>

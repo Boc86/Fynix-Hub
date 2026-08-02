@@ -81,6 +81,8 @@ interface SettingsState {
   liveTvChannelOrder: string[]
   /** User-supplied logo URLs keyed by channel id (context menu override) */
   liveTvCustomLogos: Record<string, string>
+  /** User-supplied display names keyed by channel id (context menu override) */
+  liveTvCustomNames: Record<string, string>
   usenetEnabled: boolean
   nzbgetHost: string
   nzbgetPort: number
@@ -150,6 +152,8 @@ interface SettingsState {
   setLiveTvChannelOrder: (ids: string[]) => void
   /** Set a custom logo URL for a channel; empty/whitespace removes it. */
   setLiveTvCustomLogo: (channelId: string, url: string) => void
+  /** Set a custom display name for a channel; empty/whitespace removes it. */
+  setLiveTvCustomName: (channelId: string, name: string) => void
   setUsenetEnabled: (enabled: boolean) => void
   setNzbgetHost: (host: string) => void
   setNzbgetPort: (port: number) => void
@@ -227,6 +231,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   liveTvVisibleChannels: [],
   liveTvChannelOrder: [],
   liveTvCustomLogos: {},
+  liveTvCustomNames: {},
   usenetEnabled: false,
   nzbgetHost: '',
   nzbgetPort: 6789,
@@ -325,6 +330,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (urlTrimmed) logos[channelId] = urlTrimmed
       else delete logos[channelId]
       return { liveTvCustomLogos: logos }
+    })
+    get().saveToDisk()
+  },
+  setLiveTvCustomName: (channelId, name) => {
+    const nameTrimmed = name.trim()
+    set((state) => {
+      const names = { ...state.liveTvCustomNames }
+      if (nameTrimmed) names[channelId] = nameTrimmed
+      else delete names[channelId]
+      return { liveTvCustomNames: names }
     })
     get().saveToDisk()
   },
@@ -610,6 +625,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('liveTvVisibleChannels', state.liveTvVisibleChannels),
         window.api.settings.set('liveTvChannelOrder', state.liveTvChannelOrder),
         window.api.settings.set('liveTvCustomLogos', state.liveTvCustomLogos),
+        window.api.settings.set('liveTvCustomNames', state.liveTvCustomNames),
         window.api.settings.set('usenetEnabled', state.usenetEnabled),
         window.api.settings.set('nzbgetHost', state.nzbgetHost),
         window.api.settings.set('nzbgetPort', String(state.nzbgetPort)),
