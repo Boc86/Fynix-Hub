@@ -26,6 +26,14 @@ function ChannelLogo({ logoImage, fallbackImage, name }: { logoImage: string; fa
   const [src, setSrc] = React.useState(logoImage || fallbackImage)
   const [failed, setFailed] = React.useState(false)
 
+  // Sync when the props change (e.g. a custom logo is set via the context
+  // menu) — useState's initializer only runs once, so without this the tile
+  // keeps the old logo until the component remounts (exit/re-enter LiveTV).
+  React.useEffect(() => {
+    setSrc(logoImage || fallbackImage)
+    setFailed(false)
+  }, [logoImage, fallbackImage])
+
   const handleError = React.useCallback(() => {
     if (src === logoImage && fallbackImage) {
       setSrc(fallbackImage)
