@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useChannelLogo } from '../../utils/useChannelLogo'
 import { normalizeLogoUrl } from '../../utils/logos'
+import ScheduleRecordingModal from './ScheduleRecordingModal'
 
 export interface Recording {
   id: string
@@ -73,6 +74,7 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
   const [recordings, setRecordings] = useState<Recording[]>([])
   const [loading, setLoading] = useState(true)
   const [confirmDelete, setConfirmDelete] = useState<Recording | null>(null)
+  const [showScheduler, setShowScheduler] = useState(false)
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [focusedIdx, setFocusedIdx] = useState(0)
@@ -132,11 +134,25 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
   }
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (confirmDelete) return
+    if (confirmDelete || showScheduler) return
     if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); onBack(); return }
     if (recordings.length === 0) return
     if (e.key === 'ArrowDown') { e.preventDefault(); setFocusedIdx(i => Math.min(i + 1, recordings.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setFocusedIdx(i => Math.max(i - 1, 0)) }
+    else if (e.key === 'ArrowLeft') {
+      const rec = recordings[focusedIdx]
+      if (rec && (rec.status === 'scheduled' || rec.status === 'recording')) {
+        e.preventDefault()
+        handleCancel(rec)
+      }
+    }
+    else if (e.key === 'ArrowRight') {
+      const rec = recordings[focusedIdx]
+      if (rec) {
+        e.preventDefault()
+        setConfirmDelete(rec)
+      }
+    }
     else if (e.key === 'Enter') {
       e.preventDefault()
       const rec = recordings[focusedIdx]
@@ -144,7 +160,7 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
       if (rec.status === 'completed' || rec.status === 'recording') handlePlay(rec)
       else if (rec.status === 'scheduled') handleCancel(rec)
     }
-  }, [recordings, focusedIdx, confirmDelete, onBack])
+  }, [recordings, focusedIdx, confirmDelete, showScheduler, onBack])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -158,8 +174,12 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
         <span style={{ marginLeft: 12, fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
           {recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'}
         </span>
+        <button tabIndex={0} onClick={() => setShowScheduler(true)}
+          style={{ marginLeft: 'auto', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'var(--accent)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+          + Schedule Recording
+        </button>
         <button tabIndex={0} onClick={refresh}
-          style={{ marginLeft: 'auto', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+          style={{ marginLeft: 8, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600 }}>
           Refresh
         </button>
       </div>
@@ -266,6 +286,13 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {showScheduler && (
+        <ScheduleRecordingModal
+          onClose={() => setShowScheduler(false)}
+          onScheduled={refresh}
+        />
       )}
     </div>
   )

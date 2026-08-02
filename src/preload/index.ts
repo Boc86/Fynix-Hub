@@ -279,10 +279,14 @@ const api = {
       ipcRenderer.invoke('xtream:remove-portal', url, user, pass),
     importPortals: (portals: { url: string; user: string; pass: string }[]) =>
       ipcRenderer.invoke('xtream:import-portals', portals),
+    autoImport: (portals: { url: string; user: string; pass: string }[]) =>
+      ipcRenderer.invoke('xtream:auto-import', portals),
   },
   channelLogo: {
     resolve: (channelName: string, countryCode: string) =>
       ipcRenderer.invoke('channel-logo:resolve', channelName, countryCode),
+    verify: (urls: string[]) =>
+      ipcRenderer.invoke('channel-logo:verify', urls),
     prewarm: (channels: { name: string; countryCode: string }[]) =>
       ipcRenderer.invoke('channel-logo:prewarm', channels),
     clearCache: () => ipcRenderer.invoke('channel-logo:clear-cache'),

@@ -47,11 +47,21 @@ handle('xtream:import-portals', async (_event, portals: { url: string; user: str
   return XtreamService.importPortals(portals);
 });
 
+handle('xtream:auto-import', async (_event, portals: { url: string; user: string; pass: string }[]) => {
+  const result = XtreamService.importPortals(portals);
+  await getAllSources(true);
+  return result;
+});
+
 /* IPC handlers for channel logo fallback (tv-logo/tv-logos GitHub repo) */
-import { resolveChannelLogo, prewarmChannelLogos, clearChannelLogoCache } from '../../main/services/channel-logos.service';
+import { resolveChannelLogo, prewarmChannelLogos, clearChannelLogoCache, verifyLogoUrls } from '../../main/services/channel-logos.service';
 
 handle('channel-logo:resolve', async (_event, channelName: string, countryCode: string) => {
   return resolveChannelLogo(channelName, countryCode);
+});
+
+handle('channel-logo:verify', async (_event, urls: string[]) => {
+  return verifyLogoUrls(urls);
 });
 
 handle('channel-logo:prewarm', async (_event, channels: { name: string; countryCode: string }[]) => {

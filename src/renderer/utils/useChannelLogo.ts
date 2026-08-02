@@ -1,10 +1,13 @@
-// React hook that resolves a channel logo URL with fallback to the
-// tv-logo/tv-logos GitHub repo when CDN/M3U doesn't provide one.
+// React hook that resolves a channel logo URL with a 4-tier priority chain:
+//   1. CDN logo        (best quality, provided by the CDN channel list)
+//   2. M3U tvg-logo    (from the playlist's #EXTINF line)
+//   3. EPG icon        (from the EPG guide data)
+//   4. GitHub fallback (HEAD-checked tv-logo/tv-logos repo URL)
 //
 // Usage:
-//   const logoUrl = useChannelLogo(channel.name, channel.logoImage, channel.countryCode)
+//   const logoUrl = useChannelLogo(channel.name, channel.logoImage, channel.countryCode, channel.icon)
 //
-// Returns: the best available logo URL (CDN → fallback → '')
+// Returns: the best available logo URL (CDN → M3U → EPG → fallback → '')
 
 import { useEffect, useState } from 'react'
 import { bestLogoUrl } from './logos'
@@ -13,19 +16,24 @@ const fallbackCache = new Map<string, string | undefined>()
 
 /**
  * Resolve a channel logo URL. Returns the CDN/M3U logo if available,
- * otherwise falls back to the tv-logo/tv-logos GitHub repo (resolved
- * via main-process IPC with caching).
+ * otherwise the EPG icon (when it's an absolute http(s) URL), otherwise
+ * falls back to the tv-logo/tv-logos GitHub repo (resolved via main-process
+ * IPC with caching).
  */
 export function useChannelLogo(
   channelName: string,
   cdnLogo: string,
   countryCode: string,
+  epgIcon?: string,
 ): string {
   const [fallback, setFallback] = useState<string>('')
 
+  // EPG icons can be empty or relative paths — only accept absolute http(s) URLs
+  const epg = epgIcon && /^https?:\/\//i.test(epgIcon) ? epgIcon : ''
+
   useEffect(() => {
-    // If CDN logo is present, use it
-    if (cdnLogo) return
+    // If CDN logo or EPG icon is present, use it
+    if (cdnLogo || epg) return
 
     if (!channelName || !countryCode) return
 
@@ -53,9 +61,9 @@ export function useChannelLogo(
       .finally(() => {
         pending.delete(cacheKey)
       })
-  }, [channelName, cdnLogo, countryCode])
+  }, [channelName, cdnLogo, countryCode, epg])
 
-  return cdnLogo || fallback || bestLogoUrl(channelName, countryCode)
+  return cdnLogo || epg || fallback || bestLogoUrl(channelName, countryCode)
 }
 
 const pending = new Set<string>()

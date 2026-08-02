@@ -2018,6 +2018,42 @@ export default function Settings({ onClose }: SettingsProps) {
       to discover portals, then paste the URL/username/password below or import the JSON export.
     </p>
 
+    {/* Auto-import toggle */}
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+      <button
+        tabIndex={0}
+        className={`${styles.toggle} ${store.iptvM3uAutoImport ? styles.toggleActive : ''}`}
+        onClick={async () => {
+          const next = !store.iptvM3uAutoImport
+          store.setIptvM3uAutoImport(next)
+          if (next && store.iptvM3uAutoImportUrl) {
+            // Immediately force an M3U cache refresh so auto-imported portals appear
+            try {
+              await window.api.iptvM3u.getAllSources(true)
+            } catch {}
+          }
+        }}
+      >
+        Auto-import portals
+      </button>
+      <input
+        type="text"
+        className={styles.input}
+        placeholder="JSON portal list URL (e.g. https://example.com/portals.json)"
+        value={store.iptvM3uAutoImportUrl}
+        onChange={(e) => store.setIptvM3uAutoImportUrl(e.target.value)}
+        style={{ flex: 2, minWidth: 240, marginBottom: 0 }}
+      />
+    </div>
+    <p className={styles.settingDesc}>
+      When enabled, the app fetches this JSON list at 01:00 daily and imports any new portals automatically.
+      The JSON should be <code>{'{url,user,pass}'}</code> objects or <code>{'{portals:[...]}'}</code>.
+    </p>
+
+    {store.iptvM3uAutoImport ? (
+      <p className={styles.settingDesc}>Manual portal entry is disabled while auto-import is on.</p>
+    ) : (
+      <>
     {/* Add portal form */}
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
       <input
@@ -2076,6 +2112,8 @@ export default function Settings({ onClose }: SettingsProps) {
         </span>
       )}
     </div>
+      </>
+    )}
 
     {/* Saved portals */}
     {xtreamPortals.length === 0 ? (

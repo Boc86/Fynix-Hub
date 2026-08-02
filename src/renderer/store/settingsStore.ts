@@ -66,6 +66,8 @@ interface SettingsState {
   iptvM3uSourceUrl: string
   iptvM3uUpdateInterval: number
   iptvM3uEnabled: boolean
+  iptvM3uAutoImport: boolean
+  iptvM3uAutoImportUrl: string
   preferredAudioLanguage: string
   classificationCountry: string
   accentColor: string
@@ -76,9 +78,13 @@ interface SettingsState {
   liveTvEnabled: boolean
   selectedLiveTvCountries: string[]
   liveTvVisibleChannels: string[]
+  /** Channels hidden via the LiveTV context menu (applies to LiveTV + EPG) */
+  liveTvHiddenChannels: string[]
   liveTvChannelOrder: string[]
   /** User-supplied logo URLs keyed by channel id (context menu override) */
   liveTvCustomLogos: Record<string, string>
+  /** User-supplied display names keyed by channel id (context menu override) */
+  liveTvCustomNames: Record<string, string>
   usenetEnabled: boolean
   nzbgetHost: string
   nzbgetPort: number
@@ -133,6 +139,8 @@ interface SettingsState {
   setIptvM3uSourceUrl: (url: string) => void
   setIptvM3uUpdateInterval: (interval: number) => void
   setIptvM3uEnabled: (enabled: boolean) => void
+  setIptvM3uAutoImport: (enabled: boolean) => void
+  setIptvM3uAutoImportUrl: (url: string) => void
   setPreferredAudioLanguage: (lang: string) => void
   setClassificationCountry: (country: string) => void
   setAccentColor: (color: string) => void
@@ -143,9 +151,16 @@ interface SettingsState {
   setLiveTvEnabled: (enabled: boolean) => void
   setSelectedLiveTvCountries: (codes: string[]) => void
   setLiveTvVisibleChannels: (ids: string[]) => void
+  setLiveTvHiddenChannels: (ids: string[]) => void
+  /** Hide a channel from LiveTV + EPG (persisted). */
+  hideLiveTvChannel: (channelId: string) => void
+  /** Un-hide a previously hidden channel. */
+  unhideLiveTvChannel: (channelId: string) => void
   setLiveTvChannelOrder: (ids: string[]) => void
   /** Set a custom logo URL for a channel; empty/whitespace removes it. */
   setLiveTvCustomLogo: (channelId: string, url: string) => void
+  /** Set a custom display name for a channel; empty/whitespace removes it. */
+  setLiveTvCustomName: (channelId: string, name: string) => void
   setUsenetEnabled: (enabled: boolean) => void
   setNzbgetHost: (host: string) => void
   setNzbgetPort: (port: number) => void
@@ -209,6 +224,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   iptvM3uSourceUrl: 'http://magnetic.website/MAD_TITAN_SPORTS/Keep_m3u_json/zone1.txt',
   iptvM3uUpdateInterval: 24,
   iptvM3uEnabled: true,
+  iptvM3uAutoImport: false,
+  iptvM3uAutoImportUrl: '',
   preferredAudioLanguage: '',
   classificationCountry: 'US',
   accentColor: '#FF6B00',
@@ -219,8 +236,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   liveTvEnabled: false,
   selectedLiveTvCountries: [],
   liveTvVisibleChannels: [],
+  liveTvHiddenChannels: [],
   liveTvChannelOrder: [],
   liveTvCustomLogos: {},
+  liveTvCustomNames: {},
   usenetEnabled: false,
   nzbgetHost: '',
   nzbgetPort: 6789,
@@ -275,6 +294,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setIptvM3uSourceUrl: (url) => { set({ iptvM3uSourceUrl: url }); get().saveToDisk() },
   setIptvM3uUpdateInterval: (interval) => { set({ iptvM3uUpdateInterval: interval }); get().saveToDisk() },
   setIptvM3uEnabled: (enabled) => { set({ iptvM3uEnabled: enabled }); get().saveToDisk() },
+  setIptvM3uAutoImport: (enabled) => { set({ iptvM3uAutoImport: enabled }); get().saveToDisk() },
+  setIptvM3uAutoImportUrl: (url) => { set({ iptvM3uAutoImportUrl: url }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setClassificationCountry: (country) => { set({ classificationCountry: country }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
@@ -309,6 +330,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
   setLiveTvVisibleChannels: (ids) => { set({ liveTvVisibleChannels: ids }); get().saveToDisk() },
+  setLiveTvHiddenChannels: (ids) => { set({ liveTvHiddenChannels: ids }); get().saveToDisk() },
+  hideLiveTvChannel: (channelId) => {
+    set((state) => {
+      if (state.liveTvHiddenChannels.includes(channelId)) return state
+      return { liveTvHiddenChannels: [...state.liveTvHiddenChannels, channelId] }
+    })
+    get().saveToDisk()
+  },
+  unhideLiveTvChannel: (channelId) => {
+    set((state) => ({
+      liveTvHiddenChannels: state.liveTvHiddenChannels.filter((id) => id !== channelId)
+    }))
+    get().saveToDisk()
+  },
   setLiveTvChannelOrder: (ids) => { set({ liveTvChannelOrder: ids }); get().saveToDisk() },
   setLiveTvCustomLogo: (channelId, url) => {
     const urlTrimmed = normalizeLogoUrl(url)
@@ -317,6 +352,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (urlTrimmed) logos[channelId] = urlTrimmed
       else delete logos[channelId]
       return { liveTvCustomLogos: logos }
+    })
+    get().saveToDisk()
+  },
+  setLiveTvCustomName: (channelId, name) => {
+    const nameTrimmed = name.trim()
+    set((state) => {
+      const names = { ...state.liveTvCustomNames }
+      if (nameTrimmed) names[channelId] = nameTrimmed
+      else delete names[channelId]
+      return { liveTvCustomNames: names }
     })
     get().saveToDisk()
   },
@@ -587,6 +632,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('iptvM3uSourceUrl', state.iptvM3uSourceUrl),
         window.api.settings.set('iptvM3uUpdateInterval', state.iptvM3uUpdateInterval),
         window.api.settings.set('iptvM3uEnabled', state.iptvM3uEnabled),
+        window.api.settings.set('iptvM3uAutoImport', state.iptvM3uAutoImport),
+        window.api.settings.set('iptvM3uAutoImportUrl', state.iptvM3uAutoImportUrl),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('classificationCountry', state.classificationCountry),
         window.api.settings.set('accentColor', state.accentColor),
@@ -598,8 +645,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
         window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
         window.api.settings.set('liveTvVisibleChannels', state.liveTvVisibleChannels),
+        window.api.settings.set('liveTvHiddenChannels', state.liveTvHiddenChannels),
         window.api.settings.set('liveTvChannelOrder', state.liveTvChannelOrder),
         window.api.settings.set('liveTvCustomLogos', state.liveTvCustomLogos),
+        window.api.settings.set('liveTvCustomNames', state.liveTvCustomNames),
         window.api.settings.set('usenetEnabled', state.usenetEnabled),
         window.api.settings.set('nzbgetHost', state.nzbgetHost),
         window.api.settings.set('nzbgetPort', String(state.nzbgetPort)),

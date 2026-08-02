@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { cleanChannelName, isCategoryHeader } from '@/main/services/iptv-m3u.service'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanChannelName, isCategoryHeader, autoImportPortals, parseM3U } from '@/main/services/iptv-m3u.service'
 
 describe('cleanChannelName', () => {
   it('strips quality tokens (HD, FHD, UHD, SD, 4K)', () => {
@@ -105,5 +105,117 @@ describe('isRealChannel', () => {
   it('is the inverse of isCategoryHeader for non-empty names', () => {
     expect('BBC ONE'.length > 0 && !isCategoryHeader('BBC ONE')).toBe(true)
     expect('=== SPORTS ==='.length > 0 && !isCategoryHeader('=== SPORTS ===')).toBe(false)
+  })
+})
+
+describe('parseM3U', () => {
+  it('captures tvg-logo from the #EXTINF line', () => {
+    const channels = parseM3U(
+      '#EXTM3U\n' +
+      '#EXTINF:-1 tvg-logo="https://example.com/logo.png",BBC One\n' +
+      'http://example.com/bbc1.m3u8\n'
+    )
+    expect(channels).toHaveLength(1)
+    expect(channels[0].name).toBe('BBC One')
+    expect(channels[0].url).toBe('http://example.com/bbc1.m3u8')
+    expect(channels[0].logo).toBe('https://example.com/logo.png')
+  })
+
+  it('omits logo when the #EXTINF line has no tvg-logo attribute', () => {
+    const channels = parseM3U(
+      '#EXTM3U\n' +
+      '#EXTINF:-1,BBC One\n' +
+      'http://example.com/bbc1.m3u8\n'
+    )
+    expect(channels).toHaveLength(1)
+    expect(channels[0].logo).toBeUndefined()
+  })
+
+  it('still filters category-header lines with a tvg-logo present', () => {
+    const channels = parseM3U(
+      '#EXTM3U\n' +
+      '#EXTINF:-1 tvg-logo="https://example.com/header.png",===== SPORT =====\n' +
+      'http://example.com/header.m3u8\n' +
+      '#EXTINF:-1 tvg-logo="https://example.com/real.png",BBC ONE\n' +
+      'http://example.com/bbc1.m3u8\n'
+    )
+    expect(channels).toHaveLength(1)
+    expect(channels[0].name).toBe('BBC ONE')
+    expect(channels[0].logo).toBe('https://example.com/real.png')
+  })
+})
+
+describe('autoImportPortals', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('parses a bare array of {url,user,pass}', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify([
+        { url: 'http://a.com:8080', user: 'u1', pass: 'p1' },
+        { url: 'http://b.com:8080', user: 'u2', pass: 'p2' },
+      ])),
+    } as any)
+    const portals = await autoImportPortals('https://example.com/portals.json')
+    expect(portals).toHaveLength(2)
+    expect(portals[0]).toEqual({ url: 'http://a.com:8080', user: 'u1', pass: 'p1' })
+    expect(portals[1].url).toBe('http://b.com:8080')
+  })
+
+  it('parses the {portals:[...]} wrapper shape', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({
+        portals: [{ url: 'http://c.com', user: 'u3', pass: 'p3' }],
+      })),
+    } as any)
+    const portals = await autoImportPortals('https://example.com/portals.json')
+    expect(portals).toHaveLength(1)
+    expect(portals[0]).toEqual({ url: 'http://c.com', user: 'u3', pass: 'p3' })
+  })
+
+  it('filters entries missing url/user/pass', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify([
+        { url: 'http://ok.com', user: 'u', pass: 'p' },
+        { url: 'http://nopass.com', user: 'u' },
+        { url: 'http://noun.com' },
+        'not-an-object',
+        null,
+      ])),
+    } as any)
+    const portals = await autoImportPortals('https://example.com/portals.json')
+    expect(portals).toHaveLength(1)
+    expect(portals[0].url).toBe('http://ok.com')
+  })
+
+  it('returns [] on fetch failure', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error('network down'))
+    const portals = await autoImportPortals('https://example.com/portals.json')
+    expect(portals).toEqual([])
+  })
+
+  it('returns [] on malformed JSON', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('not-json{{{'),
+    } as any)
+    const portals = await autoImportPortals('https://example.com/portals.json')
+    expect(portals).toEqual([])
+  })
+
+  it('returns [] for unknown shapes', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ foo: 'bar' })),
+    } as any)
+    const portals = await autoImportPortals('https://example.com/portals.json')
+    expect(portals).toEqual([])
   })
 })

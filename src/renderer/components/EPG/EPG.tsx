@@ -57,7 +57,7 @@ const MENU_HEIGHT = 120
  * EPG channel row with logo fallback.
  * Calls useChannelLogo so it's a proper hook user.
  *
- * Priority: CDN/M3U logo -> HEAD-checked tv-logos URL -> text label.
+ * Priority: CDN/M3U logo -> EPG icon -> HEAD-checked tv-logos URL -> text label.
  */
 function EPGChannelRow({
   ch,
@@ -75,8 +75,13 @@ function EPGChannelRow({
   onMouseEnter: () => void
 }) {
   const customLogo = useSettingsStore((s) => s.liveTvCustomLogos?.[ch.liveTvChannelId] || '')
+  const customName = useSettingsStore((s) => s.liveTvCustomNames?.[ch.liveTvChannelId] || '')
+  const displayName = customName || ch.liveTvName
   const primary = normalizeLogoUrl(customLogo) || ch.liveTvLogo || ''
-  const verified = useChannelLogo(ch.liveTvName, '', ch.liveTvCountryCode)
+  // 4-tier chain: custom/LiveTV logo (as cdnLogo) -> EPG icon -> HEAD-checked
+  // GitHub fallback. The fuzzy GitHub match uses the custom name when the
+  // channel was renamed (the slug is derived from the display name).
+  const verified = useChannelLogo(displayName, primary, ch.liveTvCountryCode, ch.icon)
   const [src, setSrc] = useState(primary || verified)
   useEffect(() => {
     setSrc(primary || verified)
@@ -96,9 +101,9 @@ function EPGChannelRow({
     >
       {src
         ? <img src={src} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }} onError={() => { if (src !== verified) setSrc(verified) }} />
-        : <span style={{ fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
+        : <span style={{ fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
       }
-      <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.liveTvName}</span>
+      <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
     </div>
   )
 }
@@ -267,11 +272,17 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   // Apply channel visibility filter (matches LiveTV behavior).
   // If the user has selected specific channels in Settings, only those are shown.
   const visibleChannels = useSettingsStore((s) => s.liveTvVisibleChannels)
+  const hiddenChannels = useSettingsStore((s) => s.liveTvHiddenChannels)
   const channelOrder = useSettingsStore((s) => s.liveTvChannelOrder)
+  const customNames = useSettingsStore((s) => s.liveTvCustomNames)
   const filteredChannels = useMemo(() => {
     let result = channels
     if (visibleChannels.length > 0) {
       result = result.filter(c => visibleChannels.includes(c.liveTvChannelId))
+    }
+    // Hide channels the user hid via the LiveTV context menu
+    if (hiddenChannels.length > 0) {
+      result = result.filter(c => !hiddenChannels.includes(c.liveTvChannelId))
     }
     if (channelOrder.length > 0) {
       const orderMap = new Map(channelOrder.map((id, i) => [id, i]))
@@ -281,7 +292,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       result = [...ordered, ...unordered]
     }
     return result
-  }, [channels, visibleChannels, channelOrder])
+  }, [channels, visibleChannels, hiddenChannels, channelOrder])
 
   // Lazy row loading — recompute visible range on scroll. Track whichever
   // container is currently scrolled (grid or channel list).
@@ -649,7 +660,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
               <button onClick={() => { setSelectedChannel(null); setSourceLoading(false); setSourceError(null); setFocusedSourceIndex(0) }}
                 style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: '1.5rem', cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>
             </div>
-            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginBottom: 12 }}>{selectedChannel.liveTvName}</div>
+            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginBottom: 12 }}>{customNames?.[selectedChannel.liveTvChannelId] || selectedChannel.liveTvName}</div>
             {getSources().map((source, index) => (
               <div key={source.id}
                 style={{
@@ -907,7 +918,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
         >
           <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {contextMenu.ch.liveTvName || contextMenu.ch.displayName}
+              {customNames?.[contextMenu.ch.liveTvChannelId] || contextMenu.ch.liveTvName || contextMenu.ch.displayName}
             </div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {contextMenu.prog.title} • {formatTime(contextMenu.prog.start)} – {formatTime(contextMenu.prog.stop)}

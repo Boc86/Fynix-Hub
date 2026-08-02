@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 interface PromptProps {
   title: string
@@ -20,7 +21,12 @@ export default function Prompt({ title, message, placeholder, defaultValue, conf
     inputRef.current?.select()
   }, [])
 
-  return (
+  // Portal to document.body: any non-none transform on an ancestor (e.g. the
+  // .animate-fade entrance animation leaves an identity transform) makes it the
+  // containing block for position:fixed descendants, so a fixed overlay would
+  // cover the full scroll area instead of the viewport. Rendering at the body
+  // root restores true viewport anchoring.
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -61,8 +67,13 @@ export default function Prompt({ title, message, placeholder, defaultValue, conf
           placeholder={placeholder}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
+              // stopPropagation: the Enter must not bubble to the app's global
+              // keydown handler (it would open the source selector right after
+              // the rename confirm clears the prompt state).
+              e.preventDefault(); e.stopPropagation()
               if (value.trim()) onConfirm(value.trim())
             } else if (e.key === 'Escape') {
+              e.preventDefault(); e.stopPropagation()
               onCancel()
             }
           }}
@@ -113,7 +124,8 @@ export default function Prompt({ title, message, placeholder, defaultValue, conf
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -128,7 +140,12 @@ interface ConfirmProps {
 }
 
 export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Cancel', destructive, onConfirm, onCancel }: ConfirmProps) {
-  return (
+  // Portal to document.body: any non-none transform on an ancestor (e.g. the
+  // .animate-fade entrance animation leaves an identity transform) makes it the
+  // containing block for position:fixed descendants, so a fixed overlay would
+  // cover the full scroll area instead of the viewport. Rendering at the body
+  // root restores true viewport anchoring.
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -196,6 +213,7 @@ export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Ca
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

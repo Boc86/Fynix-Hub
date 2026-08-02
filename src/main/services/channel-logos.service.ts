@@ -22,6 +22,9 @@ type Cache = Record<string, CacheEntry>
 
 let cache: Cache | null = null
 
+// Per-URL verification cache for the logo picker (avoids repeat HEAD checks).
+const urlOkCache = new Map<string, boolean>()
+
 function loadCache(): Cache {
   if (cache) return cache
   try {
@@ -99,6 +102,16 @@ function channelSlug(name: string): string {
   return s
 }
 
+/** Both the joined and letter-digit-split slug forms ("e4-extra" / "e-4-extra"). */
+function slugVariants(name: string): string[] {
+  const base = channelSlug(name)
+  if (!base) return []
+  const split = base
+    .replace(/([a-z])(\d)/g, '$1-$2')
+    .replace(/(\d)([a-z])/g, '$1-$2')
+  return Array.from(new Set([base, split].filter(Boolean)))
+}
+
 function detectPrefix(name: string): string {
   if (!name) return ''
   const m = name.trim().toLowerCase().match(/^([a-z]{2,3})\s*[:|\-]/)
@@ -106,8 +119,8 @@ function detectPrefix(name: string): string {
 }
 
 function buildCandidates(channelName: string, countryCode: string): string[] {
-  const slug = channelSlug(channelName)
-  if (!slug) return []
+  const variants = slugVariants(channelName)
+  if (variants.length === 0) return []
   const c = loadCache() // unused, but ensures cache is loaded
 
   const alts = ALT_SLUGS[countryCode] ?? []
@@ -118,13 +131,15 @@ function buildCandidates(channelName: string, countryCode: string): string[] {
   const suffixes = Array.from(new Set([suffix, countryCode, prefix].filter(Boolean)))
 
   const urls: string[] = []
-  for (const folder of folders) {
-    for (const suffix of suffixes) {
-      urls.push(`https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/${folder}/${slug}-${suffix}.png`)
-    }
-    urls.push(`https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/${folder}/${slug}.png`)
-    for (const suffix of suffixes) {
-      urls.push(`https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/${folder}/${suffix}-${slug}.png`)
+  for (const slug of variants) {
+    for (const folder of folders) {
+      for (const s of suffixes) {
+        urls.push(`https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/${folder}/${slug}-${s}.png`)
+      }
+      urls.push(`https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/${folder}/${slug}.png`)
+      for (const s of suffixes) {
+        urls.push(`https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/${folder}/${s}-${slug}.png`)
+      }
     }
   }
   return urls
@@ -187,6 +202,30 @@ export async function resolveChannelLogo(channelName: string, countryCode: strin
   c[key] = { url: resolved, ok: !!resolved, ts: Date.now() }
   saveCache()
   return resolved
+}
+
+/**
+ * Verify which of the given logo URLs actually exist (HEAD check), returning
+ * only the working ones. Uses a per-URL cache so repeat lookups are instant.
+ * Used by the logo picker so fuzzy-matched candidates only show real logos.
+ */
+export async function verifyLogoUrls(urls: string[]): Promise<string[]> {
+  const ok: string[] = []
+  for (const url of urls) {
+    if (!url) continue
+    let good = urlOkCache.get(url)
+    if (good === undefined) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        good = await headOk(url)
+      } catch {
+        good = false
+      }
+      urlOkCache.set(url, good)
+    }
+    if (good) ok.push(url)
+  }
+  return ok
 }
 
 /**

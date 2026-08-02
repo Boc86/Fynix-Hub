@@ -13,14 +13,16 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
-import { refreshAllPortalM3Us } from './xtream-portal.service'
+import { refreshAllPortalM3Us, type XtreamPortal, importPortals } from './xtream-portal.service'
 import { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
+import * as CacheService from './cache.service'
 
 export { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
 
 export interface IPTVChannel {
   name: string
   url: string   // play URL (the line after #EXTINF in the M3U)
+  logo?: string // tvg-logo URL from the #EXTINF line (optional; old disk caches lack it)
 }
 
 export interface IPTVSource {
@@ -81,12 +83,41 @@ export function parseM3U(content: string): IPTVChannel[] {
         const name = line.slice(lastComma + 1).trim()
         const url = lines[i + 1].trim()
         if (name && url && !url.startsWith('#') && !isCategoryHeader(name)) {
-          channels.push({ name, url })
+          const logoMatch = line.match(/tvg-logo="([^"]+)"/i)
+          const logo = logoMatch ? logoMatch[1] : ''
+          channels.push({ name, url, ...(logo ? { logo } : {}) })
         }
       }
     }
   }
   return channels
+}
+
+/**
+ * Fetch a JSON portal list from a URL and normalize both common shapes:
+ *   - { portals: [{url, user, pass}, ...] }
+ *   - [{url, user, pass}, ...]
+ * Returns normalized XtreamPortal[] ready for XtreamService.importPortals().
+ * Used by the auto-import scheduler at 01:00 daily.
+ */
+export async function autoImportPortals(jsonUrl: string): Promise<XtreamPortal[]> {
+  let data: any
+  try {
+    const text = await fetchText(jsonUrl)
+    data = JSON.parse(text)
+  } catch (err: any) {
+    console.warn(`[IPTV-M3U] autoImportPortals: failed to fetch/parse ${jsonUrl}: ${err.message}`)
+    return []
+  }
+  const raw: any[] = Array.isArray(data) ? data : (Array.isArray(data?.portals) ? data.portals : [])
+  const out: XtreamPortal[] = []
+  for (const r of raw) {
+    if (r && typeof r.url === 'string' && typeof r.user === 'string' && typeof r.pass === 'string') {
+      out.push({ url: r.url, user: r.user, pass: r.pass })
+    }
+  }
+  console.log(`[IPTV-M3U] autoImportPortals: parsed ${out.length} portal(s) from ${jsonUrl}`)
+  return out
 }
 
 /**
@@ -251,16 +282,16 @@ async function doFetch(): Promise<IPTVSource[]> {
  */
 export async function getAllM3UChannels(
   forceRefresh = false,
-): Promise<{ name: string; sourceLabel: string }[]> {
+): Promise<{ name: string; sourceLabel: string; logo?: string }[]> {
   const sources = await getAllSources(forceRefresh)
   const seen = new Set<string>()
-  const result: { name: string; sourceLabel: string }[] = []
+  const result: { name: string; sourceLabel: string; logo?: string }[] = []
   for (const src of sources) {
     for (const ch of src.channels) {
       const key = ch.name.toLowerCase().trim()
       if (!seen.has(key)) {
         seen.add(key)
-        result.push({ name: ch.name, sourceLabel: src.label })
+        result.push({ name: ch.name, sourceLabel: src.label, ...(ch.logo ? { logo: ch.logo } : {}) })
       }
     }
   }
@@ -315,4 +346,48 @@ export async function findChannelInSources(
   }
 
   return matches
+}
+
+// ─── Daily auto-import scheduler (01:00 local) ───────────────────────────────
+let autoImportTimer: ReturnType<typeof setTimeout> | null = null
+
+function msUntilNext(hour: number, minute = 0): number {
+  const now = new Date()
+  const next = new Date(now)
+  next.setHours(hour, minute, 0, 0)
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+  return next.getTime() - now.getTime()
+}
+
+/**
+ * Run one auto-import pass: fetch the portal JSON, import portals, refresh M3U.
+ * No-op when auto-import is disabled or no URL configured.
+ */
+export async function runAutoImport(): Promise<void> {
+  try {
+    const enabled = CacheService.getSetting<boolean>('iptvM3uAutoImport')
+    const url = CacheService.getSetting<string>('iptvM3uAutoImportUrl')
+    if (!enabled || !url) return
+    const portals = await autoImportPortals(url)
+    if (portals.length === 0) return
+    const { added } = importPortals(portals)
+    console.log(`[IPTV-M3U] Auto-import added ${added} portal(s)`)
+    await getAllSources(true)
+  } catch (err: any) {
+    console.warn(`[IPTV-M3U] Auto-import failed: ${err.message}`)
+  }
+}
+
+/**
+ * Arm the 01:00 daily auto-import timer. Idempotent — call once at startup.
+ */
+export function scheduleAutoImport(): void {
+  if (autoImportTimer) return
+  const arm = () => {
+    autoImportTimer = setTimeout(async () => {
+      await runAutoImport()
+      arm()
+    }, msUntilNext(1, 0))
+  }
+  arm()
 }
