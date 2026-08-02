@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
 import { COUNTRY_NAMES } from '../../utils/countryCode'
 import { loadMergedChannels, MergedChannel } from '../../utils/channels'
@@ -10,6 +10,8 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [visibleChannels, setVisibleChannels] = useState<string[]>(store.liveTvVisibleChannels)
+  const [focusedOrderIdx, setFocusedOrderIdx] = useState<number | null>(null)
+  const orderRowRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   useEffect(() => {
     setLoading(true)
@@ -57,6 +59,41 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
     setVisibleChannels([])
     store.setLiveTvVisibleChannels([])
   }
+
+  // Visible channels in the order defined by store.liveTvChannelOrder;
+  // channels not in the order list follow in alphabetical (name) order.
+  const orderedVisibleChannels = useMemo(() => {
+    const visibleSet = new Set(visibleChannels)
+    const visible = allChannels.filter(ch => visibleSet.has(ch.id))
+    const byId = new Map(visible.map((ch): [string, MergedChannel] => [ch.id, ch]))
+    const ordered = store.liveTvChannelOrder
+      .filter(id => visibleSet.has(id))
+      .map(id => byId.get(id))
+      .filter((ch): ch is MergedChannel => Boolean(ch))
+    const rest = visible
+      .filter(ch => !ordered.includes(ch))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return [...ordered, ...rest]
+  }, [allChannels, visibleChannels, store.liveTvChannelOrder])
+
+  const move = (from: number, to: number) => {
+    const ids = orderedVisibleChannels.map(ch => ch.id)
+    const clamped = Math.max(0, Math.min(ids.length - 1, to))
+    if (clamped === from || ids.length === 0) return
+    const next = [...ids]
+    const tmp = next[from]
+    next[from] = next[clamped]
+    next[clamped] = tmp
+    store.setLiveTvChannelOrder(next)
+    setFocusedOrderIdx(clamped)
+  }
+
+  // Keep keyboard focus on the row that just moved.
+  useEffect(() => {
+    if (focusedOrderIdx === null) return
+    const el = orderRowRefs.current[focusedOrderIdx]
+    if (el) el.focus()
+  }, [focusedOrderIdx])
 
   return (
     <div className={styles.settingGroup}>
@@ -137,6 +174,80 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
           )}
         </div>
       )}
+
+      {/* Channel Order section — below the Visible Channels list */}
+      <div style={{ marginTop: 20 }}>
+        <h3 className={styles.settingTitle}>Channel Order</h3>
+        <p className={styles.settingDesc}>Reorder how channels appear in Live TV &amp; EPG. Use ↑/↓ buttons or arrow keys. Channels not listed appear after these in name order.</p>
+        <div style={{ marginBottom: 8 }}>
+          <button tabIndex={0} className={styles.connectBtn} onClick={() => store.setLiveTvChannelOrder([])}>
+            Reset to default
+          </button>
+        </div>
+        <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, padding: 8 }}>
+          {orderedVisibleChannels.length === 0 ? (
+            <div style={{ color: 'rgba(255,255,255,0.4)', padding: '8px 0', fontSize: 13 }}>No visible channels to order.</div>
+          ) : (
+            orderedVisibleChannels.map((ch, i) => (
+              <div
+                key={ch.id}
+                tabIndex={0}
+                ref={(el) => { orderRowRefs.current[i] = el }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp') { e.preventDefault(); move(i, i - 1) }
+                  else if (e.key === 'ArrowDown') { e.preventDefault(); move(i, i + 1) }
+                  else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault() }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '4px 8px',
+                  borderRadius: 3,
+                  background: 'rgba(255,255,255,0.04)',
+                  cursor: 'default',
+                }}
+              >
+                <button
+                  tabIndex={-1}
+                  aria-label={`Move ${ch.name} up`}
+                  onClick={() => move(i, i - 1)}
+                  style={{
+                    background: 'rgba(255,255,255,0.08)',
+                    border: 'none',
+                    borderRadius: 3,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    lineHeight: 1,
+                    padding: '4px 6px',
+                    opacity: i === 0 ? 0.35 : 1,
+                  }}
+                >↑</button>
+                <button
+                  tabIndex={-1}
+                  aria-label={`Move ${ch.name} down`}
+                  onClick={() => move(i, i + 1)}
+                  style={{
+                    background: 'rgba(255,255,255,0.08)',
+                    border: 'none',
+                    borderRadius: 3,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    lineHeight: 1,
+                    padding: '4px 6px',
+                    opacity: i === orderedVisibleChannels.length - 1 ? 0.35 : 1,
+                  }}
+                >↓</button>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: '#fff' }}>
+                  {ch.name}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   )
 }

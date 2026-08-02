@@ -279,6 +279,8 @@ const api = {
       ipcRenderer.invoke('xtream:remove-portal', url, user, pass),
     importPortals: (portals: { url: string; user: string; pass: string }[]) =>
       ipcRenderer.invoke('xtream:import-portals', portals),
+    autoImport: (portals: { url: string; user: string; pass: string }[]) =>
+      ipcRenderer.invoke('xtream:auto-import', portals),
   },
   channelLogo: {
     resolve: (channelName: string, countryCode: string) =>
