@@ -68,6 +68,7 @@ interface SettingsState {
   iptvM3uEnabled: boolean
   iptvM3uAutoImport: boolean
   iptvM3uAutoImportUrl: string
+  iptvM3uAutoScrape: boolean
   preferredAudioLanguage: string
   classificationCountry: string
   accentColor: string
@@ -141,6 +142,7 @@ interface SettingsState {
   setIptvM3uEnabled: (enabled: boolean) => void
   setIptvM3uAutoImport: (enabled: boolean) => void
   setIptvM3uAutoImportUrl: (url: string) => void
+  setIptvM3uAutoScrapeEnabled: (enabled: boolean) => void
   setPreferredAudioLanguage: (lang: string) => void
   setClassificationCountry: (country: string) => void
   setAccentColor: (color: string) => void
@@ -226,6 +228,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   iptvM3uEnabled: true,
   iptvM3uAutoImport: false,
   iptvM3uAutoImportUrl: '',
+  iptvM3uAutoScrape: false,
   preferredAudioLanguage: '',
   classificationCountry: 'US',
   accentColor: '#FF6B00',
@@ -296,6 +299,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setIptvM3uEnabled: (enabled) => { set({ iptvM3uEnabled: enabled }); get().saveToDisk() },
   setIptvM3uAutoImport: (enabled) => { set({ iptvM3uAutoImport: enabled }); get().saveToDisk() },
   setIptvM3uAutoImportUrl: (url) => { set({ iptvM3uAutoImportUrl: url }); get().saveToDisk() },
+  setIptvM3uAutoScrapeEnabled: (enabled: boolean) => { set({ iptvM3uAutoScrape: enabled }); get().saveToDisk() },
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setClassificationCountry: (country) => { set({ classificationCountry: country }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
@@ -634,6 +638,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('iptvM3uEnabled', state.iptvM3uEnabled),
         window.api.settings.set('iptvM3uAutoImport', state.iptvM3uAutoImport),
         window.api.settings.set('iptvM3uAutoImportUrl', state.iptvM3uAutoImportUrl),
+        window.api.settings.set('iptvM3uAutoScrape', state.iptvM3uAutoScrape),
         window.api.settings.set('preferredAudioLanguage', state.preferredAudioLanguage),
         window.api.settings.set('classificationCountry', state.classificationCountry),
         window.api.settings.set('accentColor', state.accentColor),

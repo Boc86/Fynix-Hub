@@ -281,6 +281,8 @@ const api = {
       ipcRenderer.invoke('xtream:import-portals', portals),
     autoImport: (portals: { url: string; user: string; pass: string }[]) =>
       ipcRenderer.invoke('xtream:auto-import', portals),
+    scrape: (addCount: number) =>
+      ipcRenderer.invoke('xtream:scrape', addCount),
   },
   channelLogo: {
     resolve: (channelName: string, countryCode: string) =>

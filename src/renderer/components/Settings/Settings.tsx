@@ -100,6 +100,8 @@ export default function Settings({ onClose }: SettingsProps) {
   const [importResult, setImportResult] = useState<number | null>(null)
   const importFileRef = useRef<HTMLInputElement>(null)
   const [completedDownloadsState, setCompletedDownloadsState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [scrapeState, setScrapeState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
+  const [scrapeResult, setScrapeResult] = useState<{ added: number; total: number } | null>(null)
 
   const resolutions = ['4K', '1080p', '720p', '480p']
 
@@ -149,6 +151,19 @@ export default function Settings({ onClose }: SettingsProps) {
     const updated = await window.api.xtream.removePortal(portal.url, portal.user, portal.pass)
     setXtreamPortals(updated)
     window.api.iptvM3u.getAllSources(true).catch(() => {})
+  }, [])
+
+  const handleScrapePortals = useCallback(async () => {
+    setScrapeState('running')
+    setScrapeResult(null)
+    try {
+      const result = await window.api.xtream.scrape(5)
+      setScrapeResult({ added: result.added, total: result.totalVerified })
+      setScrapeState('done')
+      setXtreamPortals(await window.api.xtream.getPortals())
+    } catch (err: any) {
+      setScrapeState('error')
+    }
   }, [])
 
   const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2011,12 +2026,22 @@ export default function Settings({ onClose }: SettingsProps) {
   <div className={styles.settingGroup}>
     <h3 className={styles.settingTitle}>Xtream Portals</h3>
     <p className={styles.settingDesc}>
-      Add Xtream Codes portal credentials as additional IPTV sources. Use{' '}
-      <a href="#" onClick={(e) => { e.preventDefault(); window.api.openExternal('https://iptvgen.pages.dev/') }} style={{ color: '#3b82f6', textDecoration: 'underline' }}>
-        iptvgen.pages.dev
-      </a>{' '}
-      to discover portals, then paste the URL/username/password below or import the JSON export.
-    </p>
+      Add Xtream Codes portal credentials as additional IPTV sources.{' '}
+      <button
+        tabIndex={0}
+        className={styles.connectBtn}
+        style={{ padding: '2px 10px', fontSize: 12, verticalAlign: 'middle' }}
+        onClick={handleScrapePortals}
+        disabled={scrapeState === 'running'}
+      >
+        {scrapeState === 'running' ? 'Scraping...' : 'Scrape Portals'}
+      </button>{' '}
+      automatically scrapes Reddit for working Xtream portals — no manual JSON needed.</p>
+      {scrapeResult && (
+        <p className={styles.settingDesc} style={{ color: '#4ade80' }}>
+          Found {scrapeResult.added} new portal(s). Total verified: {scrapeResult.total}
+        </p>
+      )}
 
     {/* Auto-import toggle */}
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
@@ -2048,6 +2073,20 @@ export default function Settings({ onClose }: SettingsProps) {
     <p className={styles.settingDesc}>
       When enabled, the app fetches this JSON list at 01:00 daily and imports any new portals automatically.
       The JSON should be <code>{'{url,user,pass}'}</code> objects or <code>{'{portals:[...]}'}</code>.
+    </p>
+
+    {/* Auto-scrape toggle */}
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+      <button
+        tabIndex={0}
+        className={`${styles.toggle} ${store.iptvM3uAutoScrape ? styles.toggleActive : ''}`}
+        onClick={() => store.setIptvM3uAutoScrapeEnabled(!store.iptvM3uAutoScrape)}
+      >
+        Auto-scrape portals daily
+      </button>
+    </div>
+    <p className={styles.settingDesc}>
+      When enabled, the app automatically scrapes Reddit for working Xtream portal credentials at 01:00 daily — no JSON URL needed.
     </p>
 
     {store.iptvM3uAutoImport ? (

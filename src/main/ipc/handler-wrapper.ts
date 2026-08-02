@@ -53,6 +53,15 @@ handle('xtream:auto-import', async (_event, portals: { url: string; user: string
   return result;
 });
 
+/* IPC handler for automatic portal scraping */
+import { iptvScraperService } from '../../main/services/iptv-scraper.service';
+
+handle('xtream:scrape', async (_event, addCount: number) => {
+  const added = await iptvScraperService.harvest(addCount);
+  await getAllSources(true);
+  return { added, totalVerified: iptvScraperService.getVerifiedPortals().size };
+});
+
 /* IPC handlers for channel logo fallback (tv-logo/tv-logos GitHub repo) */
 import { resolveChannelLogo, prewarmChannelLogos, clearChannelLogoCache, verifyLogoUrls } from '../../main/services/channel-logos.service';
 

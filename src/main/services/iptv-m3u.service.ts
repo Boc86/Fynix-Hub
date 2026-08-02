@@ -379,6 +379,23 @@ export async function runAutoImport(): Promise<void> {
 }
 
 /**
+ * Run one auto-scrape pass: scrape Reddit for portals, verify, import, refresh M3U.
+ * No-op when auto-scrape is disabled.
+ */
+export async function runAutoScrape(): Promise<void> {
+  try {
+    const enabled = CacheService.getSetting<boolean>('iptvM3uAutoScrape')
+    if (!enabled) return
+    const { iptvScraperService } = await import('./iptv-scraper.service')
+    const added = await iptvScraperService.harvest(5)
+    console.log(`[IPTV-M3U] Auto-scrape added ${added} portal(s)`)
+    await getAllSources(true)
+  } catch (err: any) {
+    console.warn(`[IPTV-M3U] Auto-scrape failed: ${err.message}`)
+  }
+}
+
+/**
  * Arm the 01:00 daily auto-import timer. Idempotent — call once at startup.
  */
 export function scheduleAutoImport(): void {
@@ -386,6 +403,7 @@ export function scheduleAutoImport(): void {
   const arm = () => {
     autoImportTimer = setTimeout(async () => {
       await runAutoImport()
+      await runAutoScrape()
       arm()
     }, msUntilNext(1, 0))
   }
