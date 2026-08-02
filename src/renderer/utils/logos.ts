@@ -100,6 +100,22 @@ export function channelSlug(name: string): string {
 }
 
 /**
+ * Return slug variants for a channel name. The tv-logos repo splits
+ * letter-digit boundaries in filenames ("E4 Extra" -> "e-4-extra-uk.png"),
+ * but some entries keep them joined ("e4-..."). Emit both so fuzzy matching
+ * covers the repo's convention.
+ */
+export function channelSlugVariants(name: string): string[] {
+  const base = channelSlug(name)
+  if (!base) return []
+  // Split letter-digit boundaries: e4-extra -> e-4-extra
+  const split = base
+    .replace(/([a-z])(\d)/g, '$1-$2')
+    .replace(/(\d)([a-z])/g, '$1-$2')
+  return Array.from(new Set([base, split].filter(Boolean)))
+}
+
+/**
  * Try to extract the original 2-letter country code from a channel name prefix.
  * "UK: SKY NEWS" -> "uk"
  * "US | CNN"     -> "us"
@@ -129,8 +145,8 @@ const COUNTRY_SUFFIX: Record<string, string> = {
  * The first resolvable URL is what gets used.
  */
 export function candidateLogoUrls(channelName: string, countryCode: string): string[] {
-  const slug = channelSlug(channelName)
-  if (!slug) return []
+  const slugVariants = channelSlugVariants(channelName)
+  if (slugVariants.length === 0) return []
 
   const slugs = COUNTRY_SLUG_ALT[countryCode] ?? []
   const primary = COUNTRY_SLUG[countryCode] || slugs[0] || 'international'
@@ -143,16 +159,20 @@ export function candidateLogoUrls(channelName: string, countryCode: string): str
   const suffixCandidates = Array.from(new Set([suffix, countryCode, prefixSuffix].filter(Boolean)))
 
   const urls: string[] = []
-  for (const folder of folderCandidates) {
-    for (const suffix of suffixCandidates) {
-      // Most common pattern: <channel-slug>-<country-code>.png
-      urls.push(`${BASE_URL}/${folder}/${slug}-${suffix}.png`)
-    }
-    // Without suffix as final fallback per folder
-    urls.push(`${BASE_URL}/${folder}/${slug}.png`)
-    // Folder-prefix variant: <country>-<channel-slug>.png
-    for (const suffix of suffixCandidates) {
-      urls.push(`${BASE_URL}/${folder}/${suffix}-${slug}.png`)
+  // Emit candidates for both the joined and letter-digit-split slug forms
+  // ("e4-extra" and "e-4-extra") so the repo's naming convention is covered.
+  for (const slug of slugVariants) {
+    for (const folder of folderCandidates) {
+      for (const s of suffixCandidates) {
+        // Most common pattern: <channel-slug>-<country-code>.png
+        urls.push(`${BASE_URL}/${folder}/${slug}-${s}.png`)
+      }
+      // Without suffix as final fallback per folder
+      urls.push(`${BASE_URL}/${folder}/${slug}.png`)
+      // Folder-prefix variant: <country>-<channel-slug>.png
+      for (const s of suffixCandidates) {
+        urls.push(`${BASE_URL}/${folder}/${s}-${slug}.png`)
+      }
     }
   }
   return urls
