@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useSettingsStore } from '../../store/settingsStore'
 import { loadMergedChannels } from '../../utils/channels'
 import { useChannelLogo, prewarmLogos } from '../../utils/useChannelLogo'
@@ -101,6 +102,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
   // Channel context menu (right-click) state
   const [menuChannel, setMenuChannel] = useState<Channel | null>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
+  const [menuCentered, setMenuCentered] = useState(false)
   const [menuFocusedIdx, setMenuFocusedIdx] = useState(0)
   const [logoPromptChannel, setLogoPromptChannel] = useState<Channel | null>(null)
   const [renameChannel, setRenameChannel] = useState<Channel | null>(null)
@@ -452,7 +454,12 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       if (ch) {
         setMenuChannel(ch)
         setMenuFocusedIdx(0)
-        setMenuPos(null) // null = centered on screen (keyboard launch)
+        // Explicit viewport pixels (like the EPG menu): percentage top/left on a
+        // position:fixed child resolves against a transformed ancestor's content
+        // box (the .animate-fade wrapper animates transform), so 50% lands in the
+        // middle of the full scroll area — off the visible screen.
+        setMenuPos({ x: Math.max(0, (window.innerWidth - 220) / 2), y: Math.max(0, (window.innerHeight - 130) / 2) })
+        setMenuCentered(true)
       }
       return true
     }
@@ -629,6 +636,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
                     setMenuChannel(ch)
                     setMenuFocusedIdx(0)
                     setMenuPos({ x: e.clientX, y: e.clientY })
+                    setMenuCentered(false)
                   }}
                   style={{
                     position: 'relative', aspectRatio: '16/9',
@@ -660,29 +668,30 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       )}
 
       {/* Channel context menu (right-click or C/ContextMenu key) */}
-      {menuChannel && (
+      {/* Portal to document.body: the .animate-fade wrapper keeps an identity
+          transform after its entrance animation, and ANY non-none transform on
+          an ancestor turns it into the containing block for position:fixed
+          descendants — the menu would be positioned against the full scroll
+          area and land off-screen. Rendering at the body root restores true
+          viewport anchoring. */}
+      {menuChannel && createPortal(
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
           onClick={() => { setMenuChannel(null); setMenuPos(null) }}
           onContextMenu={(e) => { e.preventDefault(); setMenuChannel(null); setMenuPos(null) }}
         >
           <div
-            style={menuPos
-              ? {
-                  position: 'fixed', left: Math.min(menuPos.x, window.innerWidth - 220),
-                  top: Math.min(menuPos.y, window.innerHeight - 130),
-                  background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 10, padding: 6, minWidth: 200,
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
-                }
-              : {
-                  // Keyboard launch (C / ContextMenu key): center on the viewport
-                  position: 'fixed', top: '50%', left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 10, padding: 6, minWidth: 220,
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
-                }}
+            style={{
+              position: 'fixed',
+              left: Math.min(menuPos?.x ?? 0, window.innerWidth - 220),
+              top: Math.min(menuPos?.y ?? 0, window.innerHeight - 130),
+              // Keyboard launch centers the menu on the computed point; the
+              // right-click path anchors its top-left at the cursor.
+              transform: menuCentered ? 'translate(-50%, -50%)' : 'none',
+              background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 10, padding: 6, minWidth: 220,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+            }}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.stopPropagation()}
           >
@@ -708,7 +717,8 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
               </button>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Logo URL prompt */}

@@ -67,8 +67,11 @@ describe('Prompt', () => {
 
   it('clicking backdrop calls onCancel', () => {
     const onCancel = vi.fn()
-    const { container } = render(<Prompt title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
-    fireEvent.click(container.firstElementChild!)
+    render(<Prompt title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
+    // Prompt is portaled to document.body — the backdrop is the fixed overlay
+    // containing the dialog (its onClick closes).
+    const backdrop = document.querySelector('[style*="position: fixed"]')!
+    fireEvent.click(backdrop)
     expect(onCancel).toHaveBeenCalled()
   })
 })
@@ -102,8 +105,11 @@ describe('Confirm', () => {
 
   it('clicking backdrop calls onCancel', () => {
     const onCancel = vi.fn()
-    const { container } = render(<Confirm title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
-    fireEvent.click(container.firstElementChild!)
+    render(<Confirm title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
+    // Confirm is portaled to document.body — the backdrop is the fixed overlay
+    // containing the dialog (its onClick closes).
+    const backdrop = document.querySelector('[style*="position: fixed"]')!
+    fireEvent.click(backdrop)
     expect(onCancel).toHaveBeenCalled()
   })
 })
