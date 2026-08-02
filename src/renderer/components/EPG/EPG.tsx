@@ -270,12 +270,17 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
   // Apply channel visibility filter (matches LiveTV behavior).
   // If the user has selected specific channels in Settings, only those are shown.
   const visibleChannels = useSettingsStore((s) => s.liveTvVisibleChannels)
+  const hiddenChannels = useSettingsStore((s) => s.liveTvHiddenChannels)
   const channelOrder = useSettingsStore((s) => s.liveTvChannelOrder)
   const customNames = useSettingsStore((s) => s.liveTvCustomNames)
   const filteredChannels = useMemo(() => {
     let result = channels
     if (visibleChannels.length > 0) {
       result = result.filter(c => visibleChannels.includes(c.liveTvChannelId))
+    }
+    // Hide channels the user hid via the LiveTV context menu
+    if (hiddenChannels.length > 0) {
+      result = result.filter(c => !hiddenChannels.includes(c.liveTvChannelId))
     }
     if (channelOrder.length > 0) {
       const orderMap = new Map(channelOrder.map((id, i) => [id, i]))
@@ -285,7 +290,7 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       result = [...ordered, ...unordered]
     }
     return result
-  }, [channels, visibleChannels, channelOrder])
+  }, [channels, visibleChannels, hiddenChannels, channelOrder])
 
   // Lazy row loading — recompute visible range on scroll. Track whichever
   // container is currently scrolled (grid or channel list).

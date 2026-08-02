@@ -78,6 +78,8 @@ interface SettingsState {
   liveTvEnabled: boolean
   selectedLiveTvCountries: string[]
   liveTvVisibleChannels: string[]
+  /** Channels hidden via the LiveTV context menu (applies to LiveTV + EPG) */
+  liveTvHiddenChannels: string[]
   liveTvChannelOrder: string[]
   /** User-supplied logo URLs keyed by channel id (context menu override) */
   liveTvCustomLogos: Record<string, string>
@@ -149,6 +151,11 @@ interface SettingsState {
   setLiveTvEnabled: (enabled: boolean) => void
   setSelectedLiveTvCountries: (codes: string[]) => void
   setLiveTvVisibleChannels: (ids: string[]) => void
+  setLiveTvHiddenChannels: (ids: string[]) => void
+  /** Hide a channel from LiveTV + EPG (persisted). */
+  hideLiveTvChannel: (channelId: string) => void
+  /** Un-hide a previously hidden channel. */
+  unhideLiveTvChannel: (channelId: string) => void
   setLiveTvChannelOrder: (ids: string[]) => void
   /** Set a custom logo URL for a channel; empty/whitespace removes it. */
   setLiveTvCustomLogo: (channelId: string, url: string) => void
@@ -229,6 +236,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   liveTvEnabled: false,
   selectedLiveTvCountries: [],
   liveTvVisibleChannels: [],
+  liveTvHiddenChannels: [],
   liveTvChannelOrder: [],
   liveTvCustomLogos: {},
   liveTvCustomNames: {},
@@ -322,6 +330,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
   setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
   setLiveTvVisibleChannels: (ids) => { set({ liveTvVisibleChannels: ids }); get().saveToDisk() },
+  setLiveTvHiddenChannels: (ids) => { set({ liveTvHiddenChannels: ids }); get().saveToDisk() },
+  hideLiveTvChannel: (channelId) => {
+    set((state) => {
+      if (state.liveTvHiddenChannels.includes(channelId)) return state
+      return { liveTvHiddenChannels: [...state.liveTvHiddenChannels, channelId] }
+    })
+    get().saveToDisk()
+  },
+  unhideLiveTvChannel: (channelId) => {
+    set((state) => ({
+      liveTvHiddenChannels: state.liveTvHiddenChannels.filter((id) => id !== channelId)
+    }))
+    get().saveToDisk()
+  },
   setLiveTvChannelOrder: (ids) => { set({ liveTvChannelOrder: ids }); get().saveToDisk() },
   setLiveTvCustomLogo: (channelId, url) => {
     const urlTrimmed = normalizeLogoUrl(url)
@@ -623,6 +645,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('liveTvEnabled', state.liveTvEnabled),
         window.api.settings.set('selectedLiveTvCountries', state.selectedLiveTvCountries),
         window.api.settings.set('liveTvVisibleChannels', state.liveTvVisibleChannels),
+        window.api.settings.set('liveTvHiddenChannels', state.liveTvHiddenChannels),
         window.api.settings.set('liveTvChannelOrder', state.liveTvChannelOrder),
         window.api.settings.set('liveTvCustomLogos', state.liveTvCustomLogos),
         window.api.settings.set('liveTvCustomNames', state.liveTvCustomNames),

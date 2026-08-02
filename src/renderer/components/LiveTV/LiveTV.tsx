@@ -5,6 +5,7 @@ import { loadMergedChannels } from '../../utils/channels'
 import { useChannelLogo, prewarmLogos } from '../../utils/useChannelLogo'
 import { normalizeLogoUrl } from '../../utils/logos'
 import Prompt from '../Prompt/Prompt'
+import LogoPickerModal from '../LogoPickerModal'
 import styles from './LiveTV.module.css'
 
 interface Channel {
@@ -179,6 +180,10 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
     if (settingsStore.liveTvVisibleChannels.length > 0) {
       result = result.filter(c => settingsStore.liveTvVisibleChannels.includes(c.id))
     }
+    // Apply hidden-channel filter (context menu Hide Channel)
+    if (settingsStore.liveTvHiddenChannels.length > 0) {
+      result = result.filter(c => !settingsStore.liveTvHiddenChannels.includes(c.id))
+    }
     // Apply custom channel order (A5)
     if (settingsStore.liveTvChannelOrder.length > 0) {
       const orderMap = new Map(settingsStore.liveTvChannelOrder.map((id, i) => [id, i]))
@@ -205,7 +210,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       })
     }
     return result
-  }, [channels, settingsStore.selectedLiveTvCountries, settingsStore.liveTvVisibleChannels, settingsStore.liveTvChannelOrder])
+  }, [channels, settingsStore.selectedLiveTvCountries, settingsStore.liveTvVisibleChannels, settingsStore.liveTvHiddenChannels, settingsStore.liveTvChannelOrder])
 
   const flatItems = useMemo(() => {
     const map = new Map<string, Channel[]>()
@@ -338,6 +343,14 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       {
         label: 'Rename Channel…',
         action: () => { setRenameChannel(menuChannel); setMenuChannel(null); setMenuPos(null); setMenuFocusedIdx(0) },
+      },
+      {
+        label: 'Hide Channel',
+        danger: true,
+        action: () => {
+          settingsStore.hideLiveTvChannel(menuChannel.id)
+          setMenuChannel(null); setMenuPos(null); setMenuFocusedIdx(0)
+        },
       },
     ]
     if (settingsStore.liveTvCustomLogos?.[menuChannel.id]) {
@@ -721,14 +734,11 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
         document.body,
       )}
 
-      {/* Logo URL prompt */}
+      {/* Set Logo dialog (GitHub candidates + custom URL) */}
       {logoPromptChannel && (
-        <Prompt
-          title={`Logo URL — ${logoPromptChannel.name}`}
-          message="Paste an image URL (png/jpg/webp) to use for this channel where no logo is found. Leave the field empty and press Cancel to keep the current logo."
-          placeholder="https://example.com/logo.png"
-          defaultValue={settingsStore.liveTvCustomLogos?.[logoPromptChannel.id] || ''}
-          confirmLabel="Set Logo"
+        <LogoPickerModal
+          channel={{ id: logoPromptChannel.id, name: logoPromptChannel.name, countryCode: logoPromptChannel.countryCode }}
+          currentUrl={settingsStore.liveTvCustomLogos?.[logoPromptChannel.id] || ''}
           onConfirm={(url) => {
             settingsStore.setLiveTvCustomLogo(logoPromptChannel.id, url)
             setLogoPromptChannel(null)
