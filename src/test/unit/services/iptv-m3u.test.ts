@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanChannelName, isCategoryHeader, autoImportPortals } from '@/main/services/iptv-m3u.service'
+import { cleanChannelName, isCategoryHeader, autoImportPortals, parseM3U } from '@/main/services/iptv-m3u.service'
 
 describe('cleanChannelName', () => {
   it('strips quality tokens (HD, FHD, UHD, SD, 4K)', () => {
@@ -105,6 +105,43 @@ describe('isRealChannel', () => {
   it('is the inverse of isCategoryHeader for non-empty names', () => {
     expect('BBC ONE'.length > 0 && !isCategoryHeader('BBC ONE')).toBe(true)
     expect('=== SPORTS ==='.length > 0 && !isCategoryHeader('=== SPORTS ===')).toBe(false)
+  })
+})
+
+describe('parseM3U', () => {
+  it('captures tvg-logo from the #EXTINF line', () => {
+    const channels = parseM3U(
+      '#EXTM3U\n' +
+      '#EXTINF:-1 tvg-logo="https://example.com/logo.png",BBC One\n' +
+      'http://example.com/bbc1.m3u8\n'
+    )
+    expect(channels).toHaveLength(1)
+    expect(channels[0].name).toBe('BBC One')
+    expect(channels[0].url).toBe('http://example.com/bbc1.m3u8')
+    expect(channels[0].logo).toBe('https://example.com/logo.png')
+  })
+
+  it('omits logo when the #EXTINF line has no tvg-logo attribute', () => {
+    const channels = parseM3U(
+      '#EXTM3U\n' +
+      '#EXTINF:-1,BBC One\n' +
+      'http://example.com/bbc1.m3u8\n'
+    )
+    expect(channels).toHaveLength(1)
+    expect(channels[0].logo).toBeUndefined()
+  })
+
+  it('still filters category-header lines with a tvg-logo present', () => {
+    const channels = parseM3U(
+      '#EXTM3U\n' +
+      '#EXTINF:-1 tvg-logo="https://example.com/header.png",===== SPORT =====\n' +
+      'http://example.com/header.m3u8\n' +
+      '#EXTINF:-1 tvg-logo="https://example.com/real.png",BBC ONE\n' +
+      'http://example.com/bbc1.m3u8\n'
+    )
+    expect(channels).toHaveLength(1)
+    expect(channels[0].name).toBe('BBC ONE')
+    expect(channels[0].logo).toBe('https://example.com/real.png')
   })
 })
 

@@ -22,6 +22,7 @@ export { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
 export interface IPTVChannel {
   name: string
   url: string   // play URL (the line after #EXTINF in the M3U)
+  logo?: string // tvg-logo URL from the #EXTINF line (optional; old disk caches lack it)
 }
 
 export interface IPTVSource {
@@ -82,7 +83,9 @@ export function parseM3U(content: string): IPTVChannel[] {
         const name = line.slice(lastComma + 1).trim()
         const url = lines[i + 1].trim()
         if (name && url && !url.startsWith('#') && !isCategoryHeader(name)) {
-          channels.push({ name, url })
+          const logoMatch = line.match(/tvg-logo="([^"]+)"/i)
+          const logo = logoMatch ? logoMatch[1] : ''
+          channels.push({ name, url, ...(logo ? { logo } : {}) })
         }
       }
     }
@@ -279,16 +282,16 @@ async function doFetch(): Promise<IPTVSource[]> {
  */
 export async function getAllM3UChannels(
   forceRefresh = false,
-): Promise<{ name: string; sourceLabel: string }[]> {
+): Promise<{ name: string; sourceLabel: string; logo?: string }[]> {
   const sources = await getAllSources(forceRefresh)
   const seen = new Set<string>()
-  const result: { name: string; sourceLabel: string }[] = []
+  const result: { name: string; sourceLabel: string; logo?: string }[] = []
   for (const src of sources) {
     for (const ch of src.channels) {
       const key = ch.name.toLowerCase().trim()
       if (!seen.has(key)) {
         seen.add(key)
-        result.push({ name: ch.name, sourceLabel: src.label })
+        result.push({ name: ch.name, sourceLabel: src.label, ...(ch.logo ? { logo: ch.logo } : {}) })
       }
     }
   }

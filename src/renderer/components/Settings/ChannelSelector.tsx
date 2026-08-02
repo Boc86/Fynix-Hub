@@ -11,7 +11,9 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
   const [search, setSearch] = useState('')
   const [visibleChannels, setVisibleChannels] = useState<string[]>(store.liveTvVisibleChannels)
   const [focusedOrderIdx, setFocusedOrderIdx] = useState<number | null>(null)
+  const [pickingIdx, setPickingIdx] = useState<number | null>(null)
   const orderRowRefs = useRef<Record<number, HTMLDivElement | null>>({})
+  const orderSnapshot = useRef<string[] | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -86,6 +88,32 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
     next[clamped] = tmp
     store.setLiveTvChannelOrder(next)
     setFocusedOrderIdx(clamped)
+  }
+
+  // Pick-up-and-place model: Enter picks a row, ↑/↓ move the picked row,
+  // Enter places it, Escape cancels (restoring the order at pick time).
+  const startPicking = (i: number) => {
+    orderSnapshot.current = [...store.liveTvChannelOrder]
+    setPickingIdx(i)
+  }
+
+  const movePicked = (dir: 1 | -1) => {
+    if (pickingIdx === null) return
+    const to = pickingIdx + dir
+    if (to < 0 || to >= orderedVisibleChannels.length) return
+    move(pickingIdx, to)
+    setPickingIdx(to)
+  }
+
+  const placePicked = () => {
+    orderSnapshot.current = null
+    setPickingIdx(null)
+  }
+
+  const cancelPicking = () => {
+    if (orderSnapshot.current) store.setLiveTvChannelOrder(orderSnapshot.current)
+    orderSnapshot.current = null
+    setPickingIdx(null)
   }
 
   // Keep keyboard focus on the row that just moved.
@@ -178,9 +206,9 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
       {/* Channel Order section — below the Visible Channels list */}
       <div style={{ marginTop: 20 }}>
         <h3 className={styles.settingTitle}>Channel Order</h3>
-        <p className={styles.settingDesc}>Reorder how channels appear in Live TV &amp; EPG. Use ↑/↓ buttons or arrow keys. Channels not listed appear after these in name order.</p>
+        <p className={styles.settingDesc}>Select a channel with Enter, move it with Up/Down, press Enter again to place. Escape cancels. Channels not listed appear after these in name order.</p>
         <div style={{ marginBottom: 8 }}>
-          <button tabIndex={0} className={styles.connectBtn} onClick={() => store.setLiveTvChannelOrder([])}>
+          <button tabIndex={0} className={styles.connectBtn} onClick={() => { orderSnapshot.current = null; setPickingIdx(null); store.setLiveTvChannelOrder([]) }}>
             Reset to default
           </button>
         </div>
@@ -194,24 +222,32 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
                 tabIndex={0}
                 ref={(el) => { orderRowRefs.current[i] = el }}
                 onKeyDown={(e) => {
-                  if (e.key === 'ArrowUp') { e.preventDefault(); move(i, i - 1) }
-                  else if (e.key === 'ArrowDown') { e.preventDefault(); move(i, i + 1) }
-                  else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault() }
+                  if (pickingIdx !== null) {
+                    if (e.key === 'ArrowUp') { e.preventDefault(); movePicked(-1) }
+                    else if (e.key === 'ArrowDown') { e.preventDefault(); movePicked(1) }
+                    else if (e.key === 'Enter') { e.preventDefault(); placePicked() }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelPicking() }
+                    return
+                  }
+                  if (e.key === 'Enter') { e.preventDefault(); startPicking(i) }
+                  else if (e.key === ' ') { e.preventDefault() }
                 }}
+                onClick={() => startPicking(i)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
                   padding: '4px 8px',
                   borderRadius: 3,
-                  background: 'rgba(255,255,255,0.04)',
+                  background: pickingIdx === i ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(255,255,255,0.04)',
+                  border: pickingIdx === i ? '2px solid var(--accent)' : '2px solid transparent',
                   cursor: 'default',
                 }}
               >
                 <button
                   tabIndex={-1}
                   aria-label={`Move ${ch.name} up`}
-                  onClick={() => move(i, i - 1)}
+                  onClick={(e) => { e.stopPropagation(); move(i, i - 1) }}
                   style={{
                     background: 'rgba(255,255,255,0.08)',
                     border: 'none',
@@ -227,7 +263,7 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
                 <button
                   tabIndex={-1}
                   aria-label={`Move ${ch.name} down`}
-                  onClick={() => move(i, i + 1)}
+                  onClick={(e) => { e.stopPropagation(); move(i, i + 1) }}
                   style={{
                     background: 'rgba(255,255,255,0.08)',
                     border: 'none',

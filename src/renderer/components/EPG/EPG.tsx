@@ -57,7 +57,7 @@ const MENU_HEIGHT = 120
  * EPG channel row with logo fallback.
  * Calls useChannelLogo so it's a proper hook user.
  *
- * Priority: CDN/M3U logo -> HEAD-checked tv-logos URL -> text label.
+ * Priority: CDN/M3U logo -> EPG icon -> HEAD-checked tv-logos URL -> text label.
  */
 function EPGChannelRow({
   ch,
@@ -76,7 +76,8 @@ function EPGChannelRow({
 }) {
   const customLogo = useSettingsStore((s) => s.liveTvCustomLogos?.[ch.liveTvChannelId] || '')
   const primary = normalizeLogoUrl(customLogo) || ch.liveTvLogo || ''
-  const verified = useChannelLogo(ch.liveTvName, '', ch.liveTvCountryCode)
+  // 4-tier chain: custom/LiveTV logo (as cdnLogo) -> EPG icon -> HEAD-checked GitHub fallback
+  const verified = useChannelLogo(ch.liveTvName, primary, ch.liveTvCountryCode, ch.icon)
   const [src, setSrc] = useState(primary || verified)
   useEffect(() => {
     setSrc(primary || verified)

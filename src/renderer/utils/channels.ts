@@ -12,6 +12,8 @@ export interface MergedChannel {
   logo: string
   /** tv-logo fallback URL computed in main process */
   logoImage: string
+  /** tvg-logo URL from the M3U playlist (optional; lower priority than CDN logo) */
+  m3uLogo?: string
   countryCode: string
   countryName: string
   sources: string[]
@@ -55,6 +57,7 @@ export async function loadMergedChannels(): Promise<MergedChannel[]> {
     if (!ch || !ch.name) continue
     const key = channelKey(ch.name)
     const cc = detectCountryCode(ch.name) || ''
+    const m3uLogo = (ch as any).logo || ''
     const existing = map.get(key)
     if (existing) {
       if (!existing.sources.includes('m3u')) existing.sources.push('m3u')
@@ -62,16 +65,19 @@ export async function loadMergedChannels(): Promise<MergedChannel[]> {
         existing.countryCode = cc
         existing.countryName = COUNTRY_NAMES[cc] || cc.toUpperCase()
       }
+      // M3U tvg-logo — kept as a lower-priority tier behind the CDN logo
+      if (m3uLogo) existing.m3uLogo = m3uLogo
       // If CDN had no logo, M3U could provide one if the channel object has it
-      if (!existing.logo && (ch as any).logo) {
-        existing.logo = (ch as any).logo
+      if (!existing.logo && m3uLogo) {
+        existing.logo = m3uLogo
       }
     } else {
       map.set(key, {
         id: ch.id || key,
         name: cleanChannelName(displayName(ch.name)),
-        logo: (ch as any).logo || (ch as any).image || '',
-        logoImage: '',
+        logo: m3uLogo || (ch as any).image || '',
+        logoImage: m3uLogo,
+        m3uLogo,
         countryCode: cc,
         countryName: COUNTRY_NAMES[cc] || (cc ? cc.toUpperCase() : ''),
         sources: ['m3u'],
