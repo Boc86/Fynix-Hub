@@ -54,16 +54,20 @@ function ChannelLogo({ logoImage, fallbackImage, name }: { logoImage: string; fa
  */
 function ChannelTile({ ch }: { ch: Channel }) {
   const customLogo = useSettingsStore((s) => s.liveTvCustomLogos?.[ch.id] || '')
+  const customName = useSettingsStore((s) => s.liveTvCustomNames?.[ch.id] || '')
   // Normalize at read time too: URLs saved before normalization existed
   // (e.g. github.com/.../blob/... pages) must still render.
   const primary = normalizeLogoUrl(customLogo) || ch.image || ''
+  // Fuzzy-match the logo using the custom name when the user renamed the
+  // channel (the GitHub slug is derived from the display name).
+  const logoName = customName || ch.name
   // Always resolve the verified fallback (cdnLogo='' forces lookup);
   // it's cached so repeated renders are cheap.
-  const verified = useChannelLogo(ch.name, '', ch.countryCode)
+  const verified = useChannelLogo(logoName, '', ch.countryCode)
   const fallback = verified || ch.logoImage || ''
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <ChannelLogo logoImage={primary} fallbackImage={fallback} name={ch.name} />
+      <ChannelLogo logoImage={primary} fallbackImage={fallback} name={logoName} />
     </div>
   )
 }
@@ -555,8 +559,12 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       tabIndex={0}
       style={{ padding: '16px 24px', outline: 'none', height: '100%', overflow: 'auto' }}
     >
-      {/* Source Selection Modal */}
-      {selectedChannel && (
+      {/* Source Selection Modal — portaled to document.body: the .animate-fade
+          wrapper keeps an identity transform after its entrance animation, and
+          ANY non-none transform on an ancestor makes it the containing block
+          for position:fixed descendants (the modal would center in the full
+          scroll area, not the visible viewport). */}
+      {selectedChannel && createPortal(
         <div className={styles.overlay} onClick={() => {
           setSelectedChannel(null); setSourceLoading(false); setSourceError(null); setFocusedSourceIndex(0)
         }}>
@@ -590,7 +598,8 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
               </div>
             ) : null}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {settingsStore.liveTvEnabled && (
@@ -737,7 +746,8 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
       {/* Set Logo dialog (GitHub candidates + custom URL) */}
       {logoPromptChannel && (
         <LogoPickerModal
-          channel={{ id: logoPromptChannel.id, name: logoPromptChannel.name, countryCode: logoPromptChannel.countryCode }}
+          // Fuzzy-match candidates on the custom name when the channel was renamed
+          channel={{ id: logoPromptChannel.id, name: settingsStore.liveTvCustomNames?.[logoPromptChannel.id] || logoPromptChannel.name, countryCode: logoPromptChannel.countryCode }}
           currentUrl={settingsStore.liveTvCustomLogos?.[logoPromptChannel.id] || ''}
           onConfirm={(url) => {
             settingsStore.setLiveTvCustomLogo(logoPromptChannel.id, url)

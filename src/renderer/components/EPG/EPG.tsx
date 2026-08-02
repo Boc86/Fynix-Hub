@@ -78,8 +78,10 @@ function EPGChannelRow({
   const customName = useSettingsStore((s) => s.liveTvCustomNames?.[ch.liveTvChannelId] || '')
   const displayName = customName || ch.liveTvName
   const primary = normalizeLogoUrl(customLogo) || ch.liveTvLogo || ''
-  // 4-tier chain: custom/LiveTV logo (as cdnLogo) -> EPG icon -> HEAD-checked GitHub fallback
-  const verified = useChannelLogo(ch.liveTvName, primary, ch.liveTvCountryCode, ch.icon)
+  // 4-tier chain: custom/LiveTV logo (as cdnLogo) -> EPG icon -> HEAD-checked
+  // GitHub fallback. The fuzzy GitHub match uses the custom name when the
+  // channel was renamed (the slug is derived from the display name).
+  const verified = useChannelLogo(displayName, primary, ch.liveTvCountryCode, ch.icon)
   const [src, setSrc] = useState(primary || verified)
   useEffect(() => {
     setSrc(primary || verified)

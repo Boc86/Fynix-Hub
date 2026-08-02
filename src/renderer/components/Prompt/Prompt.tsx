@@ -67,8 +67,13 @@ export default function Prompt({ title, message, placeholder, defaultValue, conf
           placeholder={placeholder}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
+              // stopPropagation: the Enter must not bubble to the app's global
+              // keydown handler (it would open the source selector right after
+              // the rename confirm clears the prompt state).
+              e.preventDefault(); e.stopPropagation()
               if (value.trim()) onConfirm(value.trim())
             } else if (e.key === 'Escape') {
+              e.preventDefault(); e.stopPropagation()
               onCancel()
             }
           }}
