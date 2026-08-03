@@ -196,6 +196,13 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     }
   }
 
+  if (!nzbId && /^\d+$/.test(id)) {
+    // Replaying from the completed-downloads list passes the raw NZBID as the
+    // id (listDownloads uses String(h.NZBID)). The in-memory activeDownloads
+    // map is empty after an app restart, so parse the NZBID directly.
+    nzbId = Number(id)
+  }
+
   if (!nzbId) {
     // We don't have the nzbid, so we cannot proceed with the normal method.
     return null
@@ -249,13 +256,22 @@ export async function getStreamUrl(id: string): Promise<string | null> {
       }
     }
 
-    // Completed path from config (without intermedate .# suffix)
+    // Completed path from config (without intermedate .# suffix).
+    // nzbget names the completed dir from the NZB filename (underscores),
+    // while the renderer title may use spaces — try all variants.
     const nzbSafeName = nzbName.replace(/[<>:"/\\|?*]/g, '_')
+    const nzbFileBase = group?.NZBFilename ? group.NZBFilename.replace(/\.nzb$/i, '') : ''
+    const dirNameVariants = [
+      nzbSafeName,
+      nzbSafeName.replace(/ /g, '_'),
+      nzbSafeName.replace(/_/g, ' '),
+      nzbFileBase,
+    ].filter((v, i, a) => v && a.indexOf(v) === i)
     if (configDestDir) {
-      searchDirs.push(path.join(configDestDir, nzbSafeName))
+      for (const v of dirNameVariants) searchDirs.push(path.join(configDestDir, v))
     }
     if (configInterDir) {
-      searchDirs.push(path.join(configInterDir, nzbSafeName))
+      for (const v of dirNameVariants) searchDirs.push(path.join(configInterDir, v))
     }
 
     // User-configured download directory (overrides RPC-reported paths)
@@ -263,11 +279,11 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     console.log(`[UDB] getStreamUrl customDir="${customDir}"`)
     if (customDir) {
       const customDirClean = customDir.replace(/\/+$/, '')
-      searchDirs.push(path.join(customDirClean, nzbSafeName))
+      for (const v of dirNameVariants) searchDirs.push(path.join(customDirClean, v))
       searchDirs.push(customDirClean)
       const customInterDir = customDirClean.replace(/\/completed\/?$/i, '/intermediate')
       if (customInterDir !== customDirClean) {
-        searchDirs.push(path.join(customInterDir, nzbSafeName))
+        for (const v of dirNameVariants) searchDirs.push(path.join(customInterDir, v))
       }
     }
 
@@ -333,18 +349,28 @@ export async function getStreamUrl(id: string): Promise<string | null> {
   }
 }
 
-async function findVideoFile(dir: string): Promise<string | null> {
+async function findVideoFile(dir: string, depth = 0): Promise<string | null> {
   const fs = await import('fs/promises')
+  if (depth > 4) return null
   console.log(`[UDB] findVideoFile reading dir="${dir}"`)
-  const entries = await fs.readdir(dir).catch((err) => {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch((err) => {
     console.log(`[UDB] findVideoFile readdir failed: ${err?.message}`)
-    return [] as string[]
+    return [] as import('fs').Dirent[]
   })
-  console.log(`[UDB] findVideoFile entries: [${entries.join(', ')}]`)
-  const videoFile = entries.find(e => /\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(e))
-  console.log(`[UDB] findVideoFile matched: ${videoFile || 'none'}`)
-  if (!videoFile) return null
-  return path.join(dir, videoFile)
+  console.log(`[UDB] findVideoFile entries: [${entries.map(e => e.name).join(', ')}]`)
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      // nzbget often nests the video one level down (completed/<NZBName>/<file>)
+      const found = await findVideoFile(full, depth + 1)
+      if (found) return found
+    } else if (/\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(entry.name)) {
+      console.log(`[UDB] findVideoFile matched: ${entry.name}`)
+      return full
+    }
+  }
+  console.log(`[UDB] findVideoFile matched: none`)
+  return null
 }
 
 export async function listDownloads(): Promise<any[]> {

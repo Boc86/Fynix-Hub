@@ -159,3 +159,41 @@ describe('formatEta', () => {
     expect(formatEta(120)).toBe('2m 0s')
   })
 })
+
+describe('getStreamUrl dir name variants', () => {
+  // Replicates the dirNameVariants logic from getStreamUrl: nzbget names the
+  // completed dir from the NZB filename (underscores) while the renderer title
+  // may use spaces — both variants (plus the raw NZB filename base) must be
+  // generated so the completed dir is found after an app restart.
+  function dirNameVariants(nzbName: string, nzbFilename: string | undefined): string[] {
+    const nzbSafeName = nzbName.replace(/[<>:"/\\|?*]/g, '_')
+    const nzbFileBase = nzbFilename ? nzbFilename.replace(/\.nzb$/i, '') : ''
+    return [
+      nzbSafeName,
+      nzbSafeName.replace(/ /g, '_'),
+      nzbSafeName.replace(/_/g, ' '),
+      nzbFileBase,
+    ].filter((v, i, a) => v && a.indexOf(v) === i)
+  }
+
+  it('includes the underscore variant of a space-separated title', () => {
+    const variants = dirNameVariants('Disclosure Day-2026-1080p-WEBRip-x265-10bit-5.1-YTS.GG-YTS.BZ', undefined)
+    expect(variants).toContain('Disclosure_Day-2026-1080p-WEBRip-x265-10bit-5.1-YTS.GG-YTS.BZ')
+  })
+
+  it('includes the space variant of an underscore title', () => {
+    const variants = dirNameVariants('Disclosure_Day-2026', undefined)
+    expect(variants).toContain('Disclosure Day-2026')
+  })
+
+  it('includes the raw NZB filename base (nzbget naming)', () => {
+    const variants = dirNameVariants('Disclosure Day', 'Disclosure_Day-2026-1080p.nzb')
+    expect(variants).toContain('Disclosure_Day-2026-1080p')
+  })
+
+  it('deduplicates identical variants', () => {
+    const variants = dirNameVariants('Same_Name', 'Same_Name.nzb')
+    const unique = new Set(variants)
+    expect(variants).toHaveLength(unique.size)
+  })
+})
