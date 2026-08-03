@@ -70,23 +70,6 @@ export function removePortal(url: string, user: string, pass: string): XtreamPor
   return getPortals()
 }
 
-export function importPortals(newPortals: XtreamPortal[]): { added: number; total: number } {
-  if (portals.length === 0) load()
-  let added = 0
-  for (const np of newPortals) {
-    let clean = np.url.replace(/\/get\.php$/i, '').replace(/\/player_api\.php$/i, '')
-    while (clean.endsWith('/')) clean = clean.slice(0, -1)
-    if (!/^https?:/i.test(clean)) clean = 'http://' + clean
-
-    if (!portals.some(p => p.url === clean && p.user === np.user && p.pass === np.pass)) {
-      portals.push({ url: clean, user: np.user, pass: np.pass })
-      added++
-    }
-  }
-  if (added > 0) save()
-  return { added, total: portals.length }
-}
-
 /**
  * Fetch the M3U playlist from an Xtream portal.
  * Returns { label, url, channels } shape matching IPTVSource, or null.
