@@ -322,9 +322,11 @@ app.whenReady().then(async () => {
   UpdaterService.checkForUpdates();
 
   // IPTV M3U: fetch on startup (async, non-blocking), cache for 24h
-  import('./services/iptv-m3u.service').then(({ getAllSources, scheduleAutoImport }) => {
-    // Daily 01:00 auto-import scheduler (Xtream portals from JSON URL, when enabled)
-    scheduleAutoImport();
+  import('./services/iptv-m3u.service').then(async ({ getAllSources, scheduleAutoScrape, runAutoScrapeIfStale }) => {
+    // Daily 01:00 auto-scrape scheduler (Reddit Xtream portals)
+    scheduleAutoScrape();
+    // Catch-up: scrape now if the app wasn't running at 01:00 (stale cache)
+    await runAutoScrapeIfStale();
     getAllSources().then(sources => {
       const total = sources.reduce((sum, s) => sum + s.channels.length, 0);
       console.log(`[IPTV-M3U] Startup cache ready: ${sources.length} sources, ${total} channels`);

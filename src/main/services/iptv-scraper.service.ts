@@ -510,10 +510,12 @@ export class IptvScraperService {
   private cancelled = false
   private seenPastes = new Set<string>()
   private redditFetcher = new RedditFetcher()
+  private lastScrapedAt: number | null = null
 
   constructor() {
     this.loadSaved()
     this.loadSeenPastes()
+    this.loadState()
   }
 
   private loadSaved(): void {
@@ -549,6 +551,35 @@ export class IptvScraperService {
     } catch (_) {
       // Ignore errors
     }
+  }
+
+  private statePath(): string {
+    return path.join(app.getPath('userData'), 'iptv-scrape-state.json')
+  }
+
+  private loadState(): void {
+    try {
+      const filePath = this.statePath()
+      if (fs.existsSync(filePath)) {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+        if (typeof data?.lastScrapedAt === 'number') this.lastScrapedAt = data.lastScrapedAt
+      }
+    } catch (_) {
+      // Ignore errors
+    }
+  }
+
+  private persistState(): void {
+    try {
+      fs.writeFileSync(this.statePath(), JSON.stringify({ lastScrapedAt: this.lastScrapedAt }, null, 2), 'utf-8')
+    } catch (_) {
+      // Ignore errors
+    }
+  }
+
+  /** Timestamp (epoch ms) of the last completed harvest, or null if never run. */
+  getLastScrapeTime(): number | null {
+    return this.lastScrapedAt
   }
 
   private portalKey(p: { url: string; user: string; pass: string }): string {
@@ -676,6 +707,10 @@ export class IptvScraperService {
 
       const got = this.verifiedMap.size - startCount
       this.persistSeenPastes()
+      // Stamp completion so the startup stale-check knows this run happened
+      // even when nothing new was found.
+      this.lastScrapedAt = Date.now()
+      this.persistState()
       return got
     } finally {
       this.cancelled = false

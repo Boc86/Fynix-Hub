@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanChannelName, isCategoryHeader, parseM3U } from '@/main/services/iptv-m3u.service'
+import { cleanChannelName, isCategoryHeader, parseM3U, isScrapeStale } from '@/main/services/iptv-m3u.service'
 
 describe('cleanChannelName', () => {
   it('strips quality tokens (HD, FHD, UHD, SD, 4K)', () => {
@@ -142,5 +142,23 @@ describe('parseM3U', () => {
     expect(channels).toHaveLength(1)
     expect(channels[0].name).toBe('BBC ONE')
     expect(channels[0].logo).toBe('https://example.com/real.png')
+  })
+})
+
+describe('isScrapeStale', () => {
+  const NOW = 1_800_000_000_000
+
+  it('is stale when the scrape has never run', () => {
+    expect(isScrapeStale(null, NOW)).toBe(true)
+  })
+
+  it('is fresh when the last scrape is under 24h old', () => {
+    expect(isScrapeStale(NOW - 60_000, NOW)).toBe(false) // 1 min ago (ran at 01:00 today)
+    expect(isScrapeStale(NOW - 23 * 60 * 60 * 1000, NOW)).toBe(false)
+  })
+
+  it('is stale when the last scrape is 24h or older (missed 01:00)', () => {
+    expect(isScrapeStale(NOW - 24 * 60 * 60 * 1000, NOW)).toBe(true)
+    expect(isScrapeStale(NOW - 32 * 60 * 60 * 1000, NOW)).toBe(true) // app closed over 01:00
   })
 })

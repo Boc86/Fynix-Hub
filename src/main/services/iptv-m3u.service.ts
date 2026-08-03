@@ -320,8 +320,8 @@ export async function findChannelInSources(
   return matches
 }
 
-// ─── Daily auto-import scheduler (01:00 local) ───────────────────────────────
-let autoImportTimer: ReturnType<typeof setTimeout> | null = null
+// ─── Daily auto-scrape scheduler (01:00 local) ──────────────────────────────
+let autoScrapeTimer: ReturnType<typeof setTimeout> | null = null
 
 function msUntilNext(hour: number, minute = 0): number {
   const now = new Date()
@@ -346,13 +346,41 @@ export async function runAutoScrape(): Promise<void> {
   }
 }
 
+const SCRAPE_STALE_MS = 24 * 60 * 60 * 1000 // 24h, aligned to the daily 01:00 run
+
+/**
+ * Staleness decision: the scrape cache is stale when it has never run,
+ * or the last run is older than 24h (the app wasn't running at 01:00).
+ */
+export function isScrapeStale(lastScrapedAt: number | null, now: number): boolean {
+  return lastScrapedAt === null || now - lastScrapedAt >= SCRAPE_STALE_MS
+}
+
+/**
+ * Catch-up pass: run the scrape immediately if the last one is older than 24h
+ * (i.e. the app wasn't running at 01:00). No-op when fresh.
+ * Returns true when a scrape ran.
+ */
+export async function runAutoScrapeIfStale(): Promise<boolean> {
+  try {
+    const { iptvScraperService } = await import('./iptv-scraper.service')
+    if (!isScrapeStale(iptvScraperService.getLastScrapeTime(), Date.now())) return false
+    console.log('[IPTV-M3U] Scrape cache stale (missed 01:00) — scraping now')
+    await runAutoScrape()
+    return true
+  } catch (err: any) {
+    console.warn(`[IPTV-M3U] Stale scrape check failed: ${err.message}`)
+    return false
+  }
+}
+
 /**
  * Arm the 01:00 daily auto-scrape timer. Idempotent — call once at startup.
  */
-export function scheduleAutoImport(): void {
-  if (autoImportTimer) return
+export function scheduleAutoScrape(): void {
+  if (autoScrapeTimer) return
   const arm = () => {
-    autoImportTimer = setTimeout(async () => {
+    autoScrapeTimer = setTimeout(async () => {
       await runAutoScrape()
       arm()
     }, msUntilNext(1, 0))
