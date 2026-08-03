@@ -37,6 +37,7 @@ let currentSessionId: string | null = null
 /** Last resume position passed to startPlayback — preserved across audio switches. */
 let currentResumePosition: number = 0
 let currentProxyId: string | null = null
+let currentFileSessionId: string | null = null
 let currentChapters: Chapter[] = []
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -111,7 +112,18 @@ export async function startPlayback(
   // ponytail: Chromium (Electron 42) decodes HEVC natively via VAAPI.
   // Play HLS/.m3u8 directly; remux only for non-browser-playable streams.
   if (isBrowserPlayable(resolvedUrl) && !forceRemux) {
-    const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(resolvedUrl)
+    const isLocal = /^(file:|https?:\/\/(127\.0\.0\.1|localhost))/.test(resolvedUrl)
+
+    // file:// paths (completed usenet downloads) can't be loaded by Chromium
+    // from the http://localhost renderer origin — serve over the local HTTP
+    // server (Range-enabled) instead.
+    if (/^file:\/\//.test(resolvedUrl)) {
+      const filePath = resolvedUrl.replace(/^file:\/\//, '')
+      const { sessionId, url } = LocalCache.createFileSession(filePath)
+      currentFileSessionId = sessionId
+      debug('Local file served via HTTP:', url.slice(0, 80))
+      return { streamUrl: url, duration: null, chapters: [], audioTracks: [], isRemux: false }
+    }
 
     if (needsCdnProxy(resolvedUrl)) {
       // Browser-playable but needs CDN headers → route through local proxy.
@@ -196,6 +208,10 @@ export async function startPlayback(
  * Stop the current playback session.
  */
 export async function stopPlayback(): Promise<void> {
+  if (currentFileSessionId) {
+    LocalCache.removeFileSession(currentFileSessionId)
+    currentFileSessionId = null
+  }
   if (currentProxyId) {
     debug('Removing proxy session:', currentProxyId)
     LocalCache.removeProxySession(currentProxyId)

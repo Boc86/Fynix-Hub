@@ -106,6 +106,30 @@ export function removeProxySession(proxyId: string): void {
   }
 }
 
+// ─── Local File Sessions ────────────────────────────────────────────────────────
+// ponytail: completed usenet downloads are file:// paths, which Chromium blocks
+// from the http://localhost renderer origin. Serve them over the local HTTP
+// server (with Range support for seeking) via a token-guarded route instead.
+
+const fileSessions = new Map<string, string>() // sessionId -> absolute file path
+
+let fileSessionCounter = 0
+
+export function createFileSession(filePath: string): { sessionId: string; url: string } {
+  const sessionId = 'f' + (++fileSessionCounter).toString(36) + Math.random().toString(36).slice(2, 8)
+  fileSessions.set(sessionId, filePath)
+  const url = `http://127.0.0.1:${serverPort}/local/${sessionId}`
+  debug('File session created:', sessionId, '→', url, '(path:', filePath.slice(0, 80) + ')')
+  return { sessionId, url }
+}
+
+export function removeFileSession(sessionId: string): void {
+  if (fileSessions.has(sessionId)) {
+    debug('File session removed:', sessionId)
+    fileSessions.delete(sessionId)
+  }
+}
+
 export interface TorrentStreamInfo {
   stream: Readable
   size: number
@@ -514,6 +538,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   res.on('error', () => {})
 
   const url = req.url || '/'
+
+  // Handle /local/<id> — serve a local file (completed usenet download) with
+  // Range support. Token-guarded: only paths registered via createFileSession.
+  const localMatch = url.match(/^\/local\/([a-zA-Z0-9]+)\/?$/)
+  if (localMatch && fileSessions.has(localMatch[1])) {
+    serveFile(fileSessions.get(localMatch[1])!, req, res)
+    return
+  }
 
   // Handle /proxy/<id>/<path> — fetch remote HLS stream with proper headers
   //   /proxy/<id>/                    → master playlist (session.url)
