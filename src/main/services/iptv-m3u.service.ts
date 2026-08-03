@@ -13,9 +13,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
-import { refreshAllPortalM3Us, type XtreamPortal, importPortals } from './xtream-portal.service'
+import { refreshAllPortalM3Us, type XtreamPortal } from './xtream-portal.service'
 import { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
-import * as CacheService from './cache.service'
 
 export { cleanChannelName, channelKey } from '@/shared/cleanChannelName'
 
@@ -91,33 +90,6 @@ export function parseM3U(content: string): IPTVChannel[] {
     }
   }
   return channels
-}
-
-/**
- * Fetch a JSON portal list from a URL and normalize both common shapes:
- *   - { portals: [{url, user, pass}, ...] }
- *   - [{url, user, pass}, ...]
- * Returns normalized XtreamPortal[] ready for XtreamService.importPortals().
- * Used by the auto-import scheduler at 01:00 daily.
- */
-export async function autoImportPortals(jsonUrl: string): Promise<XtreamPortal[]> {
-  let data: any
-  try {
-    const text = await fetchText(jsonUrl)
-    data = JSON.parse(text)
-  } catch (err: any) {
-    console.warn(`[IPTV-M3U] autoImportPortals: failed to fetch/parse ${jsonUrl}: ${err.message}`)
-    return []
-  }
-  const raw: any[] = Array.isArray(data) ? data : (Array.isArray(data?.portals) ? data.portals : [])
-  const out: XtreamPortal[] = []
-  for (const r of raw) {
-    if (r && typeof r.url === 'string' && typeof r.user === 'string' && typeof r.pass === 'string') {
-      out.push({ url: r.url, user: r.user, pass: r.pass })
-    }
-  }
-  console.log(`[IPTV-M3U] autoImportPortals: parsed ${out.length} portal(s) from ${jsonUrl}`)
-  return out
 }
 
 /**
@@ -348,8 +320,8 @@ export async function findChannelInSources(
   return matches
 }
 
-// ─── Daily auto-import scheduler (01:00 local) ───────────────────────────────
-let autoImportTimer: ReturnType<typeof setTimeout> | null = null
+// ─── Daily auto-scrape scheduler (01:00 local) ──────────────────────────────
+let autoScrapeTimer: ReturnType<typeof setTimeout> | null = null
 
 function msUntilNext(hour: number, minute = 0): number {
   const now = new Date()
@@ -360,32 +332,56 @@ function msUntilNext(hour: number, minute = 0): number {
 }
 
 /**
- * Run one auto-import pass: fetch the portal JSON, import portals, refresh M3U.
- * No-op when auto-import is disabled or no URL configured.
+ * Run one auto-scrape pass: scrape Reddit for portals, verify, import, refresh M3U.
+ * Scraped portals are merged with the MAD TITAN txt source (see doFetch).
  */
-export async function runAutoImport(): Promise<void> {
+export async function runAutoScrape(): Promise<void> {
   try {
-    const enabled = CacheService.getSetting<boolean>('iptvM3uAutoImport')
-    const url = CacheService.getSetting<string>('iptvM3uAutoImportUrl')
-    if (!enabled || !url) return
-    const portals = await autoImportPortals(url)
-    if (portals.length === 0) return
-    const { added } = importPortals(portals)
-    console.log(`[IPTV-M3U] Auto-import added ${added} portal(s)`)
+    const { iptvScraperService } = await import('./iptv-scraper.service')
+    const added = await iptvScraperService.harvest(5)
+    console.log(`[IPTV-M3U] Auto-scrape added ${added} portal(s)`)
     await getAllSources(true)
   } catch (err: any) {
-    console.warn(`[IPTV-M3U] Auto-import failed: ${err.message}`)
+    console.warn(`[IPTV-M3U] Auto-scrape failed: ${err.message}`)
+  }
+}
+
+const SCRAPE_STALE_MS = 24 * 60 * 60 * 1000 // 24h, aligned to the daily 01:00 run
+
+/**
+ * Staleness decision: the scrape cache is stale when it has never run,
+ * or the last run is older than 24h (the app wasn't running at 01:00).
+ */
+export function isScrapeStale(lastScrapedAt: number | null, now: number): boolean {
+  return lastScrapedAt === null || now - lastScrapedAt >= SCRAPE_STALE_MS
+}
+
+/**
+ * Catch-up pass: run the scrape immediately if the last one is older than 24h
+ * (i.e. the app wasn't running at 01:00). No-op when fresh.
+ * Returns true when a scrape ran.
+ */
+export async function runAutoScrapeIfStale(): Promise<boolean> {
+  try {
+    const { iptvScraperService } = await import('./iptv-scraper.service')
+    if (!isScrapeStale(iptvScraperService.getLastScrapeTime(), Date.now())) return false
+    console.log('[IPTV-M3U] Scrape cache stale (missed 01:00) — scraping now')
+    await runAutoScrape()
+    return true
+  } catch (err: any) {
+    console.warn(`[IPTV-M3U] Stale scrape check failed: ${err.message}`)
+    return false
   }
 }
 
 /**
- * Arm the 01:00 daily auto-import timer. Idempotent — call once at startup.
+ * Arm the 01:00 daily auto-scrape timer. Idempotent — call once at startup.
  */
-export function scheduleAutoImport(): void {
-  if (autoImportTimer) return
+export function scheduleAutoScrape(): void {
+  if (autoScrapeTimer) return
   const arm = () => {
-    autoImportTimer = setTimeout(async () => {
-      await runAutoImport()
+    autoScrapeTimer = setTimeout(async () => {
+      await runAutoScrape()
       arm()
     }, msUntilNext(1, 0))
   }

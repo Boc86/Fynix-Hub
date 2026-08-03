@@ -271,17 +271,6 @@ const api = {
     getAllChannels: (forceRefresh?: boolean) => ipcRenderer.invoke('iptv-m3u:get-all-channels', forceRefresh),
     findChannel: (query: string) => ipcRenderer.invoke('iptv-m3u:find-channel', query)
   },
-  xtream: {
-    getPortals: () => ipcRenderer.invoke('xtream:get-portals'),
-    addPortal: (url: string, user: string, pass: string) =>
-      ipcRenderer.invoke('xtream:add-portal', url, user, pass),
-    removePortal: (url: string, user: string, pass: string) =>
-      ipcRenderer.invoke('xtream:remove-portal', url, user, pass),
-    importPortals: (portals: { url: string; user: string; pass: string }[]) =>
-      ipcRenderer.invoke('xtream:import-portals', portals),
-    autoImport: (portals: { url: string; user: string; pass: string }[]) =>
-      ipcRenderer.invoke('xtream:auto-import', portals),
-  },
   channelLogo: {
     resolve: (channelName: string, countryCode: string) =>
       ipcRenderer.invoke('channel-logo:resolve', channelName, countryCode),

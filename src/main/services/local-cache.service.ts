@@ -106,6 +106,35 @@ export function removeProxySession(proxyId: string): void {
   }
 }
 
+// ─── Local File Sessions ────────────────────────────────────────────────────────
+// ponytail: completed usenet downloads are file:// paths, which Chromium blocks
+// from the http://localhost renderer origin. Serve them over the local HTTP
+// server (with Range support for seeking) via a token-guarded route instead.
+
+const fileSessions = new Map<string, string>() // sessionId -> absolute file path
+
+let fileSessionCounter = 0
+
+export function createFileSession(filePath: string): { sessionId: string; url: string } {
+  const sessionId = 'f' + (++fileSessionCounter).toString(36) + Math.random().toString(36).slice(2, 8)
+  fileSessions.set(sessionId, filePath)
+  // Append the real filename so the URL ends with the media extension
+  // (e.g. .mp4). The renderer's HlsJsVideo wrapper infers the content type
+  // from the URL: *.mp4 → native <video> playback; anything else → hls.js,
+  // which would try to parse the MP4 as an HLS manifest and stall.
+  const basename = path.basename(filePath).replace(/[?#]/g, '_')
+  const url = `http://127.0.0.1:${serverPort}/local/${sessionId}/${encodeURIComponent(basename)}`
+  debug('File session created:', sessionId, '→', url, '(path:', filePath.slice(0, 80) + ')')
+  return { sessionId, url }
+}
+
+export function removeFileSession(sessionId: string): void {
+  if (fileSessions.has(sessionId)) {
+    debug('File session removed:', sessionId)
+    fileSessions.delete(sessionId)
+  }
+}
+
 export interface TorrentStreamInfo {
   stream: Readable
   size: number
@@ -224,7 +253,7 @@ export async function clearCache(): Promise<void> {
 function serveFile(filePath: string, req: http.IncomingMessage, res: http.ServerResponse) {
   try {
     if (!fs.existsSync(filePath)) {
-      res.writeHead(404)
+      res.writeHead(404, { 'Access-Control-Allow-Origin': '*' })
       res.end('File not found')
       return
     }
@@ -245,6 +274,7 @@ function serveFile(filePath: string, req: http.IncomingMessage, res: http.Server
         'Content-Length': chunkSize,
         'Content-Type': 'application/octet-stream',
         'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
       })
 
       const stream = fs.createReadStream(filePath, { start, end })
@@ -256,6 +286,7 @@ function serveFile(filePath: string, req: http.IncomingMessage, res: http.Server
         'Content-Type': 'application/octet-stream',
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
       })
       const stream = fs.createReadStream(filePath)
       stream.pipe(res)
@@ -514,6 +545,30 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   res.on('error', () => {})
 
   const url = req.url || '/'
+
+  // CORS preflight — hls.js sets a Range header, which is not a safelisted
+  // header, so the browser sends an OPTIONS request first when the renderer
+  // origin (http://localhost:5173) differs from the server (127.0.0.1).
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Range, Content-Type, Accept',
+      'Access-Control-Max-Age': '86400',
+    })
+    res.end()
+    return
+  }
+
+  // Handle /local/<id>/<filename> — serve a local file (completed usenet
+  // download) with Range support. Token-guarded: only paths registered via
+  // createFileSession. The filename suffix is cosmetic (drives the renderer's
+  // native-vs-hls content-type inference); the session id is the authority.
+  const localMatch = url.match(/^\/local\/([a-zA-Z0-9]+)\/([^/]+)$/)
+  if (localMatch && fileSessions.has(localMatch[1])) {
+    serveFile(fileSessions.get(localMatch[1])!, req, res)
+    return
+  }
 
   // Handle /proxy/<id>/<path> — fetch remote HLS stream with proper headers
   //   /proxy/<id>/                    → master playlist (session.url)

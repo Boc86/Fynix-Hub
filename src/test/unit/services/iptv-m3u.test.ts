@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanChannelName, isCategoryHeader, autoImportPortals, parseM3U } from '@/main/services/iptv-m3u.service'
+import { cleanChannelName, isCategoryHeader, parseM3U, isScrapeStale } from '@/main/services/iptv-m3u.service'
 
 describe('cleanChannelName', () => {
   it('strips quality tokens (HD, FHD, UHD, SD, 4K)', () => {
@@ -145,77 +145,20 @@ describe('parseM3U', () => {
   })
 })
 
-describe('autoImportPortals', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn())
-  })
-  afterEach(() => {
-    vi.unstubAllGlobals()
+describe('isScrapeStale', () => {
+  const NOW = 1_800_000_000_000
+
+  it('is stale when the scrape has never run', () => {
+    expect(isScrapeStale(null, NOW)).toBe(true)
   })
 
-  it('parses a bare array of {url,user,pass}', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify([
-        { url: 'http://a.com:8080', user: 'u1', pass: 'p1' },
-        { url: 'http://b.com:8080', user: 'u2', pass: 'p2' },
-      ])),
-    } as any)
-    const portals = await autoImportPortals('https://example.com/portals.json')
-    expect(portals).toHaveLength(2)
-    expect(portals[0]).toEqual({ url: 'http://a.com:8080', user: 'u1', pass: 'p1' })
-    expect(portals[1].url).toBe('http://b.com:8080')
+  it('is fresh when the last scrape is under 24h old', () => {
+    expect(isScrapeStale(NOW - 60_000, NOW)).toBe(false) // 1 min ago (ran at 01:00 today)
+    expect(isScrapeStale(NOW - 23 * 60 * 60 * 1000, NOW)).toBe(false)
   })
 
-  it('parses the {portals:[...]} wrapper shape', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify({
-        portals: [{ url: 'http://c.com', user: 'u3', pass: 'p3' }],
-      })),
-    } as any)
-    const portals = await autoImportPortals('https://example.com/portals.json')
-    expect(portals).toHaveLength(1)
-    expect(portals[0]).toEqual({ url: 'http://c.com', user: 'u3', pass: 'p3' })
-  })
-
-  it('filters entries missing url/user/pass', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify([
-        { url: 'http://ok.com', user: 'u', pass: 'p' },
-        { url: 'http://nopass.com', user: 'u' },
-        { url: 'http://noun.com' },
-        'not-an-object',
-        null,
-      ])),
-    } as any)
-    const portals = await autoImportPortals('https://example.com/portals.json')
-    expect(portals).toHaveLength(1)
-    expect(portals[0].url).toBe('http://ok.com')
-  })
-
-  it('returns [] on fetch failure', async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error('network down'))
-    const portals = await autoImportPortals('https://example.com/portals.json')
-    expect(portals).toEqual([])
-  })
-
-  it('returns [] on malformed JSON', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve('not-json{{{'),
-    } as any)
-    const portals = await autoImportPortals('https://example.com/portals.json')
-    expect(portals).toEqual([])
-  })
-
-  it('returns [] for unknown shapes', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify({ foo: 'bar' })),
-    } as any)
-    const portals = await autoImportPortals('https://example.com/portals.json')
-    expect(portals).toEqual([])
+  it('is stale when the last scrape is 24h or older (missed 01:00)', () => {
+    expect(isScrapeStale(NOW - 24 * 60 * 60 * 1000, NOW)).toBe(true)
+    expect(isScrapeStale(NOW - 32 * 60 * 60 * 1000, NOW)).toBe(true) // app closed over 01:00
   })
 })
