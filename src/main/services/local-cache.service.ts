@@ -118,7 +118,12 @@ let fileSessionCounter = 0
 export function createFileSession(filePath: string): { sessionId: string; url: string } {
   const sessionId = 'f' + (++fileSessionCounter).toString(36) + Math.random().toString(36).slice(2, 8)
   fileSessions.set(sessionId, filePath)
-  const url = `http://127.0.0.1:${serverPort}/local/${sessionId}`
+  // Append the real filename so the URL ends with the media extension
+  // (e.g. .mp4). The renderer's HlsJsVideo wrapper infers the content type
+  // from the URL: *.mp4 → native <video> playback; anything else → hls.js,
+  // which would try to parse the MP4 as an HLS manifest and stall.
+  const basename = path.basename(filePath).replace(/[?#]/g, '_')
+  const url = `http://127.0.0.1:${serverPort}/local/${sessionId}/${encodeURIComponent(basename)}`
   debug('File session created:', sessionId, '→', url, '(path:', filePath.slice(0, 80) + ')')
   return { sessionId, url }
 }
@@ -555,9 +560,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     return
   }
 
-  // Handle /local/<id> — serve a local file (completed usenet download) with
-  // Range support. Token-guarded: only paths registered via createFileSession.
-  const localMatch = url.match(/^\/local\/([a-zA-Z0-9]+)\/?$/)
+  // Handle /local/<id>/<filename> — serve a local file (completed usenet
+  // download) with Range support. Token-guarded: only paths registered via
+  // createFileSession. The filename suffix is cosmetic (drives the renderer's
+  // native-vs-hls content-type inference); the session id is the authority.
+  const localMatch = url.match(/^\/local\/([a-zA-Z0-9]+)\/([^/]+)$/)
   if (localMatch && fileSessions.has(localMatch[1])) {
     serveFile(fileSessions.get(localMatch[1])!, req, res)
     return
