@@ -248,7 +248,7 @@ export async function clearCache(): Promise<void> {
 function serveFile(filePath: string, req: http.IncomingMessage, res: http.ServerResponse) {
   try {
     if (!fs.existsSync(filePath)) {
-      res.writeHead(404)
+      res.writeHead(404, { 'Access-Control-Allow-Origin': '*' })
       res.end('File not found')
       return
     }
@@ -269,6 +269,7 @@ function serveFile(filePath: string, req: http.IncomingMessage, res: http.Server
         'Content-Length': chunkSize,
         'Content-Type': 'application/octet-stream',
         'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
       })
 
       const stream = fs.createReadStream(filePath, { start, end })
@@ -280,6 +281,7 @@ function serveFile(filePath: string, req: http.IncomingMessage, res: http.Server
         'Content-Type': 'application/octet-stream',
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
       })
       const stream = fs.createReadStream(filePath)
       stream.pipe(res)
@@ -538,6 +540,20 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   res.on('error', () => {})
 
   const url = req.url || '/'
+
+  // CORS preflight — hls.js sets a Range header, which is not a safelisted
+  // header, so the browser sends an OPTIONS request first when the renderer
+  // origin (http://localhost:5173) differs from the server (127.0.0.1).
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Range, Content-Type, Accept',
+      'Access-Control-Max-Age': '86400',
+    })
+    res.end()
+    return
+  }
 
   // Handle /local/<id> — serve a local file (completed usenet download) with
   // Range support. Token-guarded: only paths registered via createFileSession.
