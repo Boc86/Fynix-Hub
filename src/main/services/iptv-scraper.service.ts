@@ -459,7 +459,7 @@ class RedditFetcher {
       const nextRaw = data.after
       const hasMore = nextRaw && String(nextRaw) !== 'null' && nextRaw !== ''
       return {
-        posts: posts.map((p: any) => p.data || {}),
+        posts: posts.map((p: any) => ({ data: p.data || {} })),
         next: hasMore ? String(nextRaw) : null,
       }
     } catch (_) {
@@ -725,8 +725,8 @@ export class IptvScraperService {
     postData: RedditPost,
     pageLabel: string
   ): Promise<Array<{ url: string; user: string; pass: string }>> {
-    const title = postData.data.title || ''
-    const body = (title + ' ' + (postData.data.selftext || '')).trim()
+    const title = postData?.data?.title || ''
+    const body = (title + ' ' + (postData?.data?.selftext || '')).trim()
     if (!body) return []
 
     const before = this.candidatesMap.size
