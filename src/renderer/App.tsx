@@ -1,18 +1,13 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Layout from './components/Layout/Layout'
 import Browser from './components/Browser/Browser'
 import DetailView from './components/DetailView/DetailView'
 import { VideoPlayer, type VideoPlayerHandle } from './components/VideoPlayer/VideoPlayer'
 import SearchModal from './components/SearchModal/SearchModal'
-import Settings from './components/Settings/Settings'
 import Sidebar from './components/Sidebar/Sidebar'
 
 import ContextMenu from './components/ContextMenu/ContextMenu'
 import TorrentSearch from './components/TorrentSearch/TorrentSearch'
-import Sports from './components/Sports/Sports'
-import LiveTV, { type LiveTVAPI } from './components/LiveTV/LiveTV'
-import EPG from './components/EPG/EPG'
-import Recordings from './components/Recordings/Recordings'
 import ErrorBoundary from './components/ErrorBoundary'
 import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
@@ -20,10 +15,20 @@ import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
+import type { LiveTVAPI } from './components/LiveTV/LiveTV'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 import { getWatchApi, useWatchConnected } from './utils/watchProvider'
+
+// Heavy screens are code-split so the shell (Browser) paints instantly and
+// each screen chunk loads only on first visit. The type-only import keeps
+// LiveTVAPI out of the initial bundle.
+const Settings = lazy(() => import('./components/Settings/Settings'))
+const Sports = lazy(() => import('./components/Sports/Sports'))
+const LiveTV = lazy(() => import('./components/LiveTV/LiveTV'))
+const EPG = lazy(() => import('./components/EPG/EPG'))
+const Recordings = lazy(() => import('./components/Recordings/Recordings'))
 
   type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg' | 'recordings'
 
@@ -1722,13 +1727,16 @@ export default function App() {
       ))}
       {view === 'settings' && (
         <div className="animate-fade">
-          <Settings onClose={() => goBack()} />
+          <Suspense fallback={null}>
+            <Settings onClose={() => goBack()} />
+          </Suspense>
         </div>
       )}
       {view === 'sports' && (
         <div className="animate-fade">
           <ErrorBoundary fallback={<div style={{ padding: 24, color: '#fff' }}>Sports view failed to load. Check console for details.</div>}>
-            <Sports
+            <Suspense fallback={null}>
+              <Sports
             onPlay={(title, year) => {
               setTorrentSearchTitle(title)
               setTorrentSearchYear(year)
@@ -1760,12 +1768,14 @@ export default function App() {
             }}
             onBack={() => goBack()}
           />
+            </Suspense>
           </ErrorBoundary>
         </div>
       )}
       {view === 'live-tv' && (
         <div className="animate-fade">
-          <LiveTV
+          <Suspense fallback={null}>
+            <LiveTV
             apiRef={liveTvApiRef}
             onPlayUrl={async (url) => {
               if (/dlhd\.st\/watch\.php/i.test(url)) {
@@ -1799,11 +1809,13 @@ export default function App() {
             }}
             onBack={() => goBack()}
           />
+          </Suspense>
         </div>
       )}
       {view === 'epg' && (
         <div className="animate-fade">
-          <EPG
+          <Suspense fallback={null}>
+            <EPG
             onPlayUrl={async (url) => {
               if (/dlhd\.st\/watch\.php/i.test(url)) {
                 window.api.log('[App] EPG DLHD — opening iframe player')
@@ -1837,11 +1849,13 @@ export default function App() {
             onBack={() => goBack()}
             liveTvChannels={epgLiveTvChannels}
           />
+          </Suspense>
         </div>
       )}
       {view === 'recordings' && (
         <div className="animate-fade">
-          <Recordings
+          <Suspense fallback={null}>
+            <Recordings
             onPlayUrl={async (url) => {
               setTorrentSearchOpen(false)
               setFreeSearchOpen(false)
@@ -1863,6 +1877,7 @@ export default function App() {
             }}
             onBack={() => goBack()}
           />
+          </Suspense>
         </div>
       )}
       {view === 'youtube' && (

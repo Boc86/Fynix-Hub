@@ -53,6 +53,20 @@ const SCROLL_AMOUNT = 300
 const MENU_WIDTH = 220
 const MENU_HEIGHT = 120
 
+// Renderer-level view cache: re-entering the EPG screen used to re-fetch
+// now/next + the full day grid for every channel. The batch IPC made that
+// one round trip, and this module-scope cache makes revisits within the TTL
+// instant. A manual refresh (refreshNonce) or a day rollover (dateStr)
+// bypasses it. Module scope (not useState) so it survives unmount.
+const EPG_VIEW_TTL = 5 * 60_000
+let epgViewCache: {
+  key: string
+  channels: MappedChannel[]
+  nowNext: Record<string, { now: EPGProgramme | null; next: EPGProgramme | null }>
+  schedules: Record<string, EPGProgramme[]>
+  at: number
+} | null = null
+
 /**
  * EPG channel row with logo fallback.
  * Calls useChannelLogo so it's a proper hook user.
@@ -78,13 +92,16 @@ function EPGChannelRow({
   const customName = useSettingsStore((s) => s.liveTvCustomNames?.[ch.liveTvChannelId] || '')
   const displayName = customName || ch.liveTvName
   const primary = normalizeLogoUrl(customLogo) || ch.liveTvLogo || ''
-  // 4-tier chain: custom/LiveTV logo (as cdnLogo) -> EPG icon -> HEAD-checked
-  // GitHub fallback. The fuzzy GitHub match uses the custom name when the
-  // channel was renamed (the slug is derived from the display name).
-  const verified = useChannelLogo(displayName, primary, ch.liveTvCountryCode, ch.icon)
+  // Same 4-tier chain as LiveTV: CDN/M3U (primary) → EPG icon → HEAD-checked
+  // GitHub fallback → text. cdnLogo='' (not primary) so the fallback resolves
+  // even when a CDN logo is set — otherwise a broken CDN image would never
+  // recover (the hook short-circuits when cdnLogo is truthy).
+  const verified = useChannelLogo(displayName, '', ch.liveTvCountryCode, ch.icon)
   const [src, setSrc] = useState(primary || verified)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     setSrc(primary || verified)
+    setFailed(false)
   }, [primary, verified])
   return (
     <div
@@ -99,8 +116,8 @@ function EPGChannelRow({
         transition: 'background 0.1s',
       }}
     >
-      {src
-        ? <img src={src} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }} onError={() => { if (src !== verified) setSrc(verified) }} />
+      {!failed && src
+        ? <img src={src} alt="" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6 }} onError={() => { if (src !== verified && verified) setSrc(verified); else setFailed(true) }} />
         : <span style={{ fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
       }
       <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: focused ? 'var(--accent)' : 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
@@ -187,6 +204,15 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
 
   useEffect(() => {
     let cancelled = false
+    const key = `${dateStr}|${refreshNonce}|${(liveTvChannels || []).length}`
+    const cacheHit = epgViewCache !== null && epgViewCache.key === key && Date.now() - epgViewCache.at < EPG_VIEW_TTL
+    if (cacheHit && epgViewCache) {
+      setChannels(epgViewCache.channels)
+      setNowNextMap(epgViewCache.nowNext)
+      setGridData(epgViewCache.schedules)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     ;(async () => {
       // Re-check staleness every time the EPG opens. The provider's window is
@@ -195,28 +221,16 @@ export default function EPG({ onPlayUrl, onBack, liveTvChannels }: { onPlayUrl: 
       try { await window.api.epg.ensureLoaded() } catch { /* keep cached */ }
       if (cancelled) return
       try {
-        const chs: MappedChannel[] = await window.api.epg.getChannels(liveTvChannels)
+        const data = await window.api.epg.getViewData(liveTvChannels, dateStr)
         if (cancelled) return
+        const chs: MappedChannel[] = data?.channels || []
         setChannels(chs)
         if (chs.length === 0) { setLoading(false); return }
-
-        const [nnMap, schedMap] = await Promise.all([
-          Promise.all(chs.map(async (ch) => {
-            try {
-              const nn = await window.api.epg.getNowNext(ch.epgChannelId)
-              return [ch.liveTvChannelId, nn] as const
-            } catch { return [ch.liveTvChannelId, { now: null, next: null }] as const }
-          })),
-          Promise.all(chs.map(async (ch) => {
-            try {
-              const sched = await window.api.epg.getSchedule(ch.epgChannelId, dateStr)
-              return [ch.liveTvChannelId, sched] as const
-            } catch { return [ch.liveTvChannelId, [] as EPGProgramme[]] as const }
-          })),
-        ])
-        if (cancelled) return
-        setNowNextMap(Object.fromEntries(nnMap))
-        setGridData(Object.fromEntries(schedMap))
+        const nowNext = data?.nowNext || {}
+        const schedules = data?.schedules || {}
+        setNowNextMap(nowNext)
+        setGridData(schedules)
+        epgViewCache = { key, channels: chs, nowNext, schedules, at: Date.now() }
         setLoading(false)
       } catch {
         if (!cancelled) setLoading(false)

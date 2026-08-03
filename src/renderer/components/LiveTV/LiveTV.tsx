@@ -13,6 +13,8 @@ interface Channel {
   name: string
   image: string
   logoImage: string
+  /** EPG guide icon — same tier as the EPG screen uses, so both screens agree */
+  epgIcon?: string
   countryCode: string
   countryName: string
   countryFlag: string
@@ -69,10 +71,11 @@ function ChannelTile({ ch }: { ch: Channel }) {
   // Fuzzy-match the logo using the custom name when the user renamed the
   // channel (the GitHub slug is derived from the display name).
   const logoName = customName || ch.name
-  // Always resolve the verified fallback (cdnLogo='' forces lookup);
-  // it's cached so repeated renders are cheap.
-  const verified = useChannelLogo(logoName, '', ch.countryCode)
-  const fallback = verified || ch.logoImage || ''
+  // Same 4-tier chain as the EPG screen: CDN/M3U (primary) → EPG guide icon →
+  // HEAD-checked GitHub fallback. cdnLogo='' forces the fallback lookup; the
+  // icon tier keeps LiveTV and EPG showing the same logos for the same channel.
+  const verified = useChannelLogo(logoName, '', ch.countryCode, ch.epgIcon)
+  const fallback = verified
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ChannelLogo logoImage={primary} fallbackImage={fallback} name={logoName} />
@@ -137,6 +140,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
           name: ch.name,
           image: ch.logo || '',
           logoImage: ch.logoImage || ch.logo || '',
+          epgIcon: ch.epgIcon || '',
           countryCode: ch.countryCode,
           countryName: ch.countryName,
           countryFlag: '',

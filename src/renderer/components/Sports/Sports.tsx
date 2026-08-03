@@ -1,12 +1,6 @@
 import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react'
-import { useSportsStore } from '../../store/sportsStore'
+import { useSportsStore, type ScheduleMatch } from '../../store/sportsStore'
 import { useSettingsStore } from '../../store/settingsStore'
-
-interface ScheduleMatch {
-  id: string; title: string; category: string; date: number; poster?: string
-  teams?: { home?: { name: string; badge: string }; away?: { name: string; badge: string } }
-  sources: { source: string; id: string; embedUrl?: string }[]
-}
 
 interface ReplayResult {
   title: string; sport: string; category: string; thumbnail: string; date: string
@@ -63,10 +57,10 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [replaySearching, setReplaySearching] = useState(false)
   const [replayFocused, setReplayFocused] = useState(0)
   const [showSchedule, setShowSchedule] = useState(false)
-  const [scheduleMatches, setScheduleMatches] = useState<ScheduleMatch[]>([])
+  const scheduleMatches = store.scheduleMatches
+  const scheduleLastUpdated = store.scheduleLastUpdated
   const [scheduleLoading, setScheduleLoading] = useState(false)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
-  const [scheduleLastUpdated, setScheduleLastUpdated] = useState<Date | null>(null)
   const [schedulePage, setSchedulePage] = useState(1)
   const [scheduleStreams, setScheduleStreams] = useState<{ source: string; streamNo: number; language: string; hd: boolean; embedUrl: string }[]>([])
   const [scheduleStreamLoading, setScheduleStreamLoading] = useState(false)
@@ -275,8 +269,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       })
 
       if (selectedCategories.size === 0) {
-        setScheduleMatches([])
-        setScheduleLastUpdated(new Date())
+        store.setScheduleMatches([])
+        store.setScheduleLastUpdated(new Date())
         setScheduleLoading(false)
         return
       }
@@ -287,15 +281,15 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       const firstWithBadge = matches.find(m => m.teams?.home?.badge || m.teams?.away?.badge)
       window.api.log(`[Sports] Schedule: ${matches.length} matches, sample badge: ${firstWithBadge ? `${firstWithBadge.teams?.home?.name}=${firstWithBadge.teams?.home?.badge || 'NONE'}, ${firstWithBadge.teams?.away?.name}=${firstWithBadge.teams?.away?.badge || 'NONE'}` : 'no badges found'}`)
 
-      setScheduleMatches(matches.filter(m => m.date >= todayMsStart && m.date <= todayMsEnd))
-      setScheduleLastUpdated(new Date())
+      store.setScheduleMatches(matches.filter(m => m.date >= todayMsStart && m.date <= todayMsEnd))
+      store.setScheduleLastUpdated(new Date())
     } catch (err: any) {
       console.error('[Sports] Schedule load failed:', err?.message || err)
       setScheduleError(err?.message ? `Schedule service unavailable (${err.message})` : 'Schedule service unavailable')
-      setScheduleMatches([])
+      store.setScheduleMatches([])
     }
     setScheduleLoading(false)
-  }, [settingsStore.sportsSelected, store.sportsList, scheduleMatches, scheduleLastUpdated])
+  }, [settingsStore.sportsSelected, store.sportsList, store.scheduleMatches, store.scheduleLastUpdated])
 
   // Auto-refresh schedule every 5 minutes when visible
   useEffect(() => {
@@ -377,7 +371,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       case 'leagues': {
         const keepSportsList = useSportsStore.getState().sportsList
         store.reset(); store.setSportsList(keepSportsList)
-        setShowSchedule(false); setScheduleMatches([]); setScheduleStreams([])
+        setShowSchedule(false); setScheduleStreams([])
         setScheduleLoading(false); setScheduleStreamLoading(false)
         setReplayResults([]); setReplaySearching(false)
         setFocusedIndex(0); setViewKey(k => k + 1)

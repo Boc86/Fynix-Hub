@@ -240,6 +240,7 @@ const api = {
   },
   epg: {
     getChannels: (liveTvChannels?: any[]) => ipcRenderer.invoke('epg:get-channels', liveTvChannels),
+    getViewData: (liveTvChannels: any, date: string) => ipcRenderer.invoke('epg:get-view-data', liveTvChannels, date),
     getNowNext: (channelId: string) => ipcRenderer.invoke('epg:get-now-next', channelId),
     getSchedule: (channelId: string, date: string) => ipcRenderer.invoke('epg:get-schedule', channelId, date),
     refresh: (countryCodes?: string[], options?: { includeAll?: boolean }) =>

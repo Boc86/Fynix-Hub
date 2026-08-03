@@ -824,6 +824,33 @@ export async function registerIpcHandlers(): Promise<void> {
     return EpgService.getChannels()
   })
 
+  // One IPC instead of N×2 (now/next + schedule per channel): the EPG screen
+  // renders hundreds of channel rows and round-tripping each one separately
+  // made every screen entry visibly slow.
+  handle('epg:get-view-data', async (_event, liveTvChannels: any[], date: string) => {
+    const channels = (liveTvChannels && liveTvChannels.length > 0)
+      ? EpgService.getMappedChannels(liveTvChannels)
+      : (await EpgService.getChannels()).map((ch: any) => ({
+          epgChannelId: ch.id,
+          liveTvChannelId: ch.id,
+          displayName: ch.displayName,
+          icon: ch.icon || '',
+          liveTvName: ch.displayName,
+          liveTvLogo: '',
+          liveTvCountryCode: 'intl',
+          liveTvCountryName: 'Unknown',
+          liveTvCountryFlag: '',
+          liveTvPlayerUrl: '',
+        }))
+    const nowNext: Record<string, unknown> = {}
+    const schedules: Record<string, unknown> = {}
+    for (const ch of channels) {
+      nowNext[ch.liveTvChannelId] = EpgService.getNowNext(ch.epgChannelId)
+      schedules[ch.liveTvChannelId] = EpgService.getSchedule(ch.epgChannelId, date)
+    }
+    return { channels, nowNext, schedules }
+  })
+
   handle('epg:get-now-next', async (_event, channelId: string) => {
     return EpgService.getNowNext(channelId)
   })
