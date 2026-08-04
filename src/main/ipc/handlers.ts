@@ -682,6 +682,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return { filePath }
   })
 
+  handle('torrent:get-sidecar-subs', async (_event, infoHash: string, fileIndex: number) => {
+    return WebTorrentService.getSidecarSubtitles(infoHash, fileIndex)
+  })
+
   handle('player:verify-url', async (_event, url: string) => {
     try {
       const controller = new AbortController()

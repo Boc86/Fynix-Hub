@@ -41,6 +41,9 @@ interface PlayerInfo {
   isTrailer?: boolean
   title?: string
   clearlogoUrl?: string | null
+  /** Torrent infoHash + fileIndex for sidecar subtitle lookup */
+  torrentInfoHash?: string
+  torrentFileIndex?: number
 }
 
 export default function App() {
@@ -920,6 +923,8 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
+      // Store torrent infoHash for sidecar subtitle lookup
+      setPlayerInfo((prev) => prev ? { ...prev, torrentInfoHash: result.infoHash, torrentFileIndex: 0 } : prev)
       await startPlayerUrl(url, rp)
       setPlayerLoading(false)
     } catch (err: any) {

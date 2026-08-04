@@ -1,6 +1,21 @@
 import * as CacheService from './cache.service'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 const API_BASE = 'https://api.opensubtitles.com/api/v1'
+
+// User-Agent required by OpenSubtitles API (403 "User agent required" otherwise).
+// Read package.json at module load to avoid importing `electron.app` (not available
+// in test environments).
+function getVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8'))
+    return pkg.version || '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+const USER_AGENT = `Fynix-Hub/${getVersion()}`
 
 let apiKey = ''
 let authToken = ''
@@ -23,7 +38,7 @@ async function login(): Promise<string> {
   try {
     const res = await fetch(`${API_BASE}/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Api-Key': apiKey },
+      headers: { 'Content-Type': 'application/json', 'Api-Key': apiKey, 'User-Agent': 'Fynix-Hub/2.1.4' },
       body: JSON.stringify({ api_key: apiKey }),
     })
     if (!res.ok) { authToken = ''; return '' }
@@ -73,7 +88,7 @@ export async function searchSubtitles(params: SearchParams): Promise<SubtitleFil
 
     const res = await fetch(`${API_BASE}/subtitles`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Api-Key': apiKey },
+      headers: { 'Content-Type': 'application/json', 'Api-Key': apiKey, 'User-Agent': 'Fynix-Hub/2.1.4' },
       body: JSON.stringify(body),
     })
     if (!res.ok) return []
@@ -116,6 +131,7 @@ export async function downloadSubtitle(fileId: number): Promise<string | null> {
       headers: {
         'Content-Type': 'application/json',
         'Api-Key': apiKey,
+        'User-Agent': USER_AGENT,
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({ file_id: fileId }),
@@ -125,7 +141,7 @@ export async function downloadSubtitle(fileId: number): Promise<string | null> {
     const link = data.link
     if (!link) return null
 
-    const subRes = await fetch(link)
+    const subRes = await fetch(link, { headers: { 'User-Agent': USER_AGENT } })
     if (!subRes.ok) return null
     const content = await subRes.text()
     return content

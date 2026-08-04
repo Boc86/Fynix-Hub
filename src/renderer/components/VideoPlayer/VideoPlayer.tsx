@@ -23,6 +23,9 @@ interface MediaInfo {
   episode?: number
   resumePosition?: number
   isTrailer?: boolean
+  /** Torrent infoHash + fileIndex for sidecar subtitle lookup */
+  torrentInfoHash?: string
+  torrentFileIndex?: number
   segments?: {
     type: 'intro' | 'recap' | 'intro-and-recap'
     startMs: number | null
@@ -214,17 +217,24 @@ function VideoPlayerInner({
     wasPlaybackCompleted: () => playbackCompletedRef.current,
   }), [saveProgress, scrobble, playbackCompletedRef])
 
-  // ── Subtitle search ────────────────────────────────────────────────────
+  // ── Subtitle load: sidecar first, OpenSubtitles fallback ──────────────────
+  // ponytail: forced-only defaults to true (opensubtitlesForcedOnly setting);
+  // default language comes from preferredLanguages (first entry) or
+  // preferredAudioLanguage. Torrent/usenet sidecar .srt/.vtt files are served
+  // via the local HTTP cache before hitting OpenSubtitles.
 
   const handleSearchSubs = useCallback(async () => {
     if (!mediaInfo || mediaInfo.isTrailer) return
     setSearchingSubs(true)
     try {
       const params: any = {
-        tmdb_id: mediaInfo.tmdbId,
+        tmdbId: mediaInfo.tmdbId,
+        type: mediaInfo.mediaType,
         season: mediaInfo.season,
         episode: mediaInfo.episode,
+        language: preferredLanguagesRef.current[0]?.toLowerCase().slice(0, 2) || 'en',
       }
+      if (useSettingsStore.getState().opensubtitlesForcedOnly) params.forcedOnly = true
       const subs = await window.api.openSubtitles.search(params)
       const prefs = preferredLanguagesRef.current
       if (subs.length > 0 && prefs.length > 0) {
@@ -329,17 +339,33 @@ function VideoPlayerInner({
     }
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.isTrailer, selectedMedia])
 
-  // ── Auto-load subtitles from OpenSubtitles ─────────────────────────────
-
+  // ── Auto-load subtitles: sidecar first, OpenSubtitles fallback ───────────
   useEffect(() => {
     const fetchSubtitles = async () => {
       if (!mediaInfo || mediaInfo.isTrailer) return
       try {
+        // 1) Torrent sidecar subtitles (in-torrent .srt/.vtt via local HTTP cache)
+        if (mediaInfo.torrentInfoHash && mediaInfo.torrentFileIndex !== undefined) {
+          const sidecar = await window.api.torrent.getSidecarSubs(
+            mediaInfo.torrentInfoHash,
+            mediaInfo.torrentFileIndex,
+          )
+          if (sidecar.length > 0) {
+            for (const sub of sidecar) {
+              videoJsRef.current?.addSubtitle(sub.url, sub.label, sub.language)
+            }
+            return
+          }
+        }
+        // 2) Fallback: OpenSubtitles (forced-only, user preferred language)
         const params: any = {
-          tmdb_id: mediaInfo.tmdbId,
+          tmdbId: mediaInfo.tmdbId,
+          type: mediaInfo.mediaType,
           season: mediaInfo.season,
           episode: mediaInfo.episode,
+          language: preferredLanguagesRef.current[0]?.toLowerCase().slice(0, 2) || 'en',
         }
+        if (useSettingsStore.getState().opensubtitlesForcedOnly) params.forcedOnly = true
         const subs = await window.api.openSubtitles.search(params)
         const prefs = preferredLanguagesRef.current
         if (subs.length > 0 && prefs.length > 0) {
@@ -360,7 +386,7 @@ function VideoPlayerInner({
       } catch {}
     }
     fetchSubtitles()
-  }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
+  }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.torrentInfoHash, mediaInfo?.torrentFileIndex])
 
   // ── Event callbacks for VideoJsPlayer ──────────────────────────────────
 

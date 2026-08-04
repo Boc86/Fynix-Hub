@@ -143,6 +143,8 @@ const api = {
       ipcRenderer.invoke('torrent:get-stream-url', infoHash, fileIndex),
     prioritizeResume: (infoHash: string, resumePositionSec: number, estimatedDurationSec: number) =>
       ipcRenderer.invoke('torrent:prioritize-resume', infoHash, resumePositionSec, estimatedDurationSec),
+    getSidecarSubs: (infoHash: string, fileIndex: number) =>
+      ipcRenderer.invoke('torrent:get-sidecar-subs', infoHash, fileIndex),
   },
   indexerCatalog: {
     get: () => ipcRenderer.invoke('indexer-catalog:get'),
