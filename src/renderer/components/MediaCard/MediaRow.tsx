@@ -9,11 +9,12 @@ interface MediaRowProps {
   onSelect: (item: MediaItem) => void
   rowIndex: number
   focusedCardIndex?: number
+  rowFocused?: boolean
   watchedIds?: Set<number>
   animationDelay?: number
 }
 
-export default function MediaRow({ title, items, onSelect, rowIndex, focusedCardIndex, watchedIds, animationDelay }: MediaRowProps) {
+export default function MediaRow({ title, items, onSelect, rowIndex, focusedCardIndex, rowFocused, watchedIds, animationDelay }: MediaRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
 
   const handleScroll = useCallback(() => {
@@ -28,6 +29,13 @@ export default function MediaRow({ title, items, onSelect, rowIndex, focusedCard
       }
     }
   }, [focusedCardIndex])
+
+  // Keep the focused row visible in the vertical (rows) scroller
+  useEffect(() => {
+    if (rowFocused && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [rowFocused])
 
   return (
     <div

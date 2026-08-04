@@ -100,13 +100,25 @@ export async function getTvGenres() {
   return mapKeys(data)
 }
 
-export async function discoverByGenre(type: 'movie' | 'tv', genreId: number, page: number = 1) {
-  const data = await fetchTmdb(`/discover/${type}`, {
-    with_genres: String(genreId),
-    page: String(page),
-    sort_by: 'popularity.desc',
-  })
+export async function discoverFiltered(
+  type: 'movie' | 'tv',
+  opts: { sortBy?: string; genreId?: number; providerId?: number } = {},
+  page: number = 1
+) {
+  const params: Record<string, string> = { page: String(page), sort_by: opts.sortBy || 'popularity.desc' }
+  if (opts.genreId) params.with_genres = String(opts.genreId)
+  if (opts.providerId) {
+    params.with_watch_providers = String(opts.providerId)
+    params.watch_region = getWatchRegion()
+  }
+  // Curated "top rated" rows need a vote floor or obscure 1-vote titles leak in
+  if (params.sort_by === 'vote_average.desc') params['vote_count.gte'] = '100'
+  const data = await fetchTmdb(`/discover/${type}`, params)
   return mapMediaResults(data, type)
+}
+
+export async function discoverByGenre(type: 'movie' | 'tv', genreId: number, page: number = 1) {
+  return discoverFiltered(type, { genreId }, page)
 }
 
 export async function getWatchProviders(type: 'movie' | 'tv') {
@@ -115,13 +127,7 @@ export async function getWatchProviders(type: 'movie' | 'tv') {
 }
 
 export async function discoverByProvider(type: 'movie' | 'tv', providerId: number, page: number = 1) {
-  const data = await fetchTmdb(`/discover/${type}`, {
-    with_watch_providers: String(providerId),
-    watch_region: getWatchRegion(),
-    page: String(page),
-    sort_by: 'popularity.desc',
-  })
-  return mapMediaResults(data, type)
+  return discoverFiltered(type, { providerId }, page)
 }
 
 export async function getSimilar(type: 'movie' | 'tv', id: number, page: number = 1) {

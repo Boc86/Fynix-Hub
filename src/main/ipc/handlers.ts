@@ -201,6 +201,15 @@ export async function registerIpcHandlers(): Promise<void> {
     return data
   })
 
+  handle('tmdb:discover-filtered', async (_event, type, opts, page) => {
+    const cacheKey = `tmdb:discover-filtered:${type}:${opts?.sortBy || ''}:${opts?.genreId || 0}:${opts?.providerId || 0}:${page || 1}`
+    const cached = CacheService.getCache(cacheKey)
+    if (cached) return JSON.parse(cached)
+    const data = await TmdbService.discoverFiltered(type, opts || {}, page || 1)
+    CacheService.setCache(cacheKey, JSON.stringify(data), 3600000) // 1h
+    return data
+  })
+
   handle('tmdb:get-similar', async (_event, type, id, page) => {
     const cacheKey = `tmdb:similar:${type}:${id}:${page || 1}`
     const cached = CacheService.getCache(cacheKey)

@@ -2,19 +2,46 @@
   width: 100%;
   height: 100%;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.heroLayer {
+  flex: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* Fade that covers the top of the scroll area only while scrolled, so row
+   headers/posters melt under the hero instead of being hard-sliced at the
+   scrollArea clip edge. Invisible at rest (opacity 0). */
+.heroLayer::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 72px;
+  background: linear-gradient(180deg, var(--bg-primary), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.heroLayer.scrolled::after {
+  opacity: 1;
 }
 
 .scrollArea {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
 }
 
 .rows {
-  margin-top: -80px;
   position: relative;
-  z-index: 2;
   padding-bottom: 60px;
 }
 
@@ -35,24 +62,14 @@
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
+  scrollbar-width: none; /* hide the horizontal scrollbar under the providers */
   scroll-behavior: smooth;
   padding: 4px 0;
   -webkit-overflow-scrolling: touch;
 }
 
 .providerTrack::-webkit-scrollbar {
-  height: 6px;
-}
-
-.providerTrack::-webkit-scrollbar-thumb {
-  background-color: var(--accent);
-  border-radius: 3px;
-}
-
-.providerTrack::-webkit-scrollbar-track {
-  background: transparent;
+  display: none;
 }
 
 .providerBtn {

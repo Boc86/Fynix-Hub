@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import type { MediaItem } from '../../types'
 import styles from './MediaCard.module.css'
 
@@ -16,11 +16,10 @@ export default function MediaCard({ item, onSelect, isFocused, isWatched }: Medi
     ? `https://image.tmdb.org/t/p/w342${item.posterPath}`
     : null
 
-  useEffect(() => {
-    if (isFocused && cardRef.current) {
-      cardRef.current.focus()
-    }
-  }, [isFocused])
+  // NOTE: no self-focus on isFocused — DOM focus must stay on the Browser's
+  // key handler so Enter/arrows route through its central logic (provider bar
+  // toggling etc.). The focused ring is purely class-driven. The card keeps its
+  // own Enter handler for the mouse-clicked-then-Enter case.
 
   const handleClick = useCallback(() => {
     onSelect(item)
