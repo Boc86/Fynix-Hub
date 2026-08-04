@@ -163,4 +163,4 @@ npm run make    # Build all packages
 
 ## License
 
-MIT
+GPL-3.0 license
