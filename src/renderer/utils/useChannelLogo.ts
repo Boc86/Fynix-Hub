@@ -67,12 +67,17 @@ export function useChannelLogo(
 }
 
 const pending = new Set<string>()
+// Prewarming re-resolves every channel's logo on every LiveTV mount; the
+// main process caches results on disk, so run the batch once per session.
+let prewarmRan = false
 
 /**
  * Prefetch logos for a batch of channels. Call when entering LiveTV
  * so the first render already has resolved logos.
  */
 export async function prewarmLogos(channels: { name: string; countryCode: string }[]): Promise<void> {
+  if (prewarmRan) return
+  prewarmRan = true
   const todo = channels.filter(c => c.name && c.countryCode)
   if (todo.length === 0) return
   try {

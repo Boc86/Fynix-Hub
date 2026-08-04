@@ -16,12 +16,15 @@ export function handle<TReturn>(
 
 /* IPC handlers for IPTV M3U */
 import { getAllSources, getAllM3UChannels, findChannelInSources } from '../../main/services/iptv-m3u.service';
+import { invalidateMergedChannels } from '../../main/services/channel-merge.service';
 
 handle('iptv-m3u:get-all-sources', async (_event, forceRefresh?: boolean) => {
+  if (forceRefresh) invalidateMergedChannels();
   return getAllSources(forceRefresh);
 });
 
 handle('iptv-m3u:get-all-channels', async (_event, forceRefresh?: boolean) => {
+  if (forceRefresh) invalidateMergedChannels();
   return getAllM3UChannels(forceRefresh);
 });
 

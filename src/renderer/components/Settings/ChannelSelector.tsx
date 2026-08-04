@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
 import { COUNTRY_NAMES } from '../../utils/countryCode'
-import { loadMergedChannels, MergedChannel } from '../../utils/channels'
+import { loadMergedChannels, searchMergedChannels, MergedChannel } from '../../utils/channels'
 import styles from './Settings.module.css'
 
 export default function ChannelSelector({ selectedCountries }: { selectedCountries: string[] }) {
@@ -13,16 +13,43 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
   const [focusedOrderIdx, setFocusedOrderIdx] = useState<number | null>(null)
   const [pickingIdx, setPickingIdx] = useState<number | null>(null)
   const [focusedVisibleIdx, setFocusedVisibleIdx] = useState<number | null>(null)
+  // Progressive render: the merged list can be tens of thousands of channels;
+  // painting them all at once freezes the settings page. Render a budget and
+  // extend it as the list is scrolled.
+  const [renderLimit, setRenderLimit] = useState(500)
+  // IPC-backed full-list search results (null = not searching). The renderer
+  // only holds a capped slice, so finding channels beyond it goes to main.
+  const [searchResults, setSearchResults] = useState<MergedChannel[] | null>(null)
   const orderRowRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const orderSnapshot = useRef<string[] | null>(null)
 
   useEffect(() => {
     setLoading(true)
-    loadMergedChannels()
+    loadMergedChannels({
+      includeIds: [
+        ...store.liveTvVisibleChannels,
+        ...store.liveTvHiddenChannels,
+        ...store.liveTvChannelOrder,
+      ],
+    })
       .then(setAllChannels)
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    const q = search.trim()
+    if (q.length < 2) {
+      setSearchResults(null)
+      return
+    }
+    const id = setTimeout(() => {
+      searchMergedChannels(q, 500)
+        .then(setSearchResults)
+        .catch(() => setSearchResults(null))
+    }, 250)
+    return () => clearTimeout(id)
+  }, [search])
 
   const grouped = useMemo(() => {
     const filterByCountry = selectedCountries.length > 0
@@ -42,6 +69,23 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
       return a[0].localeCompare(b[0])
     })
   }, [allChannels, selectedCountries, search])
+
+  // Budget-slice of `grouped`: only the first `renderLimit` channels are
+  // painted; scrolling near the bottom extends the budget. Keeps the settings
+  // page instant with 10k+ channel lists.
+  const slicedGroups = useMemo(() => {
+    let remaining = renderLimit
+    const out: [string, MergedChannel[]][] = []
+    for (const [cc, chs] of grouped) {
+      if (remaining <= 0) break
+      const take = Math.min(chs.length, remaining)
+      out.push([cc, chs.slice(0, take)])
+      remaining -= take
+    }
+    return out
+  }, [grouped, renderLimit])
+
+  const totalRows = useMemo(() => grouped.reduce((n, [, chs]) => n + chs.length, 0), [grouped])
 
   const toggleChannel = (id: string) => {
     const next = visibleChannels.includes(id)
@@ -127,6 +171,51 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
   // Reset each render; used to track the flattened row index of Visible Channels rows.
   let visibleRowIdx = -1
 
+  // Shared row renderer used by both the grouped browse list and IPC search results.
+  const renderChannelLabel = (ch: MergedChannel, idx: number) => {
+    const isVisible = visibleChannels.includes(ch.id)
+    const isFocused = focusedVisibleIdx === idx
+    return (
+      <label
+        key={ch.id}
+        onFocus={() => setFocusedVisibleIdx(idx)}
+        onBlur={() => setFocusedVisibleIdx(null)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '4px 8px',
+          cursor: 'pointer',
+          borderRadius: 3,
+          outline: isFocused ? '2px solid var(--accent)' : 'none',
+          outlineOffset: -2,
+          background: isFocused
+            ? 'rgba(var(--accent-rgb), 0.10)'
+            : (isVisible ? 'rgba(255,255,255,0.04)' : 'transparent'),
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={isVisible}
+          tabIndex={0}
+          onChange={() => toggleChannel(ch.id)}
+        />
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: isVisible ? '#fff' : 'rgba(255,255,255,0.5)' }}>
+          {ch.name}
+        </span>
+        {ch.sources.map(src => (
+          <span key={src} style={{
+            fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 600, letterSpacing: 0.3,
+            background: src === 'm3u' ? 'rgba(168,85,247,0.2)' : 'rgba(59,130,246,0.2)',
+            color: src === 'm3u' ? '#a855f7' : '#60a5fa',
+          }}>
+            {src.toUpperCase()}
+          </span>
+        ))}
+      </label>
+    )
+  }
+
   return (
     <div className={styles.settingGroup}>
       <h3 className={styles.settingTitle}>Visible Channels</h3>
@@ -144,7 +233,15 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
       {loading ? (
         <div style={{ color: 'rgba(255,255,255,0.5)', padding: '8px 0' }}>Loading channels...</div>
       ) : (
-        <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, padding: 8 }}>
+        <div
+          style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, padding: 8 }}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) {
+              setRenderLimit(l => Math.min(l + 500, totalRows))
+            }
+          }}
+        >
           <input
             type="text"
             placeholder="Search channels..."
@@ -155,58 +252,26 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
           />
           {allChannels.length === 0 ? (
             <div style={{ color: 'rgba(255,255,255,0.4)', padding: '8px 0', fontSize: 13 }}>No channels available.</div>
+          ) : searchResults !== null ? (
+            <div>
+              {searchResults.length === 0 ? (
+                <div style={{ color: 'rgba(255,255,255,0.4)', padding: '8px 0', fontSize: 13 }}>No channels match your search.</div>
+              ) : (
+                searchResults.map((ch, i) => renderChannelLabel(ch, i + 1))
+              )}
+            </div>
           ) : grouped.length === 0 ? (
             <div style={{ color: 'rgba(255,255,255,0.4)', padding: '8px 0', fontSize: 13 }}>No channels match your filter.</div>
           ) : (
             <div>
-              {grouped.map(([cc, chs]) => (
+              {slicedGroups.map(([cc, chs]) => (
                 <div key={cc} style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4, padding: '2px 0' }}>
                     {cc === '__none__' ? 'Other' : (COUNTRY_NAMES[cc] || cc.toUpperCase())} ({chs.length})
                   </div>
                   {chs.map(ch => {
-                    const isVisible = visibleChannels.includes(ch.id)
                     const rowIdx = ++visibleRowIdx
-                    const isFocused = focusedVisibleIdx === rowIdx
-                    return (
-                      <label
-                        key={ch.id}
-                        onFocus={() => setFocusedVisibleIdx(rowIdx)}
-                        onBlur={() => setFocusedVisibleIdx(null)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          borderRadius: 3,
-                          outline: isFocused ? '2px solid var(--accent)' : 'none',
-                          outlineOffset: -2,
-                          background: isFocused
-                            ? 'rgba(var(--accent-rgb), 0.10)'
-                            : (isVisible ? 'rgba(255,255,255,0.04)' : 'transparent'),
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isVisible}
-                          tabIndex={0}
-                          onChange={() => toggleChannel(ch.id)}
-                        />
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: isVisible ? '#fff' : 'rgba(255,255,255,0.5)' }}>
-                          {ch.name}
-                        </span>
-                        {ch.sources.map(src => (
-                          <span key={src} style={{
-                            fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 600, letterSpacing: 0.3,
-                            background: src === 'm3u' ? 'rgba(168,85,247,0.2)' : 'rgba(59,130,246,0.2)',
-                            color: src === 'm3u' ? '#a855f7' : '#60a5fa',
-                          }}>
-                            {src.toUpperCase()}
-                          </span>
-                        ))}
-                      </label>
-                    )
+                    return renderChannelLabel(ch, rowIdx)
                   })}
                 </div>
               ))}

@@ -240,12 +240,20 @@ const api = {
   },
   epg: {
     getChannels: (liveTvChannels?: any[]) => ipcRenderer.invoke('epg:get-channels', liveTvChannels),
+    getViewData: (liveTvChannels: any, date: string) => ipcRenderer.invoke('epg:get-view-data', liveTvChannels, date),
     getNowNext: (channelId: string) => ipcRenderer.invoke('epg:get-now-next', channelId),
     getSchedule: (channelId: string, date: string) => ipcRenderer.invoke('epg:get-schedule', channelId, date),
     refresh: (countryCodes?: string[], options?: { includeAll?: boolean }) =>
       ipcRenderer.invoke('epg:refresh', countryCodes, options),
     buildMap: (liveTvChannels: any[]) => ipcRenderer.invoke('epg:build-map', liveTvChannels),
     ensureLoaded: () => ipcRenderer.invoke('epg:ensure-loaded'),
+  },
+  channels: {
+    getMerged: (includeIds?: string[]) =>
+      ipcRenderer.invoke('channels:get-merged', includeIds),
+    searchMerged: (query: string, limit?: number) =>
+      ipcRenderer.invoke('channels:search-merged', query, limit),
+    invalidateMerged: () => ipcRenderer.invoke('channels:invalidate-merged'),
   },
   usenet: {
     search: (query: any) => ipcRenderer.invoke('usenet:search', query),

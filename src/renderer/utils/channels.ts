@@ -1,9 +1,9 @@
 // Shared channel loading logic for Settings, LiveTV, and EPG.
-// Loads CDN channels and M3U channels and merges them by name,
-// applying country code detection for M3U-only channels.
-
-import { detectCountryCode, COUNTRY_NAMES, channelKey, displayName } from './countryCode'
-import { cleanChannelName } from '@/shared/cleanChannelName'
+// The CDN+M3U merge runs in the MAIN process (channel-merge.service.ts) and is
+// warmed in the background at startup: pulling 700k+ raw M3U rows over IPC and
+// merging them on the UI thread used to freeze the window for seconds on every
+// screen entry. The renderer gets a bounded slice (CDN first, then M3U by
+// country+name, plus curated ids) and caches it for the session.
 
 export interface MergedChannel {
   id: string
@@ -14,76 +14,66 @@ export interface MergedChannel {
   logoImage: string
   /** tvg-logo URL from the M3U playlist (optional; lower priority than CDN logo) */
   m3uLogo?: string
+  /** EPG guide icon (matched by main's channel map) — shown when no CDN/M3U logo */
+  epgIcon?: string
   countryCode: string
   countryName: string
   sources: string[]
 }
 
+export interface MergedChannelsResponse {
+  channels: MergedChannel[]
+  /** Total unique merged channels in main (the renderer only gets a slice). */
+  total: number
+  truncated: boolean
+}
+
+const CACHE_KEY_DELIM = '\u0001'
+
+// Session-level cache keyed by the curated-id set: the underlying CDN/M3U
+// channel lists are disk-cached in main and only change via the daily portal
+// scrape, so re-fetching on every screen mount is pure waste. First caller
+// does the work; everyone else gets the cached list instantly.
+let mergedCache: { key: string; channels: MergedChannel[] } | null = null
+let mergedInflight: Promise<MergedChannel[]> | null = null
+
+/** Invalidate the cached merged list (e.g. after a channel-source refresh). */
+export function invalidateMergedChannels(): void {
+  mergedCache = null
+  window.api.channels.invalidateMerged()
+}
+
 /**
- * Load all channels (CDN + M3U), merge by normalized name, and return
- * a deduplicated list with country codes inferred from CDN data or
- * detected from channel name prefixes (e.g. "UK: SKY NEWS" → "gb").
- *
- * The country prefix is stripped from the displayed name BEFORE
- * deduplication so that "UK: BBC ONE" and "BBC ONE" merge.
+ * Load the merged CDN + M3U channel list (computed + cached in main).
+ * `includeIds` are always present in the result even when they fall outside
+ * the renderer cap (curated visible/ordered channels must never disappear).
+ * Result is cached for the session; on fetch failure the stale cache is
+ * returned if one exists.
  */
-export async function loadMergedChannels(): Promise<MergedChannel[]> {
-  const [cdnChs, m3uChs] = await Promise.all([
-    window.api.damiTv.getChannels('cdnlive').catch(() => []),
-    window.api.iptvM3u.getAllChannels().catch(() => []),
-  ])
-
-  const map = new Map<string, MergedChannel>()
-
-  // CDN first — provides logos and authoritative country codes
-  for (const ch of (cdnChs || []) as any[]) {
-    if (!ch || !ch.name) continue
-    const key = channelKey(ch.name)
-    map.set(key, {
-      id: ch.id || key,
-      name: cleanChannelName(displayName(ch.name)),
-      // Real CDN logo only — logoImage is an unverified tv-logos guess
-      // from the main process and should NOT be treated as the primary
-      logo: ch.image || '',
-      logoImage: ch.logoImage || '',
-      countryCode: ch.countryCode || '',
-      countryName: ch.countryName || (ch.countryCode ? (COUNTRY_NAMES[ch.countryCode] || ch.countryCode.toUpperCase()) : ''),
-      sources: ['cdnlive'],
-    })
-  }
-
-  // M3U — fill in missing channels and merge sources
-  for (const ch of (m3uChs || []) as any[]) {
-    if (!ch || !ch.name) continue
-    const key = channelKey(ch.name)
-    const cc = detectCountryCode(ch.name) || ''
-    const m3uLogo = (ch as any).logo || ''
-    const existing = map.get(key)
-    if (existing) {
-      if (!existing.sources.includes('m3u')) existing.sources.push('m3u')
-      if (!existing.countryCode && cc) {
-        existing.countryCode = cc
-        existing.countryName = COUNTRY_NAMES[cc] || cc.toUpperCase()
-      }
-      // M3U tvg-logo — kept as a lower-priority tier behind the CDN logo
-      if (m3uLogo) existing.m3uLogo = m3uLogo
-      // If CDN had no logo, M3U could provide one if the channel object has it
-      if (!existing.logo && m3uLogo) {
-        existing.logo = m3uLogo
-      }
-    } else {
-      map.set(key, {
-        id: ch.id || key,
-        name: cleanChannelName(displayName(ch.name)),
-        logo: m3uLogo || (ch as any).image || '',
-        logoImage: m3uLogo,
-        m3uLogo,
-        countryCode: cc,
-        countryName: COUNTRY_NAMES[cc] || (cc ? cc.toUpperCase() : ''),
-        sources: ['m3u'],
+export async function loadMergedChannels(options?: { includeIds?: string[] }): Promise<MergedChannel[]> {
+  const includeIds = options?.includeIds || []
+  const key = [...includeIds].sort().join(CACHE_KEY_DELIM)
+  if (mergedCache && mergedCache.key === key) return mergedCache.channels
+  if (!mergedInflight) {
+    mergedInflight = window.api.channels
+      .getMerged(includeIds)
+      .then((data) => {
+        mergedCache = { key, channels: data.channels }
+        return data.channels
       })
-    }
+      .catch((err) => {
+        // Stale-while-revalidate: fall back to whatever we had
+        if (mergedCache) return mergedCache.channels
+        throw err
+      })
+      .finally(() => {
+        mergedInflight = null
+      })
   }
+  return mergedInflight
+}
 
-  return Array.from(map.values())
+/** Full-list name search against main (Settings can find any channel). */
+export async function searchMergedChannels(query: string, limit?: number): Promise<MergedChannel[]> {
+  return window.api.channels.searchMerged(query, limit)
 }
