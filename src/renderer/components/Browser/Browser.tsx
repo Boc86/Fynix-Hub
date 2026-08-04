@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import MediaRow from '../MediaCard/MediaRow'
 import HeroBanner from './HeroBanner'
+import type { HeroDetails } from './HeroBanner'
 import type { MediaItem } from '../../types'
 import type { ContextTarget } from '../ContextMenu/ContextMenu'
 import { useMediaStore } from '../../store/mediaStore'
@@ -17,13 +18,12 @@ interface ContinueInfo {
 
 interface BrowserProps {
   onSelectMedia: () => void
-  onPlay: (resumePosition?: number) => void
   onContextMenu?: (target: ContextTarget) => void
   mediaTypeFilter?: 'movie' | 'tv'
   genreFilter?: number
 }
 
-export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTypeFilter, genreFilter }: BrowserProps) {
+export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter, genreFilter }: BrowserProps) {
   const {
     trending, popularMovies, popularTvShows, topRatedMovies,
     continueWatching, upNext, isLoading, error, traktWatched,
@@ -41,12 +41,15 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   const providerTrackRef = useRef<HTMLDivElement | null>(null)
   const [focusedRow, setFocusedRow] = useState(0)
   const [focusedCard, setFocusedCard] = useState(0)
-  const [focusedHeroAction, setFocusedHeroAction] = useState(-1) // -1=rows, 0=Play, 1=More Info
+  const [scrolled, setScrolled] = useState(false)
   const [focusedProvider, setFocusedProvider] = useState(-2) // -2=not in provider bar, -1="All", 0+=provider index
   const hasProviderBar = !!mediaTypeFilter && watchProviders.length > 0
   const [discoveryRows, setDiscoveryRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
-  const [providerRows, setProviderRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
+  const [heroDetails, setHeroDetails] = useState<HeroDetails | null>(null)
+  const heroDetailsCache = useRef(new Map<number, HeroDetails>())
+  const lastFocusedItemRef = useRef<MediaItem | null>(null)
+  const currentHeroIdRef = useRef<number | null>(null)
 
   const watchProvider = useSettingsStore((s) => s.watchProvider)
   const watchConnected = useWatchConnected()
@@ -60,8 +63,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         ...(mediaTypeFilter === 'movie'
           ? [{ items: continueMovies, label: 'continueMovies' }]
           : [{ items: upNextItems, label: 'upNext' }, { items: continueTv, label: 'continueTv' }]),
-        { items: trending, label: 'trending' },
-        ...(selectedProvider ? providerRows : discoveryRows),
+        // Trending can't be provider-filtered (no with_watch_providers on /trending),
+        // so hide it while a provider filter is active — Popular becomes the curated row.
+        ...(selectedProvider ? [] : [{ items: trending, label: 'trending' }]),
+        ...discoveryRows,
       ]
     : [
         { items: upNextItems, label: 'upNext' },
@@ -75,7 +80,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
   const getVisibleRows = useCallback(() => {
           return rowConfig.filter((r) => r.items.length > 0);
-      }, [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, providerRows, selectedProvider]);
+      }, [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, selectedProvider]);
   const getRowItemCount = useCallback((rowIdx: number) => {
     const rows = getVisibleRows()
     return rows[rowIdx]?.items.length ?? 0
@@ -254,102 +259,33 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       setError(null)
       try {
         const trendType = mediaTypeFilter || 'all'
-        const [trend, popMovies, popTv, topMovies] = await Promise.all([
-          window.api.tmdb.getTrending(trendType, 'week'),
-          window.api.tmdb.getPopular('movie', 1),
-          window.api.tmdb.getPopular('tv', 1),
-          window.api.tmdb.getTrending('movie', 'week'),
-        ])
+        const trend = await window.api.tmdb.getTrending(trendType, 'week')
+        if (trend?.results) setTrending(trend.results)
 
-        if (trend?.results) {
-          const items = mediaTypeFilter
-            ? trend.results
-            : trend.results
-          setTrending(items)
+        if (!mediaTypeFilter) {
+          const [popMovies, popTv, topMovies] = await Promise.all([
+            window.api.tmdb.getPopular('movie', 1),
+            window.api.tmdb.getPopular('tv', 1),
+            window.api.tmdb.getTrending('movie', 'week'),
+          ])
+          if (popMovies?.results) setPopularMovies(popMovies.results)
+          if (popTv?.results) setPopularTvShows(popTv.results)
+          if (topMovies?.results) setTopRatedMovies(topMovies.results)
+        } else {
+          // Provider bar logos only; the discovery rows are built by the
+          // provider-aware effect below (so the filter can thread through every row).
+          try {
+            const providersData = await window.api.tmdb.getWatchProviders(mediaTypeFilter)
+            if (providersData?.results) {
+              const providers = providersData.results.map((p: any) => ({
+                providerId: p.providerId,
+                providerName: p.providerName,
+                logoPath: p.logoPath,
+              })).filter((p: any) => p.logoPath) // only include providers with logos
+              setWatchProviders(providers)
+            }
+          } catch { /* providers are optional */ }
         }
-        if (popMovies?.results) setPopularMovies(popMovies.results)
-        if (popTv?.results) setPopularTvShows(popTv.results)
-        if (topMovies?.results) setTopRatedMovies(topMovies.results)
-
-        // Fetch genre list, popular, and top_rated for the media type (fetch pages 1+2 for more items per row)
-                if (mediaTypeFilter) {
-                  try {
-                    // Fetch watch providers for the provider filter bar
-                    const providersData = await window.api.tmdb.getWatchProviders(mediaTypeFilter)
-                    if (providersData?.results) {
-                      const providers = providersData.results.map((p: any) => ({
-                        providerId: p.providerId,
-                        providerName: p.providerName,
-                        logoPath: p.logoPath,
-                      })).filter((p: any) => p.logoPath) // only include providers with logos
-                      setWatchProviders(providers)
-                    }
-
-                    // Fetch genre list
-                    const genreData = mediaTypeFilter === 'movie'
-                      ? await window.api.tmdb.getMovieGenres()
-                      : await window.api.tmdb.getTvGenres()
-                    const genres: Array<{ id: number; name: string }> = genreData?.genres || []
-
-                    // Helper function to fetch and combine pages 1 and 2
-                    async function fetchPaginatedResults(fetchFn: (page: number) => Promise<any>) {
-                        try {
-                            const [page1, page2] = await Promise.all([
-                                fetchFn(1),
-                                fetchFn(2),
-                            ]);
-                            return [
-                                ...(page1?.results || []),
-                                ...(page2?.results || []),
-                            ];
-                        } catch {
-                            return [];
-                        }
-                    }
-
-                    // Fetch popular and top_rated for the media type (pages 1 and 2)
-                    const [popularItems, topRatedItems, genreRowsData] = await Promise.all([
-                      fetchPaginatedResults((page) => window.api.tmdb.getPopular(mediaTypeFilter, page)),
-                      fetchPaginatedResults((page) => window.api.tmdb.getTopRated(mediaTypeFilter, page)),
-                      Promise.all(genres.map(async (g) => {
-                        try {
-                          // Fetch discover by genre (pages 1 and 2)
-                          const [page1, page2] = await Promise.all([
-                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 1),
-                            window.api.tmdb.discoverByGenre(mediaTypeFilter, g.id, 2),
-                          ])
-                          const allItems = [
-                            ...(page1?.results || []),
-                            ...(page2?.results || []),
-                          ]
-                          return { label: g.name, items: allItems }
-                        } catch {
-                          return { label: g.name, items: [] }
-                        }
-                      }))
-                    ])
-                    
-                                        // Populate discoveryRows with popular, top_rated, and genre rows
-                                        const discoveryRows: Array<{ label: string; items: MediaItem[] }> = []
-          
-                                        if (popularItems.length > 0) {
-                                          discoveryRows.push({ label: 'Popular', items: popularItems })
-                                        }
-          
-                                        if (topRatedItems.length > 0) {
-                                          discoveryRows.push({ label: 'Top Rated', items: topRatedItems })
-                                        }
-          
-                                        // Add genre rows (only those with items)
-                                        genreRowsData.forEach(genreRow => {
-                                          if (genreRow.items.length > 0) {
-                                            discoveryRows.push(genreRow);
-                                          }
-                                        });
-            
-                    setDiscoveryRows(discoveryRows)
-                  } catch { /* genre/popular/top_rated rows are optional */ }
-                }
 
         await fetchTraktData()
       } catch (err: any) {
@@ -367,38 +303,61 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     fetchTraktData()
   }, [refreshVersion, fetchTraktData, watchProvider, watchConnected])
 
-  // Fetch provider-filtered content when a provider is selected
+  // Build the discovery hub rows (Popular, Top Rated, all genre rows). When a
+  // provider is selected, EVERY row is refetched with with_watch_providers so
+  // the filter applies to the whole view — not a single provider list.
   useEffect(() => {
-    if (!mediaTypeFilter || !selectedProvider) {
-      setProviderRows([])
-      return
-    }
+    if (!mediaTypeFilter) return
     let cancelled = false
     const type = mediaTypeFilter as 'movie' | 'tv'
-    const providerId = selectedProvider as number
-    async function fetchProviderContent() {
+    const providerId = selectedProvider as number | null
+
+    async function buildDiscoveryRows() {
       try {
-        const [page1, page2] = await Promise.all([
-          window.api.tmdb.discoverByProvider(type, providerId, 1),
-          window.api.tmdb.discoverByProvider(type, providerId, 2),
+        const genreData = type === 'movie'
+          ? await window.api.tmdb.getMovieGenres()
+          : await window.api.tmdb.getTvGenres()
+        if (cancelled) return
+        const genres: Array<{ id: number; name: string }> = genreData?.genres || []
+
+        async function fetchPaginatedResults(fetchFn: (page: number) => Promise<any>) {
+          try {
+            const [page1, page2] = await Promise.all([fetchFn(1), fetchFn(2)])
+            return [...(page1?.results || []), ...(page2?.results || [])]
+          } catch {
+            return []
+          }
+        }
+
+        const opts = providerId ? { providerId } : {}
+        const [popularItems, topRatedItems, genreRowsData] = await Promise.all([
+          fetchPaginatedResults((page) => window.api.tmdb.discoverFiltered(type, { ...opts, sortBy: 'popularity.desc' }, page)),
+          fetchPaginatedResults((page) => window.api.tmdb.discoverFiltered(type, { ...opts, sortBy: 'vote_average.desc' }, page)),
+          Promise.all(genres.map(async (g) => {
+            try {
+              const [page1, page2] = await Promise.all([
+                window.api.tmdb.discoverFiltered(type, { ...opts, genreId: g.id }, 1),
+                window.api.tmdb.discoverFiltered(type, { ...opts, genreId: g.id }, 2),
+              ])
+              return { label: g.name, items: [...(page1?.results || []), ...(page2?.results || [])] }
+            } catch {
+              return { label: g.name, items: [] }
+            }
+          })),
         ])
         if (cancelled) return
-        const allItems = [
-          ...(page1?.results || []),
-          ...(page2?.results || []),
-        ]
-        if (allItems.length > 0) {
-          const provider = watchProviders.find(p => p.providerId === providerId);
-            const label = provider ? provider.providerName : `provider-${providerId}`;
-            setProviderRows([{ label, items: allItems }]);
-        } else {
-          setProviderRows([])
-        }
-      } catch {
-        if (!cancelled) setProviderRows([])
-      }
+
+        const rows: Array<{ label: string; items: MediaItem[] }> = []
+        if (popularItems.length > 0) rows.push({ label: 'Popular', items: popularItems })
+        if (topRatedItems.length > 0) rows.push({ label: 'Top Rated', items: topRatedItems })
+        genreRowsData.forEach((genreRow) => {
+          if (genreRow.items.length > 0) rows.push(genreRow)
+        })
+        setDiscoveryRows(rows)
+      } catch { /* discovery rows are optional */ }
     }
-    fetchProviderContent()
+
+    buildDiscoveryRows()
     return () => { cancelled = true }
   }, [selectedProvider, mediaTypeFilter])
 
@@ -406,21 +365,14 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
   useEffect(() => {
     if (trending.length > 0 && scrollRef.current) {
       scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+      setScrolled(false)
     }
   }, [trending.length])
-
-  // Scroll to show hero when hero buttons are focused
-  useEffect(() => {
-    if (focusedHeroAction !== -1 && scrollRef.current) {
-      scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-  }, [focusedHeroAction])
 
   useEffect(() => {
     setFocusedRow(0)
     setFocusedCard(0)
-    setFocusedHeroAction(-1)
-  }, [continueWatching.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length])
+  }, [continueWatching.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length, discoveryRows.length])
 
   useEffect(() => {
     if (browserRef.current) {
@@ -437,12 +389,8 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
     })
   }, [continueWatching.length, continueMovies.length, continueTv.length, traktWatched.size])
 
-  const heroPlayRef = useRef<HTMLButtonElement>(null)
-  const heroInfoRef = useRef<HTMLButtonElement>(null)
-
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()
-    const inHero = focusedHeroAction >= 0
     const inProviderBar = focusedProvider >= -1 && focusedProvider !== -2 && hasProviderBar
     const providerCount = watchProviders.length + 1 // +1 for "All" button
 
@@ -451,8 +399,6 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         e.preventDefault()
         if (inProviderBar) {
           if (focusedProvider < providerCount - 1) setFocusedProvider((p) => p + 1)
-        } else if (inHero) {
-          if (focusedHeroAction < 1) setFocusedHeroAction((a) => a + 1)
         } else {
           const count = getRowItemCount(focusedRow)
           if (focusedCard < count - 1) setFocusedCard((c) => c + 1)
@@ -463,8 +409,6 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         e.preventDefault()
         if (inProviderBar) {
           if (focusedProvider > -1) setFocusedProvider((p) => p - 1)
-        } else if (inHero) {
-          if (focusedHeroAction > 0) setFocusedHeroAction((a) => a - 1)
         } else {
           if (focusedCard > 0) setFocusedCard((c) => c - 1)
         }
@@ -476,14 +420,6 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
           setFocusedProvider(-2)
           setFocusedRow(0)
           setFocusedCard(0)
-        } else if (inHero) {
-          setFocusedHeroAction(-1)
-          if (hasProviderBar) {
-            setFocusedProvider(-1)
-          } else if (rows.length > 0) {
-            setFocusedRow(0)
-            setFocusedCard(0)
-          }
         } else if (focusedRow < rows.length - 1) {
           setFocusedRow((r) => r + 1)
           setFocusedCard(0)
@@ -494,34 +430,26 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         e.preventDefault()
         if (inProviderBar) {
           setFocusedProvider(-2)
-          setFocusedHeroAction(0)
-        } else if (inHero) {
-          // already at top, stay
         } else if (focusedRow > 0) {
           setFocusedRow((r) => r - 1)
           setFocusedCard(0)
         } else if (hasProviderBar) {
           setFocusedProvider(-1)
-        } else {
-          // Move to hero buttons
-          setFocusedHeroAction(0)
         }
+        // else: already at top, stay
         break
       }
       case 'Enter': {
+        // If a real <button> is the event target (e.g. the user mouse-clicked a
+        // provider button, leaving DOM focus on it), let the browser
+        // fire the button's native click — never fall through to the row/detail
+        // path with stale focus state.
+        if ((e.target as HTMLElement)?.closest?.('button')) return
         e.preventDefault()
         if (inProviderBar) {
           // -1 = "All", 0+ = provider index
           const provider = focusedProvider === -1 ? null : watchProviders[focusedProvider]?.providerId
           setSelectedProvider(selectedProvider === provider ? null : provider)
-          return
-        }
-        if (inHero) {
-          if (focusedHeroAction === 0) {
-            heroPlayRef.current?.click()
-          } else {
-            heroInfoRef.current?.click()
-          }
           return
         }
         if (rows.length === 0) return
@@ -554,7 +482,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
       }
       case 'c': {
         e.preventDefault()
-        if (inHero || rows.length === 0) return
+        if (rows.length === 0) return
         const row = rows[focusedRow]
         const item = row.items[focusedCard]
         if (item && onContextMenu) {
@@ -567,7 +495,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
         break
       }
     }
-  }, [focusedRow, focusedCard, focusedHeroAction, focusedProvider, hasProviderBar, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu, watchProviders, selectedProvider, setSelectedProvider])
+  }, [focusedRow, focusedCard, focusedProvider, hasProviderBar, getVisibleRows, getRowItemCount, onSelectMedia, continueInfo, onContextMenu, watchProviders, selectedProvider, setSelectedProvider])
 
   // Scroll provider track ref when provider bar disappears
   useEffect(() => {
@@ -590,36 +518,56 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
 
   const visibleRows = getVisibleRows()
 
+  // Dynamic hero: show the currently highlighted item. While focus is on the
+  // hero actions / provider bar, keep the last highlighted card (ref snapshot).
+  const focusedItem = focusedRow >= 0 && visibleRows[focusedRow]
+    ? visibleRows[focusedRow].items[focusedCard]
+    : undefined
+  useEffect(() => {
+    if (focusedItem) lastFocusedItemRef.current = focusedItem
+  }, [focusedItem])
+  const heroItem = focusedItem ?? lastFocusedItemRef.current ?? visibleRows[0]?.items[0] ?? null
+
+  useEffect(() => {
+    currentHeroIdRef.current = heroItem?.id ?? null
+  }, [heroItem?.id])
+
+  // Enrich hero with details: renderer Map + main-process cache make repeats
+  // free; debounce so arrow-keying through cards fires once; stale-id guard
+  // so a slow response can't overwrite a newer item.
+  useEffect(() => {
+    if (!heroItem) { setHeroDetails(null); return }
+    const cached = heroDetailsCache.current.get(heroItem.id)
+    if (cached) { setHeroDetails(cached); return }
+    const { id, mediaType } = heroItem
+    const t = setTimeout(async () => {
+      try {
+        const d = await window.api.tmdb.getDetails(mediaType, id)
+        heroDetailsCache.current.set(id, d as HeroDetails)
+        if (currentHeroIdRef.current === id) setHeroDetails(d as HeroDetails)
+      } catch {
+        if (currentHeroIdRef.current === id) setHeroDetails(null)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [heroItem?.id, heroItem?.mediaType])
+
   return (
     <div ref={browserRef} className={styles.browser} tabIndex={-1} onKeyDown={handleKeyDown}>
-      <div ref={scrollRef} className={styles.scrollArea}>
-          {trending.length > 0 && (
+      {heroItem && (
+        <div className={`${styles.heroLayer} ${scrolled ? styles.scrolled : ''}`}>
           <HeroBanner
-            item={trending[0]}
-            focusedHeroAction={focusedHeroAction}
-            playRef={heroPlayRef}
-            infoRef={heroInfoRef}
-            onPlay={async () => {
-              try {
-                const detail = await window.api.tmdb.getDetails(trending[0].mediaType, trending[0].id)
-                useMediaStore.getState().setSelectedMedia(detail)
-              } catch {
-                useMediaStore.getState().setSelectedMedia(trending[0] as any)
-              }
-              onPlay()
-            }}
-            onInfo={async () => {
-              try {
-                const detail = await window.api.tmdb.getDetails(trending[0].mediaType, trending[0].id)
-                useMediaStore.getState().setSelectedMedia(detail)
-              } catch {
-                useMediaStore.getState().setSelectedMedia(trending[0] as any)
-              }
-              onSelectMedia()
-            }}
+            item={heroItem}
+            details={heroDetails}
           />
-        )}
+        </div>
+      )}
 
+      <div
+        ref={scrollRef}
+        className={styles.scrollArea}
+        onScroll={() => setScrolled((scrollRef.current?.scrollTop ?? 0) > 12)}
+      >
         {mediaTypeFilter && watchProviders.length > 0 && (
           <div className={styles.providerBar}>
             <div
@@ -629,7 +577,11 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
               <button
                 tabIndex={-1}
                 className={`${styles.providerBtn} ${selectedProvider === null ? styles.providerActive : ''} ${focusedProvider === -1 ? styles.providerFocused : ''}`}
-                onClick={() => setSelectedProvider(null)}
+                onClick={(e) => {
+                  browserRef.current?.focus() // keep DOM focus on the app's key handler, not the button
+                  setSelectedProvider(null)
+                  setFocusedProvider(-1)
+                }}
               >
                 All
               </button>
@@ -639,8 +591,10 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                   key={p.providerId}
                   className={`${styles.providerBtn} ${selectedProvider === p.providerId ? styles.providerActive : ''} ${focusedProvider === pi ? styles.providerFocused : ''}`}
                   onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId);
+                    e.stopPropagation()
+                    browserRef.current?.focus() // keep DOM focus on the app's key handler, not the button
+                    setSelectedProvider(selectedProvider === p.providerId ? null : p.providerId)
+                    setFocusedProvider(selectedProvider === p.providerId ? -1 : pi)
                   }}
                   title={p.providerName}
                 >
@@ -698,6 +652,7 @@ export default function Browser({ onSelectMedia, onPlay, onContextMenu, mediaTyp
                 }}
                  rowIndex={idx}
                  focusedCardIndex={idx === focusedRow ? focusedCard : undefined}
+                 rowFocused={idx === focusedRow}
                  watchedIds={traktWatched}
                  animationDelay={idx * 50}
 

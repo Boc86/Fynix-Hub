@@ -14,30 +14,10 @@ interface DetailViewProps {
 
 const TMDB_IMAGE = 'https://image.tmdb.org/t/p';
 
-function formatRuntime(minutes?: number): string {
-  if (!minutes) return '';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
+import { formatRuntime, getClassification } from '../../utils/format';
 
 function getCrewByJob(crew: CrewMember[], jobs: string[]): CrewMember[] {
   return crew.filter((c) => jobs.includes(c.job));
-}
-
-function getClassification(media: any, country: string = 'US'): string | null {
-  if (media.releaseDates?.results) {
-    const entry = media.releaseDates.results.find((r: any) => r.iso_3166_1 === country)
-    if (entry?.releaseDates?.length) {
-      const c = entry.releaseDates.find((d: any) => d.certification)
-      if (c?.certification) return c.certification
-    }
-  }
-  if (media.contentRatings?.results) {
-    const entry = media.contentRatings.results.find((r: any) => r.iso_3166_1 === country)
-    if (entry?.rating) return entry.rating
-  }
-  return null
 }
 
 export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMenu }: DetailViewProps) {
@@ -459,7 +439,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       </div>
     )}
 
-    <div className={styles.content}>
+    <div className={`${styles.content} ${isTv ? styles.contentTv : ''}`}>
     {posterUrl && (
       <img src={posterUrl} alt={selectedMedia.title} className={styles.poster} />
     )}
@@ -567,6 +547,8 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       </button>
     )}
     </div>
+    </div>
+    </div>
 
     {isTv && (
       <div className={styles.tvSection}>
@@ -637,8 +619,6 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       )}
       </div>
     )}
-    </div>
-    </div>
 
     <div className={styles.sections}>
     {cast.length > 0 && (

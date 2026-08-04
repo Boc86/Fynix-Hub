@@ -67,6 +67,8 @@ const api = {
       ipcRenderer.invoke('tmdb:get-watch-providers', type),
     discoverByProvider: (type: string, providerId: number, page?: number) =>
       ipcRenderer.invoke('tmdb:discover-by-provider', type, providerId, page),
+    discoverFiltered: (type: string, opts: { sortBy?: string; genreId?: number; providerId?: number }, page?: number) =>
+      ipcRenderer.invoke('tmdb:discover-filtered', type, opts, page),
     getSimilar: (type: string, id: number, page?: number) =>
       ipcRenderer.invoke('tmdb:get-similar', type, id, page),
     getRecommendations: (type: string, id: number, page?: number) =>

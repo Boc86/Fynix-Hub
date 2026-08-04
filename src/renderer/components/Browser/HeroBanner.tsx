@@ -1,25 +1,40 @@
 import React, { useState, useEffect, useRef } from 'react'
-import type { MediaItem } from '../../types'
+import type { MediaItem, Genre } from '../../types'
+import { useSettingsStore } from '../../store/settingsStore'
+import { formatRuntime, getClassification } from '../../utils/format'
 import styles from './HeroBanner.module.css'
+
+// Enriched detail fields fetched on top of the list item (via cached tmdb:get-details)
+export interface HeroDetails {
+  title?: string
+  overview?: string
+  tagline?: string
+  runtime?: number
+  genres?: Genre[]
+  releaseDates?: unknown
+  contentRatings?: unknown
+}
 
 interface HeroBannerProps {
   item: MediaItem
-  focusedHeroAction?: number // -1=unfocused, 0=Play, 1=More Info
-  playRef?: React.RefObject<HTMLButtonElement | null>
-  infoRef?: React.RefObject<HTMLButtonElement | null>
-  onPlay: () => void
-  onInfo: () => void
+  details?: HeroDetails | null
 }
 
-export default function HeroBanner({ item, focusedHeroAction, playRef, infoRef, onPlay, onInfo }: HeroBannerProps) {
+export default function HeroBanner({ item, details }: HeroBannerProps) {
   const [imageLoaded, setImageLoaded] = useState(false)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [clearlogo, setClearlogo] = useState<string | null>(null)
+
+  const classificationCountry = useSettingsStore((s) => s.classificationCountry)
 
   const backdropPath = item.backdropPath || item.posterPath
   const backdropUrl = backdropPath
     ? `https://image.tmdb.org/t/p/original${backdropPath}`
     : null
+
+  const title = details?.title || item.title
+  const overview = (details?.overview || item.overview || '').slice(0, 350)
+  const certification = details ? getClassification(details, classificationCountry) : null
 
   useEffect(() => {
     if (!backdropUrl) return
@@ -52,37 +67,27 @@ export default function HeroBanner({ item, focusedHeroAction, playRef, infoRef, 
         {clearlogo ? (
           <img src={clearlogo} alt="" className={styles.clearlogo} onError={() => setClearlogo(null)} />
         ) : (
-          <h1 className={styles.title}>{item.title}</h1>
+          <h1 className={styles.title}>{title}</h1>
         )}
-        <p className={styles.overview}>{item.overview?.slice(0, 250)}</p>
+        <p className={styles.overview}>{overview}</p>
+        {details && (
+          <div className={styles.meta}>
+            {details.tagline && <p className={styles.tagline}>{details.tagline}</p>}
+            <div className={styles.metaLine}>
+              {details.runtime ? <span className={styles.metaItem}>{formatRuntime(details.runtime)}</span> : null}
+              {details.genres?.slice(0, 3).map((g) => (
+                <span key={g.id} className={styles.metaItem}>{g.name}</span>
+              ))}
+              {certification && <span className={styles.cert}>{certification}</span>}
+            </div>
+          </div>
+        )}
         <div className={styles.rating}>
           {item.voteAverage > 0 && (
             <span className={styles.vote}>{item.voteAverage.toFixed(1)} Rating</span>
           )}
           <span className={styles.year}>{item.releaseDate?.slice(0, 4)}</span>
           <span className={styles.type}>{item.mediaType === 'movie' ? 'Movie' : 'TV'}</span>
-        </div>
-        <div className={styles.actions}>
-          <button
-            ref={playRef}
-            className={`${styles.playBtn} ${focusedHeroAction === 0 ? styles.focused : ''}`}
-            onClick={onPlay}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z"/>
-            </svg>
-            Play
-          </button>
-          <button
-            ref={infoRef}
-            className={`${styles.infoBtn} ${focusedHeroAction === 1 ? styles.focused : ''}`}
-            onClick={onInfo}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-            </svg>
-            More Info
-          </button>
         </div>
       </div>
     </div>

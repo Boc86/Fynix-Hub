@@ -1682,7 +1682,6 @@ export default function App() {
           key={view}
           mediaTypeFilter={genreType}
           onSelectMedia={() => navigate('detail')}
-          onPlay={(resumePosition) => handlePlay(resumePosition)}
           onContextMenu={handleContextMenu}
         />
       )}
