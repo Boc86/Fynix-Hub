@@ -126,6 +126,12 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
   // id order at move start (restored on Escape/cancel).
   const [moveMode, setMoveMode] = useState<{ channelId: string; originalOrder: string[] } | null>(null)
 
+  // Progressive tile render: paint the first batch instantly, then fill the
+  // rest in ~30ms slices so a 10k+ channel grid never blocks the first paint.
+  // (ponytail: full windowed rendering would be tighter, but the fill-in is
+  // imperceptible and keeps the existing global index navigation intact.)
+  const [renderedCount, setRenderedCount] = useState(600)
+
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Load merged channels (CDN + M3U) so M3U-only selections from Settings
@@ -133,7 +139,14 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
   // channels are playable via the M3U source modal.
   useEffect(() => {
     setLoading(true)
-    loadMergedChannels()
+    // Curated ids must survive the renderer cap — they're user-visible
+    // selections and may sit beyond the first N channels.
+    const includeIds = [
+      ...(settingsStore.liveTvVisibleChannels || []),
+      ...(settingsStore.liveTvHiddenChannels || []),
+      ...(settingsStore.liveTvChannelOrder || []),
+    ]
+    loadMergedChannels({ includeIds })
       .then(merged => {
         const liveTvChannels: Channel[] = merged.map(ch => ({
           id: ch.id,
@@ -247,6 +260,16 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
     }
     return items
   }, [filteredChannels])
+
+  // Progressive tile render: paint the first batch instantly, then fill the
+  // rest in ~30ms slices so a 10k+ channel grid never blocks the first paint.
+  // (ponytail: full windowed rendering would be tighter, but the fill-in is
+  // imperceptible and keeps the existing global index navigation intact.)
+  useEffect(() => {
+    if (flatItems.length <= renderedCount) return
+    const id = setTimeout(() => setRenderedCount(c => Math.min(c + 400, flatItems.length)), 30)
+    return () => clearTimeout(id)
+  }, [flatItems.length, renderedCount])
 
   const gridRef = useRef<HTMLDivElement>(null)
   const [actualCols, setActualCols] = useState(4)
@@ -639,7 +662,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
             </div>
           )}
           <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))`, gap: 10 }}>
-            {flatItems.map((item) => {
+            {flatItems.slice(0, renderedCount).map((item) => {
               if (item.type === 'header') {
                 return (
                   <div key={`hdr-${item.countryCode}`}

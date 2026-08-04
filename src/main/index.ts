@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, BrowserView } from 'electron'
 import path from 'path'
 import { registerIpcHandlers } from './ipc/handlers'
+import * as ChannelMergeService from './services/channel-merge.service'
 import * as TorrentSearchService from './services/torrent-search.service'
 import * as WebTorrentService from './services/webtorrent.service'
 import * as FfmpegRemux from './services/ffmpeg-remux.service'
@@ -311,6 +312,11 @@ app.whenReady().then(async () => {
   TizenTubeService.init().catch((err: any) =>
     console.error('[TizenTube] init failed:', err?.message)
   );
+
+  // Preload the merged CDN+M3U channel list in the background (chunked, so
+  // main never blocks): by the time the user opens LiveTV/EPG/Settings the
+  // list and EPG channel map are already warm.
+  ChannelMergeService.warmMergedChannels();
 
   if (TorrentSearchService.shouldRefreshTrackers()) {
     TorrentSearchService.refreshTrackers().catch(() => {});

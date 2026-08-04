@@ -248,6 +248,13 @@ const api = {
     buildMap: (liveTvChannels: any[]) => ipcRenderer.invoke('epg:build-map', liveTvChannels),
     ensureLoaded: () => ipcRenderer.invoke('epg:ensure-loaded'),
   },
+  channels: {
+    getMerged: (includeIds?: string[]) =>
+      ipcRenderer.invoke('channels:get-merged', includeIds),
+    searchMerged: (query: string, limit?: number) =>
+      ipcRenderer.invoke('channels:search-merged', query, limit),
+    invalidateMerged: () => ipcRenderer.invoke('channels:invalidate-merged'),
+  },
   usenet: {
     search: (query: any) => ipcRenderer.invoke('usenet:search', query),
     getFreeIndexers: () => ipcRenderer.invoke('usenet:get-free-indexers'),

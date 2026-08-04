@@ -343,10 +343,15 @@ export default function App() {
   useEffect(() => { playerInfoRef.current = playerInfo }, [playerInfo])
 
   const selectedLiveTvCountries = useSettingsStore((s) => s.selectedLiveTvCountries)
+  const liveTvVisibleChannels = useSettingsStore((s) => s.liveTvVisibleChannels)
+  const liveTvHiddenChannels = useSettingsStore((s) => s.liveTvHiddenChannels)
+  const liveTvChannelOrder = useSettingsStore((s) => s.liveTvChannelOrder)
   useEffect(() => {
     if (view !== 'epg') return
     import('./utils/channels').then(({ loadMergedChannels }) => {
-      loadMergedChannels().then((merged) => {
+      loadMergedChannels({
+        includeIds: [...liveTvVisibleChannels, ...liveTvHiddenChannels, ...liveTvChannelOrder],
+      }).then((merged) => {
         const chs = merged.map(ch => ({
           id: ch.id,
           name: ch.name,

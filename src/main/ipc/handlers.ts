@@ -28,6 +28,7 @@ import * as ExtractorService from '../services/extractor.service'
 import * as DamiTVService from '../services/dami-tv.service'
 import { getProvider, type LiveTVServerId } from '../services/livetv-providers'
 import * as EpgService from '../services/epg.service'
+import * as ChannelMergeService from '../services/channel-merge.service'
 import * as UsenetSearchService from '../services/usenet-search.service'
 import * as UsenetService from '../services/usenet.service'
 import * as UpdaterService from '../services/updater.service'
@@ -824,10 +825,32 @@ export async function registerIpcHandlers(): Promise<void> {
     return EpgService.getChannels()
   })
 
+  // Merged CDN+M3U channel list, computed in main so the renderer never
+  // touches the 700k-row raw M3U payload (that transfer + merge froze the UI
+  // thread on every LiveTV/EPG/Settings entry). Returns a bounded slice:
+  // CDN first, then M3U by country+name, plus any curated ids.
+  handle('channels:get-merged', async (_event, includeIds?: string[]) => {
+    return ChannelMergeService.getMergedChannelsForRenderer(includeIds)
+  })
+
+  handle('channels:search-merged', async (_event, query: string, limit?: number) => {
+    return ChannelMergeService.searchMergedChannels(query, limit)
+  })
+
+  handle('channels:invalidate-merged', async () => {
+    ChannelMergeService.invalidateMergedChannels()
+  })
+
   // One IPC instead of N×2 (now/next + schedule per channel): the EPG screen
   // renders hundreds of channel rows and round-tripping each one separately
   // made every screen entry visibly slow.
   handle('epg:get-view-data', async (_event, liveTvChannels: any[], date: string) => {
+    // Async map build: if the channel list fingerprint changed since the last
+    // build (e.g. curated ids were added), rebuild chunked instead of blocking
+    // main with a sync O(n×m) pass. When unchanged this is a no-op.
+    if (liveTvChannels && liveTvChannels.length > 0) {
+      await EpgService.buildChannelMapAsync(liveTvChannels)
+    }
     const channels = (liveTvChannels && liveTvChannels.length > 0)
       ? EpgService.getMappedChannels(liveTvChannels)
       : (await EpgService.getChannels()).map((ch: any) => ({

@@ -312,7 +312,94 @@ export async function refreshEpg(countryCodes?: string[], options?: { includeAll
   tx()
 }
 
+// Fingerprint of the last channel-map build. buildChannelMap is O(liveTV ×
+// EPG) name matching inside a transaction and used to run on EVERY EPG open,
+// freezing the main process for seconds with 10k+ merged channels. The merged
+// list is stable within a session, so rebuilding once is enough.
+let lastMapFp = ''
+let mapBuildInFlight = false
+
+/** Cheap identity for a LiveTV channel list (stable ids → stable fingerprint). */
+export function liveTvFingerprint(chs: { id?: string }[]): string {
+  if (!chs || chs.length === 0) return 'empty'
+  return `${chs.length}|${chs.slice(0, 20).map((c) => c.id || '').join(',')}|${chs.slice(-3).map((c) => c.id || '').join(',')}`
+}
+
+/**
+ * Chunked async build of the channel map. Same matching logic as
+ * buildChannelMap but yields to the event loop every `chunk` LiveTV channels,
+ * so a 475k-channel list never freezes the main process. Sets the fingerprint
+ * so later sync calls (getMappedChannels per EPG open) skip the rebuild.
+ * Used by the merged-channel preload at app startup.
+ */
+export async function buildChannelMapAsync(liveTvChannels: { id: string; name: string; countryCode: string }[]): Promise<void> {
+  const fp = liveTvFingerprint(liveTvChannels)
+  if (fp === lastMapFp || mapBuildInFlight) return
+  mapBuildInFlight = true
+  try {
+    const d = getDb()
+    const epgChannels = d.prepare('SELECT id, display_name, country_code FROM channels').all() as any[]
+
+    const insert = d.prepare('INSERT OR REPLACE INTO channel_map (live_tv_id, epg_channel_id) VALUES (?, ?)')
+    const clear = d.prepare('DELETE FROM channel_map')
+
+    // Pre-normalize EPG names once — the loop below runs per LiveTV channel
+    const epgNormList = epgChannels.map((epgCh: any) => ({
+      ch: epgCh,
+      norm: normalizeChannelName(epgCh.display_name),
+      cc: String(epgCh.country_code || '').toLowerCase(),
+    }))
+
+    clear.run()
+    const chunk = 400
+    for (let i = 0; i < liveTvChannels.length; i += chunk) {
+      const end = Math.min(i + chunk, liveTvChannels.length)
+      const tx = d.transaction(() => {
+        for (let j = i; j < end; j++) {
+          const ltCh = liveTvChannels[j]
+          const ltNorm = normalizeChannelName(ltCh.name)
+          if (!ltNorm) continue
+          const ltCc = String(ltCh.countryCode || '').toLowerCase()
+          let bestMatch: { id: string } | null = null
+          let bestScore = 0
+
+          for (const epg of epgNormList) {
+            const epgNorm = epg.norm
+            if (!epgNorm) continue
+            // Prefer the EPG channel from the same country (e.g. two "Sky News")
+            const countryBonus = ltCc && epg.cc && ltCc === epg.cc ? 2 : 0
+
+            let score = 0
+            if (epgNorm === ltNorm) {
+              score = 10 + countryBonus
+            } else if (epgNorm.startsWith(ltNorm) || ltNorm.startsWith(epgNorm)) {
+              score = 8 - Math.abs(epgNorm.length - ltNorm.length) + countryBonus
+            } else if (normalizedNameMatch(ltNorm, epgNorm)) {
+              score = 5 - Math.abs(epgNorm.length - ltNorm.length) + countryBonus
+            }
+
+            if (score > bestScore) { bestMatch = epg.ch; bestScore = score }
+          }
+
+          if (bestMatch && bestScore > 0) {
+            insert.run(ltCh.id, bestMatch.id)
+          }
+        }
+      })
+      tx()
+      if (end < liveTvChannels.length) await new Promise((r) => setImmediate(r))
+    }
+    const count = (d.prepare('SELECT COUNT(*) as c FROM channel_map').get() as any).c
+    console.log(`[EPG] Mapped ${count}/${liveTvChannels.length} LiveTV channels to EPG`)
+    lastMapFp = fp
+  } finally {
+    mapBuildInFlight = false
+  }
+}
+
 export function buildChannelMap(liveTvChannels: { id: string; name: string; countryCode: string }[]): void {
+  const fp = liveTvFingerprint(liveTvChannels)
+  if (fp === lastMapFp || mapBuildInFlight) return
   const d = getDb()
   const epgChannels = d.prepare('SELECT id, display_name, country_code FROM channels').all() as any[]
 
@@ -362,6 +449,7 @@ export function buildChannelMap(liveTvChannels: { id: string; name: string; coun
   tx()
   const count = (d.prepare('SELECT COUNT(*) as c FROM channel_map').get() as any).c
   console.log(`[EPG] Mapped ${count}/${liveTvChannels.length} LiveTV channels to EPG`)
+  lastMapFp = fp
 }
 
 export function getMappedChannels(liveTvChannels: any[]): MappedChannel[] {
