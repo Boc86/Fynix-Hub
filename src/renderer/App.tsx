@@ -30,7 +30,7 @@ const LiveTV = lazy(() => import('./components/LiveTV/LiveTV'))
 const EPG = lazy(() => import('./components/EPG/EPG'))
 const Recordings = lazy(() => import('./components/Recordings/Recordings'))
 
-  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg' | 'recordings'
+  type View = 'browser' | 'detail' | 'player' | 'settings' | 'movies' | 'tv-shows' | 'youtube' | 'free-search' | 'sports' | 'live-tv' | 'epg' | 'recordings' | 'trailer'
 
 interface PlayerInfo {
   tmdbId: number
@@ -41,6 +41,11 @@ interface PlayerInfo {
   isTrailer?: boolean
   title?: string
   clearlogoUrl?: string | null
+  /** Torrent infoHash + fileIndex for sidecar subtitle lookup */
+  torrentInfoHash?: string
+  torrentFileIndex?: number
+  /** Usenet completed download directory for sidecar subtitle lookup */
+  usenetCompletedDir?: string
 }
 
 export default function App() {
@@ -70,6 +75,7 @@ export default function App() {
   const [audioTracksInfo, setAudioTracksInfo] = useState<any[]>([])
   const [isRemux, setIsRemux] = useState(false)
   const [dlhdEmbedUrl, setDlhdEmbedUrl] = useState<string | null>(null)
+  const [trailerUrl, setTrailerUrl] = useState<string | null>(null)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updatePercent, setUpdatePercent] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
@@ -777,6 +783,7 @@ export default function App() {
               const audioLang = getAudioLang()
               try {
                 currentUsenetPathRef.current = stream.url
+                setPlayerInfo(prev => ({...(prev as PlayerInfo || {}), usenetCompletedDir: status.completedDir} as PlayerInfo))
                 await startPlayerUrl(stream.url)
               } catch (playerErr: any) {
                 window.api.log('[App] player.start failed:', playerErr?.message)
@@ -795,6 +802,7 @@ export default function App() {
                 const audioLang = getAudioLang()
                 try {
                   currentUsenetPathRef.current = cacheResults[0].streamUrl
+                  setPlayerInfo(prev => ({...(prev as PlayerInfo || {}), usenetCompletedDir: status.completedDir} as PlayerInfo))
                   await startPlayerUrl(cacheResults[0].streamUrl)
                   setStreamError(null)
                 } catch (playerErr: any) {
@@ -919,6 +927,8 @@ export default function App() {
       if (rp && result.infoHash) {
         window.api.torrent.prioritizeResume(result.infoHash, rp, resumeDurationRef.current).catch(() => {})
       }
+      // Store torrent infoHash for sidecar subtitle lookup
+      setPlayerInfo((prev) => prev ? { ...prev, torrentInfoHash: result.infoHash, torrentFileIndex: 0 } : prev)
       await startPlayerUrl(url, rp)
       setPlayerLoading(false)
     } catch (err: any) {
@@ -1691,7 +1701,11 @@ export default function App() {
             key={selectedMedia?.id}
             onBack={() => goBack()}
             onPlay={handlePlay}
-            onPlayTrailer={() => {}}
+            onPlayTrailer={(youtubeKey) => {
+              const embed = `https://www.youtube.com/embed/${youtubeKey}?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&loop=1&playlist=${youtubeKey}&playsinline=1&enablejsapi=1&origin=${window.location.origin}`
+              setTrailerUrl(embed)
+              navigate('trailer')
+            }}
             onContextMenu={handleContextMenu}
           />
         </div>
@@ -1729,6 +1743,21 @@ export default function App() {
           onStreamUrlChange={setStreamUrl}
         />
       ))}
+      {view === 'trailer' && trailerUrl && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: '#000', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '8px 16px', background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', gap: 12, zIndex: 1 }}>
+            <button onClick={() => { setTrailerUrl(null); goBack() }}
+              style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 20, padding: '4px 8px', lineHeight: 1 }}>←</button>
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>Trailer</span>
+          </div>
+          <iframe
+            src={trailerUrl}
+            style={{ flex: 1, border: 'none', width: '100%' }}
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+          />
+        </div>
+      )}
       {view === 'settings' && (
         <div className="animate-fade">
           <Suspense fallback={null}>

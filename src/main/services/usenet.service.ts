@@ -1,4 +1,6 @@
 import * as CacheService from './cache.service'
+import * as fs from 'fs'
+import * as path from 'path'
 import {
   sendNzb as downloaderSendNzb,
   getDownloadStatus as downloaderGetStatus,
@@ -106,6 +108,33 @@ export async function searchWebdavCache(
   opts?: { title?: string; year?: number; type?: 'movie' | 'tv'; season?: number; episode?: number },
 ): Promise<any[]> {
   return searchDownloadCache(query, opts)
+}
+
+/**
+ * Scan a directory for sidecar subtitle files (.srt/.vtt) alongside a media file.
+ * Used by both torrent (via getSidecarSubs) and usenet (completed download dir)
+ * before falling back to OpenSubtitles downloads.
+ */
+export async function getSidecarSubs(dirPath: string): Promise<{ url: string; label: string; language: string }[]> {
+  try {
+    const entries = await fs.promises.readdir(dirPath)
+    const subs: { url: string; label: string; language: string }[] = []
+    for (const entry of entries) {
+      const lower = entry.toLowerCase()
+      if (!/\.(srt|vtt)$/.test(lower)) continue
+      const langMatch = lower.match(/\.([a-z]{2,3})\.(srt|vtt)$/)
+      const lang = langMatch ? langMatch[1] : 'en'
+      const fullPath = path.join(dirPath, entry)
+      subs.push({
+        url: `file://${fullPath}`,
+        label: entry,
+        language: lang,
+      })
+    }
+    return subs
+  } catch {
+    return []
+  }
 }
 
 export function isConfigured(): boolean {

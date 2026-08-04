@@ -182,6 +182,46 @@ export function prioritizeResume(infoHash: string, resumePositionSec: number, es
   debug(`Prioritizing resume for ${infoHash} at ${resumePositionSec}s`)
 }
 
+/**
+ * Scan a torrent for sidecar subtitle files (.srt/.vtt) that match the media
+ * file at `mediaFileIndex`. Returns subtitle URLs served via the local cache.
+ */
+export async function getSidecarSubtitles(infoHash: string, mediaFileIndex: number): Promise<{ url: string; label: string; language: string }[]> {
+  const c = await getClient()
+  const torrent = torrentMap.get(infoHash) || c.get(infoHash)
+  if (!torrent?.ready || !torrent.files[mediaFileIndex]) return []
+
+  const mediaFile = torrent.files[mediaFileIndex]
+  const mediaName = mediaFile.name.toLowerCase()
+  const baseExt = mediaName.match(/(.+)(\.[^.]+)$/)
+  const baseName = baseExt ? baseExt[1] : mediaName
+
+  const port = LocalCacheService.getPort()
+  const subs: { url: string; label: string; language: string }[] = []
+
+  for (let i = 0; i < torrent.files.length; i++) {
+    if (i === mediaFileIndex) continue
+    const f = torrent.files[i]
+    const lower = f.name.toLowerCase()
+    const ext = lower.match(/\.(srt|vtt)$/)
+    if (!ext) continue
+
+    // Match: same base name (e.g. movie.en.srt, movie.forced.srt), or language code
+    const subBase = lower.replace(/\.(srt|vtt)$/, '')
+    const langMatch = subBase.match(/\.([a-z]{2,3})\b/)
+    if (subBase === mediaName.replace(/\.[^.]+$/, '') || subBase === baseName) {
+      const lang = langMatch ? langMatch[1] : 'en'
+      const label = f.name
+      subs.push({
+        url: `http://127.0.0.1:${port}/webtorrent/${infoHash}/${i}`,
+        label,
+        language: lang,
+      })
+    }
+  }
+  return subs
+}
+
 export async function destroy() {
   const c = await getClient()
   c.destroy()

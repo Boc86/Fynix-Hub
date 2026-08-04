@@ -5,7 +5,6 @@ interface SegmentQuery {
   imdbId?: string
   season?: number
   episode?: number
-  type?: 'movie' | 'episode'
 }
 
 interface SegmentResult {
@@ -21,17 +20,23 @@ export async function getSegments(query: SegmentQuery): Promise<SegmentResult[]>
   if (!query.tmdbId) return []
 
   try {
-    const apiKey = await getSetting<string>('introDbApiKey')
-    if (!apiKey) return []
+    // getMedia() is a public endpoint (no key required). The current user's
+    // key is optional and — per the theintrodb package — goes in the second
+    // transportOptions argument, where it only adds that user's pending
+    // submissions to the response. Passing it inside `params` is silently
+    // dropped by the package.
+    const apiKey = getSetting<string>('introDbApiKey')
 
     const { getMedia } = await import('theintrodb')
-    const data = await getMedia({
-      // @ts-ignore
-      apiKey,
+    const params = {
       tmdbId: query.tmdbId,
+      imdbId: query.imdbId,
       season: query.season,
       episode: query.episode,
-    })
+    }
+    const data = apiKey
+      ? await getMedia(params, { apiKey })
+      : await getMedia(params)
 
     if (!data) return []
 

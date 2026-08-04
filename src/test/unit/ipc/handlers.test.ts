@@ -25,7 +25,6 @@ vi.mock('@/main/services/trakt.service', () => svc({ getWatchedMovies: vi.fn(), 
 vi.mock('@/main/services/webtorrent.service', () => svc({ addTorrent: vi.fn(), removeTorrent: vi.fn(), getTorrent: vi.fn(), getStreamUrl: vi.fn(), removeAllTorrents: vi.fn(), prioritizeResume: vi.fn(), prefetchBatch: vi.fn() }))
 vi.mock('@/main/services/torrent-search.service', () => svc({ searchTorrents: vi.fn().mockResolvedValue([]), refreshTrackers: vi.fn().mockResolvedValue([]), getDefaultEnabledIndexers: vi.fn().mockReturnValue([]), getBuiltInIndexerDefinitions: vi.fn().mockReturnValue([]) }))
 vi.mock('@/main/services/debrid.service', () => svc({ isConfigured: vi.fn().mockReturnValue(false), getServices: vi.fn().mockReturnValue([]), checkAccountStatus: vi.fn(), checkBatchCached: vi.fn(), addAndWait: vi.fn(), realDebridGetDeviceCode: vi.fn(), realDebridPollForCredentials: vi.fn(), torboxGetDeviceCode: vi.fn(), torboxPollForToken: vi.fn(), premiumizeGetDeviceCode: vi.fn(), premiumizePollForToken: vi.fn(), alldebridGetDevicePin: vi.fn(), alldebridPollForToken: vi.fn() }))
-vi.mock('@/main/services/intros.service', () => svc())
 vi.mock('@/main/services/cache.service', () => svc({ getCache: vi.fn(), setCache: vi.fn(), getSetting: vi.fn(), setSetting: vi.fn(), getAllSettings: vi.fn().mockReturnValue({}), updateWatchProgress: vi.fn(), getWatchProgress: vi.fn(), deleteWatchProgress: vi.fn(), clearImageCache: vi.fn() }))
 
 vi.mock('@/main/services/fanart.service', () => svc({ getImages: vi.fn() }))

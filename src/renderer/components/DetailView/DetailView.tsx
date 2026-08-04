@@ -8,7 +8,7 @@ import styles from './DetailView.module.css';
 interface DetailViewProps {
   onBack: () => void;
   onPlay: (resumePosition?: number) => void;
-  onPlayTrailer: (youtubeUrl: string) => void;
+  onPlayTrailer: (youtubeKey: string) => void;
   onContextMenu?: (target: ContextTarget) => void;
 }
 
@@ -88,7 +88,6 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
   }, [selectedMedia]);
 
   useEffect(() => {
-    if (!isTv || !selectedMedia) return;
     const tv = selectedMedia as TvDetails;
     const seasonNum = selectedSeason;
 
@@ -212,8 +211,15 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
   const creators = isTv ? (selectedMedia as TvDetails).createdBy || [] : [];
 
   const videos: Video[] = selectedMedia?.videos?.results || [];
-  // Trailers hidden until a reliable YouTube playback solution is available
-  const trailers: typeof videos = [];
+  // Trailers: YouTube Trailer/Teaser (prefer official trailers).
+  // Source/played via YouTube embed iframe with muted autoplay — no ytdl.
+  const trailers: Video[] = videos.filter((v) =>
+    v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
+  ).sort((a, b) => {
+    if (a.type === 'Trailer' && b.type !== 'Trailer') return -1;
+    if (a.type !== 'Trailer' && b.type === 'Trailer') return 1;
+    return 0;
+  });
 
   const logos = isTv
   ? (selectedMedia as TvDetails).networks?.filter((n) => n.logoPath) || []
@@ -227,10 +233,12 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       { id: 'season', label: 'Season', itemCount: seasons.length },
       { id: 'episodes', label: 'Episodes', itemCount: seasonEpisodes.length },
       { id: 'cast', label: 'Cast', itemCount: cast.length },
+      { id: 'trailers', label: 'Trailers', itemCount: trailers.length },
       { id: 'similar', label: 'Similar', itemCount: similar.length },
     ] : [
       { id: 'actions', label: 'Actions', itemCount: actionCount },
       { id: 'cast', label: 'Cast', itemCount: cast.length },
+      { id: 'trailers', label: 'Trailers', itemCount: trailers.length },
       { id: 'similar', label: 'Similar', itemCount: similar.length },
     ];
     setSections(newSections);
@@ -349,6 +357,9 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
         } else if (section.id === 'similar') {
           const item = similar[focusedItem];
           if (item) handleSelectSimilar(item);
+        } else if (section.id === 'trailers') {
+          const trailer = trailers[focusedItem];
+          if (trailer) onPlayTrailer(trailer.key);
         }
         break;
       case 'Escape':
@@ -380,7 +391,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
         break;
       }
     }
-  }, [focusedSection, focusedItem, sectionConfig, isTv, seasons, seasonEpisodes, trailers, similar, selectedMedia, onPlay, onBack, onContextMenu]);
+  }, [focusedSection, focusedItem, sectionConfig, isTv, seasons, seasonEpisodes, trailers, similar, selectedMedia, onPlay, onBack, onContextMenu, onPlayTrailer]);
 
   if (!selectedMedia) {
     return (
@@ -408,6 +419,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
   const seasonIndex = sectionConfig.findIndex((s) => s.id === 'season');
   const episodesIndex = sectionConfig.findIndex((s) => s.id === 'episodes');
   const castIndex = sectionConfig.findIndex((s) => s.id === 'cast');
+  const trailersIndex = sectionConfig.findIndex((s) => s.id === 'trailers');
   const similarIndex = sectionConfig.findIndex((s) => s.id === 'similar');
 
   return (
@@ -655,6 +667,38 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
         );
       })}
       </div>
+      </section>
+    )}
+
+    {trailers.length > 0 && (
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Trailers</h2>
+        <div className={styles.trailerList}>
+          {trailers.map((trailer, idx) => {
+            const isFocused = focusedSection === trailersIndex && focusedItem === idx;
+            return (
+              <div
+                key={trailer.id}
+                className={`${styles.trailerCard} ${isFocused ? styles.focused : ''}`}
+                onClick={() => onPlayTrailer(trailer.key)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onPlayTrailer(trailer.key); } }}
+                role="button"
+                tabIndex={isFocused ? 0 : -1}
+                data-section={trailersIndex} data-item={idx}
+              >
+                <img
+                  src={`https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`}
+                  alt={trailer.name}
+                  className={styles.trailerThumb}
+                  loading="lazy"
+                />
+                <div className={styles.trailerOverlay}>
+                  <div className={styles.trailerName}>{trailer.name}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </section>
     )}
 

@@ -11,7 +11,6 @@ import * as MdbListService from '../services/mdblist.service'
 import * as WebTorrentService from '../services/webtorrent.service'
 import * as TorrentSearchService from '../services/torrent-search.service'
 import * as DebridService from '../services/debrid.service'
-import * as IntrosService from '../services/intros.service'
 import * as CacheService from '../services/cache.service'
 import * as FanartService from '../services/fanart.service'
 import * as IndexerCatalogService from '../services/indexer-catalog.service'
@@ -683,6 +682,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return { filePath }
   })
 
+  handle('torrent:get-sidecar-subs', async (_event, infoHash: string, fileIndex: number) => {
+    return WebTorrentService.getSidecarSubtitles(infoHash, fileIndex)
+  })
+
   handle('player:verify-url', async (_event, url: string) => {
     try {
       const controller = new AbortController()
@@ -954,6 +957,10 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('usenet:get-stream-url', async (_event, id) => {
     return { url: await UsenetService.getStreamUrl(id) }
+  })
+
+  handle('usenet:get-sidecar-subs', async (_event, dirPath: string) => {
+    return UsenetService.getSidecarSubs(dirPath)
   })
 
   handle('usenet:reload-config', async () => {
