@@ -104,6 +104,7 @@ function VideoPlayerInner({
   onPlaybackComplete,
 }, ref) {
   const videoJsRef = useRef<VideoJsPlayerHandle>(null)
+  const skipBtnRef = useRef<HTMLButtonElement | null>(null)
   const scrobbleThrottle = useRef(0)
   const [activeSkip, setActiveSkip] = useState<IntroSegment | null>(null)
   const [segments, setSegments] = useState<IntroSegment[]>([])
@@ -278,7 +279,7 @@ function VideoPlayerInner({
       return
     }
 
-    if (mediaInfo.mediaType !== 'tv') return
+    if (mediaInfo.mediaType !== 'tv' && mediaInfo.mediaType !== 'movie') return
 
     const mi = mediaInfo
     let cancelled = false
@@ -298,6 +299,14 @@ function VideoPlayerInner({
     fetchSegments()
     return () => { cancelled = true }
   }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode])
+
+  // ── Focus the skip button when it appears ───────────────────────────────
+  // Without focus, Enter is caught by the window-level OSD handler (opens the
+  // OSD instead of activating the button). The button's own onKeyDown then
+  // consumes the key via stopPropagation.
+  useEffect(() => {
+    if (activeSkip) skipBtnRef.current?.focus()
+  }, [activeSkip])
 
   // ── Fallback duration for progress calc ────────────────────────────────
 
@@ -580,6 +589,7 @@ function VideoPlayerInner({
       {activeSkip && (
         <div className={styles.skipOverlay}>
           <button
+            ref={skipBtnRef}
             tabIndex={0}
             className={styles.skipBtn}
             onClick={() => {
@@ -590,7 +600,10 @@ function VideoPlayerInner({
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
+                // Focused skip button: consume the key so the window-level OSD
+                // handler (open OSD / activate OSD button) never also fires.
                 e.preventDefault()
+                e.stopPropagation()
                 if (activeSkip.endMs !== null) {
                   videoJsRef.current?.seek(activeSkip.endMs / 1000)
                 }
@@ -615,7 +628,9 @@ function VideoPlayerInner({
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
+                // Same as the skip button: consume so the OSD handler doesn't fire.
                 e.preventDefault()
+                e.stopPropagation()
                 exitedRef.current = true
                 onNextEpisode()
               }
