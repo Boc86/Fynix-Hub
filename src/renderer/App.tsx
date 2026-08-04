@@ -44,6 +44,8 @@ interface PlayerInfo {
   /** Torrent infoHash + fileIndex for sidecar subtitle lookup */
   torrentInfoHash?: string
   torrentFileIndex?: number
+  /** Usenet completed download directory for sidecar subtitle lookup */
+  usenetCompletedDir?: string
 }
 
 export default function App() {
@@ -781,6 +783,7 @@ export default function App() {
               const audioLang = getAudioLang()
               try {
                 currentUsenetPathRef.current = stream.url
+                setPlayerInfo(prev => ({...(prev as PlayerInfo || {}), usenetCompletedDir: status.completedDir} as PlayerInfo))
                 await startPlayerUrl(stream.url)
               } catch (playerErr: any) {
                 window.api.log('[App] player.start failed:', playerErr?.message)
@@ -799,6 +802,7 @@ export default function App() {
                 const audioLang = getAudioLang()
                 try {
                   currentUsenetPathRef.current = cacheResults[0].streamUrl
+                  setPlayerInfo(prev => ({...(prev as PlayerInfo || {}), usenetCompletedDir: status.completedDir} as PlayerInfo))
                   await startPlayerUrl(cacheResults[0].streamUrl)
                   setStreamError(null)
                 } catch (playerErr: any) {

@@ -123,7 +123,8 @@ async function fetchNzbContent(url: string): Promise<{ content: string; size: nu
 export async function getDownloadStatus(id: string): Promise<{
   id: string; name: string; status: string; progress: number;
   size: number; downloaded: number; speed: number; eta: string;
-  nzbUrl?: string; error?: string; nzbId: number
+  nzbUrl?: string; error?: string; nzbId: number;
+  completedDir?: string
 } | null> {
   const active = activeDownloads.get(id)
   if (!active) return null
@@ -144,6 +145,7 @@ export async function getDownloadStatus(id: string): Promise<{
           downloaded: histMatch.FileSizeMB * 1048576,
           speed: 0, eta: '', nzbUrl: active.nzbUrl, nzbId: active.nzbId,
           error: status === 'failed' ? 'Download failed in nzbget' : undefined,
+          completedDir: active.completedDir,
         }
       }
       // Not in groups or history — might have been deleted
@@ -174,7 +176,7 @@ export async function getDownloadStatus(id: string): Promise<{
       active.completedDir = match.DestDir || match.FinalDir
     }
 
-    return { id, name: active.title, status, progress, size, downloaded, speed, eta: etaStr, nzbUrl: active.nzbUrl, nzbId: active.nzbId }
+    return { id, name: active.title, status, progress, size, downloaded, speed, eta: etaStr, nzbUrl: active.nzbUrl, nzbId: active.nzbId, completedDir: active.completedDir }
   } catch (err: any) {
     console.error(`[UDB] getDownloadStatus: ${err?.message}`)
     return { id, name: active.title, status: 'downloading', progress: 0, size: 0, downloaded: 0, speed: 0, eta: '', nzbUrl: active.nzbUrl, nzbId: active.nzbId }

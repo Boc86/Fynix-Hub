@@ -959,6 +959,10 @@ export async function registerIpcHandlers(): Promise<void> {
     return { url: await UsenetService.getStreamUrl(id) }
   })
 
+  handle('usenet:get-sidecar-subs', async (_event, dirPath: string) => {
+    return UsenetService.getSidecarSubs(dirPath)
+  })
+
   handle('usenet:reload-config', async () => {
     UsenetService.loadConfig()
     return { success: true }

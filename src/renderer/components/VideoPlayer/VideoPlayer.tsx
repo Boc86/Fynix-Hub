@@ -26,6 +26,8 @@ interface MediaInfo {
   /** Torrent infoHash + fileIndex for sidecar subtitle lookup */
   torrentInfoHash?: string
   torrentFileIndex?: number
+  /** Usenet completed download directory for sidecar subtitle lookup */
+  usenetCompletedDir?: string
   segments?: {
     type: 'intro' | 'recap' | 'intro-and-recap'
     startMs: number | null
@@ -344,12 +346,22 @@ function VideoPlayerInner({
     const fetchSubtitles = async () => {
       if (!mediaInfo || mediaInfo.isTrailer) return
       try {
-        // 1) Torrent sidecar subtitles (in-torrent .srt/.vtt via local HTTP cache)
+        // 1a) Torrent sidecar subtitles (in-torrent .srt/.vtt via local HTTP cache)
         if (mediaInfo.torrentInfoHash && mediaInfo.torrentFileIndex !== undefined) {
           const sidecar = await window.api.torrent.getSidecarSubs(
             mediaInfo.torrentInfoHash,
             mediaInfo.torrentFileIndex,
           )
+          if (sidecar.length > 0) {
+            for (const sub of sidecar) {
+              videoJsRef.current?.addSubtitle(sub.url, sub.label, sub.language)
+            }
+            return
+          }
+        }
+        // 1b) Usenet sidecar subtitles (completed download dir .srt/.vtt files)
+        if (mediaInfo.usenetCompletedDir) {
+          const sidecar = await window.api.usenet.getSidecarSubs(mediaInfo.usenetCompletedDir)
           if (sidecar.length > 0) {
             for (const sub of sidecar) {
               videoJsRef.current?.addSubtitle(sub.url, sub.label, sub.language)
@@ -386,7 +398,7 @@ function VideoPlayerInner({
       } catch {}
     }
     fetchSubtitles()
-  }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.torrentInfoHash, mediaInfo?.torrentFileIndex])
+  }, [mediaInfo?.tmdbId, mediaInfo?.mediaType, mediaInfo?.season, mediaInfo?.episode, mediaInfo?.torrentInfoHash, mediaInfo?.torrentFileIndex, mediaInfo?.usenetCompletedDir])
 
   // ── Event callbacks for VideoJsPlayer ──────────────────────────────────
 

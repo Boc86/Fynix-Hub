@@ -266,6 +266,7 @@ const api = {
     sendNzb: (nzbUrl: string, title: string, sizeBytes?: number) => ipcRenderer.invoke('usenet:send-nzb', nzbUrl, title, sizeBytes),
     getDownloadStatus: (id: string) => ipcRenderer.invoke('usenet:get-download-status', id),
     getStreamUrl: (id: string) => ipcRenderer.invoke('usenet:get-stream-url', id),
+    getSidecarSubs: (dirPath: string) => ipcRenderer.invoke('usenet:get-sidecar-subs', dirPath),
     reloadConfig: () => ipcRenderer.invoke('usenet:reload-config'),
     listDownloads: () => ipcRenderer.invoke('usenet:list-downloads'),
     removeDownload: (id: string) => ipcRenderer.invoke('usenet:remove-download', id),
