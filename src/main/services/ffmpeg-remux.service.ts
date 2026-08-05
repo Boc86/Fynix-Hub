@@ -38,8 +38,10 @@ interface RemuxSession {
   stderrBuffer: string[]
   /** File size at open time (file:// inputs only) — used to detect growth. */
   openedBytes: number
-  /** If this session was restarted into a new one, that new session's id. */
-  restartedInto?: string
+  /** True once the stream has ended (ffmpeg done, no respawn) — playlist gets an ENDLIST. */
+  ended: boolean
+  /** Interval watching for the first real playlist write. */
+  readyWatcher?: NodeJS.Timeout
 }
 
 interface RemuxRequest {
@@ -108,7 +110,7 @@ function getContentType(filename: string): string {
 
 // ─── Session Management ──────────────────────────────────────────────────────
 
-function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false, audioTrackIndex?: number): string[] {
+function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false, audioTrackIndex?: number, appendList = false): string[] {
   const args = [
     '-hide_banner',
     '-loglevel', 'info',
@@ -175,7 +177,12 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
     '-hls_playlist_type', 'event',
     '-hls_segment_type', 'fmp4',
     '-hls_fmp4_init_filename', 'init.mp4',
-    '-hls_flags', 'independent_segments',
+    // append_list (respawn only): continue the EXISTING playlist instead of
+    // truncating+rewriting it — segment numbering is derived from the list,
+    // so the media sequence never restarts and hls.js never sees the stream
+    // shrink. Verified empirically (ffmpeg 8.1): playlist continues, inserts
+    // #EXT-X-DISCONTINUITY at the join (hls.js handles it).
+    '-hls_flags', appendList ? 'independent_segments+append_list' : 'independent_segments',
     '-hls_segment_filename', path.join(outputDir, 'segment%05d.m4s'),
     path.join(outputDir, 'playlist.m3u8'),
   )
@@ -223,6 +230,150 @@ function probeIsHevc(inputUrl: string): boolean {
     debug('ffprobe failed, assuming HEVC for safety — will transcode to H.264')
     return true
   }
+}
+
+/**
+ * ffmpeg writes #EXT-X-ENDLIST at clean EOF — including when it exits because
+ * the input file is still growing (NZB download / recording). Before respawning
+ * in place we must strip it, otherwise the appended segments land AFTER the
+ * ENDLIST and hls.js ignores them.
+ */
+function stripEndList(session: RemuxSession): void {
+  try {
+    const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
+    const content = fs.readFileSync(playlistPath, 'utf-8')
+    const stripped = content.replace(/\n?#EXT-X-ENDLIST\n?$/, '')
+    if (stripped !== content) {
+      fs.writeFileSync(playlistPath, stripped)
+      debug('Stripped premature #EXT-X-ENDLIST before respawn')
+    }
+  } catch (err: any) {
+    debug('stripEndList failed:', err?.message)
+  }
+}
+
+/** Append #EXT-X-ENDLIST so hls.js plays out to the end instead of stalling. */
+function appendEndList(session: RemuxSession): void {
+  try {
+    const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
+    const content = fs.readFileSync(playlistPath, 'utf-8')
+    if (content.includes('#EXT-X-ENDLIST')) return
+    fs.writeFileSync(playlistPath, content + '#EXT-X-ENDLIST\n')
+    debug('Appended #EXT-X-ENDLIST')
+  } catch (err: any) {
+    debug('appendEndList failed:', err?.message)
+  }
+}
+
+/** Watch for the first real playlist write; clears any previous watcher. */
+function armReadyWatcher(session: RemuxSession): void {
+  if (session.readyWatcher) clearInterval(session.readyWatcher)
+  const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
+  session.readyWatcher = setInterval(() => {
+    try {
+      const stat = fs.statSync(playlistPath)
+      // Real playlist is larger than the placeholder.
+      if (stat.size > PLACEHOLDER_PLAYLIST.length) {
+        if (session.readyWatcher) clearInterval(session.readyWatcher)
+        session.readyWatcher = undefined
+        session.readyResolve()
+      }
+    } catch {}
+  }, 300)
+}
+
+/**
+ * Wire a fresh FFmpeg child process into a session: log its output, capture
+ * stderr, and handle exit. On a clean exit against a STILL-GROWING local file
+ * (NZB download / recording), respawn ffmpeg into the SAME session directory
+ * with a continuing segment number, so the playlist the renderer is polling
+ * keeps growing seamlessly. When the file is complete (or gone — nzbget
+ * renamed it), the stream is over: mark ended so the playlist gets an ENDLIST.
+ */
+function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[], audioTrackIndex?: number): void {
+  proc.stdout?.on('data', (chunk: Buffer) => {
+    const line = chunk.toString().trim()
+    if (line) debug(`[ffmpeg stdout] ${line}`)
+  })
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    const line = chunk.toString().trim()
+    if (line) {
+      debug(`[ffmpeg stderr] ${line}`)
+      // Keep last 20 stderr lines for error reporting.
+      session.stderrBuffer.push(line)
+      if (session.stderrBuffer.length > 20) session.stderrBuffer.shift()
+    }
+  })
+  proc.on('error', (err) => {
+    debug('FFmpeg process error:', err.message)
+    session.lastError = `FFmpeg process error: ${err.message}`
+    if (session.process === proc) cleanupSession(session.id)
+  })
+  proc.on('exit', (code, signal) => {
+    debug(`FFmpeg exited with code ${code} signal ${signal}`)
+    if (session.process !== proc) return // superseded by an in-place respawn
+    if (session.readyWatcher) { clearInterval(session.readyWatcher); session.readyWatcher = undefined }
+    if (code !== 0 && !session.lastError) {
+      const stderrTail = session.stderrBuffer.slice(-5).join('; ')
+      session.lastError = stderrTail
+        ? `FFmpeg exited with code ${code}: ${stderrTail}`
+        : `FFmpeg exited with code ${code}`
+    }
+    // Growing-file restart: when input is a local file still being written
+    // (e.g. NZB download or recording), FFmpeg hits EOF when the current
+    // chunk ends. If the file has grown since we opened it, restart from
+    // the last reported duration to keep streaming.
+    if (code === 0 && session.inputUrl.startsWith('file://')) {
+      const filePath = session.inputUrl.replace(/^file:\/\//, '')
+      try {
+        const stat = fs.statSync(filePath)
+        const totalBytes = stat.size
+        const lastDuration = parseLastDuration(session.stderrBuffer)
+        debug(`Growing-file check: input=${filePath} totalBytes=${totalBytes} lastDuration=${lastDuration}`)
+        // Heuristic: if the file is reasonably large (>1MB), assume it's
+        // still in-progress. Downloads/recordings always exceed this.
+        const looksInProgress = totalBytes > 1024 * 1024 && totalBytes > session.openedBytes
+        if (looksInProgress && typeof lastDuration === 'number' && lastDuration > 0) {
+          debug(`Respawn in place from ${lastDuration}s (file grew ${session.openedBytes} → ${totalBytes})`)
+          // Remove ffmpeg's premature ENDLIST so the appended segments land
+          // before the end marker.
+          stripEndList(session)
+          const args: string[] = ['-ss', String(lastDuration)]
+          args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, false, audioTrackIndex, true))
+          let newProc: ChildProcess
+          try {
+            newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+          } catch (err: any) {
+            debug('FFmpeg respawn failed:', err?.message)
+            session.ended = true
+            appendEndList(session)
+            return
+          }
+          // Same session id + same output dir + append_list → the renderer's
+          // playlist URL keeps growing seamlessly with no restart visible.
+          session.process = newProc
+          session.openedBytes = totalBytes
+          session.lastError = null
+          session.stderrBuffer = []
+          wireProcess(session, newProc, headers, audioTrackIndex)
+          armReadyWatcher(session)
+          debug('Respawned FFmpeg in place (append_list)')
+          return
+        }
+      } catch (err: any) {
+        // File path gone — nzbget renamed the completed file. Stream is over.
+        debug('Growing-file check failed (file renamed/complete?):', err?.message)
+      }
+    }
+    // Stream over — let hls.js finish instead of stalling on a live playlist.
+    session.ended = true
+    appendEndList(session)
+    if (code !== 0) {
+      cleanupSession(session.id)
+    } else {
+      session.readyResolve()
+    }
+  })
 }
 
 /**
@@ -279,79 +430,13 @@ function probeIsHevc(inputUrl: string): boolean {
      lastError: null,
      stderrBuffer: [],
      openedBytes: 0,
+     ended: false,
    }
 
    sessions.set(id, session)
 
    // Write placeholder playlist immediately so the first HLS request succeeds.
    fs.writeFileSync(path.join(outputDir, 'playlist.m3u8'), PLACEHOLDER_PLAYLIST)
-
-   // Monitor FFmpeg output for logging and error capture.
-   proc.stdout?.on('data', (chunk: Buffer) => {
-     const line = chunk.toString().trim()
-     if (line) debug(`[ffmpeg stdout] ${line}`)
-   })
-   proc.stderr?.on('data', (chunk: Buffer) => {
-     const line = chunk.toString().trim()
-     if (line) {
-       debug(`[ffmpeg stderr] ${line}`)
-       // Keep last 20 stderr lines for error reporting.
-       session.stderrBuffer.push(line)
-       if (session.stderrBuffer.length > 20) session.stderrBuffer.shift()
-     }
-   })
-
-   proc.on('error', (err) => {
-     debug('FFmpeg process error:', err.message)
-     session.lastError = `FFmpeg process error: ${err.message}`
-     cleanupSession(id)
-   })
-
-   proc.on('exit', (code, signal) => {
-     debug(`FFmpeg exited with code ${code} signal ${signal}`)
-     clearInterval(readyWatcher)
-     if (code !== 0 && !session.lastError) {
-       const stderrTail = session.stderrBuffer.slice(-5).join('; ')
-       session.lastError = stderrTail
-         ? `FFmpeg exited with code ${code}: ${stderrTail}`
-         : `FFmpeg exited with code ${code}`
-     }
-     // Growing-file restart: when input is a local file still being written
-     // (e.g. NZB download or recording), FFmpeg hits EOF when the current
-     // chunk ends. If the file has grown since we opened it, restart from
-     // the last reported duration to keep streaming.
-     if (code === 0 && inputUrl.startsWith('file://') && session.process === proc) {
-       const filePath = inputUrl.replace(/^file:\/\//, '')
-       try {
-         const stat = fs.statSync(filePath)
-         const totalBytes = stat.size
-         const lastDuration = parseLastDuration(session.stderrBuffer)
-         debug(`Growing-file check: input=${filePath} totalBytes=${totalBytes} lastDuration=${lastDuration}`)
-         // Heuristic: if the file is reasonably large (>1MB), assume it's
-         // still in-progress. Downloads/recordings always exceed this.
-         const looksInProgress = totalBytes > 1024 * 1024 && totalBytes > session.openedBytes
-         if (looksInProgress && typeof lastDuration === 'number' && lastDuration > 0) {
-           debug(`Restarting FFmpeg from duration ${lastDuration}s (file grew from ${session.openedBytes} to ${totalBytes})`)
-           const restart = createSession(inputUrl, lastDuration, headers, audioTrackIndex)
-           const newSession = sessions.get(restart.sessionId)
-           if (newSession) {
-             // Mark this session as superseded so cleanupSession doesn't kill the new one.
-             session.process = newSession.process
-             session.restartedInto = newSession.id
-           }
-           readyResolve()
-           return
-         }
-       } catch (err: any) {
-         debug('Growing-file check failed:', err?.message)
-       }
-     }
-     if (code !== 0) {
-       cleanupSession(id)
-     } else {
-       readyResolve()
-     }
-   })
 
    // Track the file size at open time so we can detect growth on exit.
    if (inputUrl.startsWith('file://')) {
@@ -360,18 +445,9 @@ function probeIsHevc(inputUrl: string): boolean {
      } catch { /* ignore */ }
    }
 
-   // Watch for the first real playlist write to mark the session as ready.
-   const playlistPath = path.join(outputDir, 'playlist.m3u8')
-   const readyWatcher = setInterval(() => {
-     try {
-       const stat = fs.statSync(playlistPath)
-       // Real playlist is larger than the placeholder.
-       if (stat.size > PLACEHOLDER_PLAYLIST.length) {
-         clearInterval(readyWatcher)
-         readyResolve()
-       }
-     } catch {}
-   }, 300)
+   // Monitor output, handle respawn-on-growth and end-of-stream below.
+   wireProcess(session, proc, headers, audioTrackIndex)
+   armReadyWatcher(session)
 
    const port = portGetter ? portGetter() : 0
    const streamUrl = `http://127.0.0.1:${port}/remux/${id}/playlist.m3u8`
@@ -492,7 +568,12 @@ function servePlaylist(session: RemuxSession, res: ServerResponse) {
   const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
 
   try {
-    const content = fs.readFileSync(playlistPath, 'utf-8')
+    let content = fs.readFileSync(playlistPath, 'utf-8')
+    // Once the stream has ended, make sure hls.js sees the ENDLIST so it
+    // plays out the buffered tail and fires "ended" instead of stalling.
+    if (session.ended && !content.includes('#EXT-X-ENDLIST')) {
+      content += '#EXT-X-ENDLIST\n'
+    }
     if (!responseIsOpen(res)) return
     res.writeHead(200, {
       'Content-Type': 'application/x-mpegURL; charset=utf-8',

@@ -246,3 +246,48 @@ describe('pathMatchesTokens (bare-dir wrong-file guard)', () => {
     expect(pathMatchesTokens('/downloads/completed/Any.Movie.mkv', [])).toBe(false)
   })
 })
+
+describe('findMostSpecificDirMatch (delete target resolution)', () => {
+  // Replicates the deleteUsenetByPath/removeDownload candidate matcher: the
+  // entry whose FinalDir/DestDir contains the file's dir, preferring the
+  // LONGEST base so a shared DestDir can't shadow the per-download folder.
+  function findMostSpecificDirMatch(candidates: any[], dir: string): any | null {
+    const dirClean = dir.replace(/\/+$/, '').replace(/\/+/g, '/')
+    return candidates
+      .map((c) => ({ c, base: (c.FinalDir || c.DestDir || '').replace(/\/+$/, '').replace(/\/+/g, '/') }))
+      .filter(({ base }) => base && dirClean.startsWith(base))
+      .sort((a, b) => b.base.length - a.base.length)[0]?.c ?? null
+  }
+
+  it('picks the per-download folder over the shared DestDir root', () => {
+    const candidates = [
+      { NZBID: 1, DestDir: '/downloads/completed', FinalDir: '/downloads/completed' },
+      { NZBID: 2, DestDir: '/downloads/completed/Some_Movie.2025', FinalDir: '/downloads/completed/Some_Movie.2025' },
+    ]
+    const dir = '/downloads/completed/Some_Movie.2025'
+    expect(findMostSpecificDirMatch(candidates, dir)?.NZBID).toBe(2)
+  })
+
+  it('falls back to the shared root when no per-download folder exists (flat layout)', () => {
+    const candidates = [
+      { NZBID: 1, DestDir: '/downloads/completed', FinalDir: '/downloads/completed' },
+    ]
+    const dir = '/downloads/completed'
+    expect(findMostSpecificDirMatch(candidates, dir)?.NZBID).toBe(1)
+  })
+
+  it('returns null when nothing contains the dir', () => {
+    const candidates = [
+      { NZBID: 1, DestDir: '/other/downloads', FinalDir: '/other/downloads' },
+    ]
+    expect(findMostSpecificDirMatch(candidates, '/downloads/completed/Movie')).toBeNull()
+  })
+
+  it('normalizes trailing slashes and double slashes', () => {
+    const candidates = [
+      { NZBID: 5, FinalDir: '/downloads/completed/Movie.2026/' },
+      { NZBID: 6, DestDir: '//downloads//completed//Movie.2026' },
+    ]
+    expect(findMostSpecificDirMatch(candidates, '/downloads/completed/Movie.2026/')?.NZBID).toBe(5)
+  })
+})

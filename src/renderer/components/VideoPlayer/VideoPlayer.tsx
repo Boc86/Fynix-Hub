@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { forceRefreshWatchData } from '../../utils/refreshWatchData'
 import type { IntroSegment } from '../../types.d'
 import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
@@ -261,11 +262,13 @@ function VideoPlayerInner({
 
   // ── Finish playback ────────────────────────────────────────────────────
 
-  const finishPlayback = useCallback((goNext: boolean) => {
+  const finishPlayback = useCallback(async (goNext: boolean) => {
     saveProgress()
     scrobble('stop').catch(() => {})
-    markAsWatched().catch(() => {})
-    useMediaStore.getState().triggerRefresh()
+    await markAsWatched().catch(() => {})
+    // Bust the MDBList cache + bump refreshVersion so the watched badge and
+    // Up Next rows reflect the completed watch immediately.
+    await forceRefreshWatchData().catch(() => {})
     if (goNext) onNextEpisode()
     else onBack()
   }, [saveProgress, scrobble, markAsWatched, onNextEpisode, onBack])
@@ -475,7 +478,7 @@ function VideoPlayerInner({
     exitedRef.current = true
     playbackCompletedRef.current = true
     onPlaybackComplete?.()
-    finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current))
+    finishPlayback(!!(mediaInfo?.mediaType === 'tv' && hasNextEpisode && autoPlayNextRef.current)).catch(() => {})
   }, [mediaInfo, hasNextEpisode, finishPlayback, onPlaybackComplete])
 
   const handleError = useCallback((error?: MediaError | Error) => {
