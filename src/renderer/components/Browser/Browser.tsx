@@ -6,7 +6,6 @@ import type { MediaItem } from '../../types'
 import type { ContextTarget } from '../ContextMenu/ContextMenu'
 import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
-import { getWatchApi, useWatchConnected } from '../../utils/watchProvider'
 import styles from './Browser.module.css'
 
 interface ContinueInfo {
@@ -26,11 +25,11 @@ interface BrowserProps {
 export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter, genreFilter }: BrowserProps) {
   const {
     trending, popularMovies, popularTvShows, topRatedMovies,
-    continueWatching, upNext, isLoading, error, traktWatched,
+    continueWatching, upNext, isLoading, error, watchedIds,
     watchProviders, selectedProvider,
     setTrending, setPopularMovies, setPopularTvShows,
     setTopRatedMovies, setContinueWatching, setUpNext,
-    setTraktWatched, setTraktPlayback,
+    setWatchedIds, setPlayback,
     setWatchProviders, setSelectedProvider,
     setLoading, setError, refreshVersion, setEpisodeWatched
   } = useMediaStore()
@@ -51,10 +50,9 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   const lastFocusedItemRef = useRef<MediaItem | null>(null)
   const currentHeroIdRef = useRef<number | null>(null)
 
-  const watchProvider = useSettingsStore((s) => s.watchProvider)
-  const watchConnected = useWatchConnected()
+  const mdblistConnected = useSettingsStore((s) => s.mdblistConnected)
 
-  const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !traktWatched.has(item.id))
+  const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !watchedIds.has(item.id))
   const continueTv = continueWatching.filter(item => item.mediaType === 'tv')
   const upNextItems = upNext.map(u => u.item)
 
@@ -86,17 +84,16 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
     return rows[rowIdx]?.items.length ?? 0
   }, [getVisibleRows])
 
-  const fetchTraktDataRef = useRef<() => Promise<void>>(async () => {})
-  fetchTraktDataRef.current = async () => {
-    const watchApi = getWatchApi()
-    const authStatus = await watchApi.getAuthStatus()
+  const fetchWatchDataRef = useRef<() => Promise<void>>(async () => {})
+  fetchWatchDataRef.current = async () => {
+    const authStatus = await window.api.mdblist.getAuthStatus()
     console.log('[Browser] Watch provider auth:', authStatus.authenticated)
     if (authStatus.authenticated) {
       const [watchedMovies, watchedShows, moviePlayback, episodePlayback] = await Promise.all([
-        watchApi.getWatchedMovies().catch((err: any) => { console.log('[Browser] getWatchedMovies failed:', err?.message); return null }),
-        watchApi.getWatchedShows().catch((err: any) => { console.log('[Browser] getWatchedShows failed:', err?.message); return null }),
-        watchApi.getPlaybackMovies().catch((err: any) => { console.log('[Browser] getPlaybackMovies failed:', err?.message); return null }),
-        watchApi.getPlaybackEpisodes().catch((err: any) => { console.log('[Browser] getPlaybackEpisodes failed:', err?.message); return null }),
+        window.api.mdblist.getWatchedMovies().catch((err: any) => { console.log('[Browser] getWatchedMovies failed:', err?.message); return null }),
+        window.api.mdblist.getWatchedShows().catch((err: any) => { console.log('[Browser] getWatchedShows failed:', err?.message); return null }),
+        window.api.mdblist.getPlaybackMovies().catch((err: any) => { console.log('[Browser] getPlaybackMovies failed:', err?.message); return null }),
+        window.api.mdblist.getPlaybackEpisodes().catch((err: any) => { console.log('[Browser] getPlaybackEpisodes failed:', err?.message); return null }),
       ])
 
       console.log('[Browser] moviePlayback count:', moviePlayback?.length ?? 0)
@@ -106,7 +103,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
         const ids = new Set<number>()
         if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
         if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
-        setTraktWatched(ids)
+        setWatchedIds(ids)
 
         // Build episode-level watched map from show data
         const epMap = new Map<number, Map<number, Set<number>>>()
@@ -145,7 +142,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
       let episodeItems = episodePlayback
       if (!episodeItems || !Array.isArray(episodeItems) || episodeItems.length === 0) {
         console.log('[Browser] Falling back to /sync/playback for episodes')
-        const fallback = await watchApi.getPlayback().catch((err: any) => { console.log('[Browser] getPlayback fallback failed:', err?.message); return null })
+        const fallback = await window.api.mdblist.getPlayback().catch((err: any) => { console.log('[Browser] getPlayback fallback failed:', err?.message); return null })
         if (fallback && Array.isArray(fallback)) {
           episodeItems = fallback.filter((p: any) => p.type === 'episode' || (p.show && p.episode))
           console.log('[Browser] fallback episode count:', episodeItems.length)
@@ -173,7 +170,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
         }
       }
 
-      setTraktPlayback(pbItems)
+      setPlayback(pbItems)
       setContinueInfo(infoMap)
 
       const cwPromises = pbItems.map(async (p) => {
@@ -201,7 +198,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
 
       // Fetch Up Next (shows with next episode to watch)
       try {
-        const progress = await watchApi.getWatchedProgress()
+        const progress = await window.api.mdblist.getWatchedProgress()
             if (progress && Array.isArray(progress) && progress.length > 0) {
               const now = Date.now()
               const thirtyDays = 30 * 24 * 60 * 60 * 1000
@@ -248,7 +245,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
     }
   }
 
-  const fetchTraktData = useCallback(() => fetchTraktDataRef.current!(), [])
+  const fetchWatchData = useCallback(() => fetchWatchDataRef.current!(), [])
 
   useEffect(() => {
     if (loadedRef.current) return
@@ -287,7 +284,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
           } catch { /* providers are optional */ }
         }
 
-        await fetchTraktData()
+        await fetchWatchData()
       } catch (err: any) {
         setError(err?.message || 'Failed to load data')
       } finally {
@@ -296,12 +293,12 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
     }
 
     loadData()
-  }, [mediaTypeFilter, fetchTraktData])
+  }, [mediaTypeFilter, fetchWatchData])
 
   useEffect(() => {
     if (!loadedRef.current) return
-    fetchTraktData()
-  }, [refreshVersion, fetchTraktData, watchProvider, watchConnected])
+    fetchWatchData()
+  }, [refreshVersion, fetchWatchData, mdblistConnected])
 
   // Build the discovery hub rows (Popular, Top Rated, all genre rows). When a
   // provider is selected, EVERY row is refetched with with_watch_providers so
@@ -385,9 +382,9 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
       total: continueWatching.length,
       movies: continueMovies.length,
       tv: continueTv.length,
-      watchedIds: traktWatched.size,
+      watchedIds: watchedIds.size,
     })
-  }, [continueWatching.length, continueMovies.length, continueTv.length, traktWatched.size])
+  }, [continueWatching.length, continueMovies.length, continueTv.length, watchedIds.size])
 
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()
@@ -653,7 +650,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
                  rowIndex={idx}
                  focusedCardIndex={idx === focusedRow ? focusedCard : undefined}
                  rowFocused={idx === focusedRow}
-                 watchedIds={traktWatched}
+                 watchedIds={watchedIds}
                  animationDelay={idx * 50}
 
               />

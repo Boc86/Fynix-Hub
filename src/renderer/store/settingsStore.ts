@@ -10,8 +10,6 @@ export interface UserProfile {
   name: string
   avatarPath?: string
   avatarColor?: string
-  traktAccessToken?: string
-  traktRefreshToken?: string
   mdblistAccessToken?: string
   mdblistRefreshToken?: string
   sportsSelected: string[]
@@ -32,12 +30,7 @@ const DEFAULT_ENABLED_INDEXERS = ['yts', 'eztv', 'thepiratebay', 'nyaa', '1337x'
 interface SettingsState {
   tmdbApiKey: string
   fanartApiKey: string
-  traktConnected: boolean
-  /** Which watch-tracking service drives watched status/scrobble: 'trakt' (default) or 'mdblist' */
-  watchProvider: 'trakt' | 'mdblist'
   mdblistConnected: boolean
-  /** Optional user-provided MDBList Device Code app client ID (overrides baked-in) */
-  mdblistClientId: string
   realDebridApiKey: string
   realDebridConnected: boolean
   torboxApiKey: string
@@ -105,10 +98,7 @@ interface SettingsState {
 
   setTmdbApiKey: (key: string) => void
   setFanartApiKey: (key: string) => void
-  setTraktConnected: (connected: boolean) => void
-  setWatchProvider: (provider: 'trakt' | 'mdblist') => void
   setMdblistConnected: (connected: boolean) => void
-  setMdblistClientId: (clientId: string) => void
   setRealDebridApiKey: (key: string) => void
   setRealDebridConnected: (connected: boolean) => void
   setTorboxApiKey: (key: string) => void
@@ -180,6 +170,8 @@ interface SettingsState {
   removeProfile: (id: string) => void
   setActiveProfile: (id: string | null) => Promise<void>
   getActiveProfile: () => UserProfile | undefined
+  /** Strip dead MDBList tokens from the active profile and flip the connected flag off. */
+  clearMdblistAuth: () => void
   setAutoLoginProfile: (id: string | null) => void
   loadFromDisk: () => Promise<void>
   saveToDisk: () => Promise<void>
@@ -188,10 +180,7 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   tmdbApiKey: '',
   fanartApiKey: '',
-  traktConnected: false,
-  watchProvider: 'trakt',
   mdblistConnected: false,
-  mdblistClientId: '',
   realDebridApiKey: '',
   realDebridConnected: false,
   torboxApiKey: '',
@@ -256,10 +245,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
   setFanartApiKey: (key) => set({ fanartApiKey: key }),
-  setTraktConnected: (connected) => set({ traktConnected: connected }),
-  setWatchProvider: (provider) => { set({ watchProvider: provider }); get().saveToDisk() },
   setMdblistConnected: (connected) => { set({ mdblistConnected: connected }); get().saveToDisk() },
-  setMdblistClientId: (clientId) => { set({ mdblistClientId: clientId }); get().saveToDisk() },
   setRealDebridApiKey: (key) => set({ realDebridApiKey: key }),
   setRealDebridConnected: (connected) => set({ realDebridConnected: connected }),
   setTorboxApiKey: (key) => set({ torboxApiKey: key }),
@@ -427,23 +413,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const profile = get().getActiveProfile()
       if (profile) {
         set({ sportsSelected: profile.sportsSelected || [] })
-        // Sync Trakt connection state with the new active profile
-        if (profile.traktAccessToken) {
+        // Sync MDBList connection state with the new active profile
+        if (profile.mdblistAccessToken) {
           try {
-            await window.api.trakt.setTokens(profile.traktAccessToken, profile.traktRefreshToken || null)
+            await window.api.mdblist.setTokens(profile.mdblistAccessToken, profile.mdblistRefreshToken || null)
           } catch { /* ignore */ }
-          set({ traktConnected: true })
+          set({ mdblistConnected: true })
         } else {
           try {
-            await window.api.trakt.setTokens(null, null)
+            await window.api.mdblist.setTokens(null, null)
           } catch { /* ignore */ }
-          set({ traktConnected: false })
+          set({ mdblistConnected: false })
         }
-        // Drop the previous profile's cached Trakt data so the homescreen
+        // Drop the previous profile's cached watch data so the homescreen
         // (Up Next / Continue Watching / progress) reloads for this profile.
-        try { await window.api.trakt.clearCache() } catch {}
+        try { await window.api.mdblist.clearCache() } catch {}
         // Reset profile-specific store data so stale content never flashes
-        useMediaStore.getState().clearTraktData()
+        useMediaStore.getState().clearWatchData()
         usePlayerStore.getState().setCurrentEpisode(null)
         usePlayerStore.getState().setNextEpisode(null)
         usePlayerStore.getState().setIntroSegment(null)
@@ -460,6 +446,26 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return profiles.find((p) => p.id === activeProfileId)
   },
 
+  clearMdblistAuth: () => {
+    const activeId = get().activeProfileId
+    set((state) => {
+      const profiles = activeId
+        ? state.profiles.map((p) => {
+            if (p.id !== activeId) return p
+            const next = { ...p }
+            delete next.mdblistAccessToken
+            delete next.mdblistRefreshToken
+            return next
+          })
+        : state.profiles
+      return {
+        profiles,
+        mdblistConnected: false,
+      }
+    })
+    get().saveToDisk()
+  },
+
   setAutoLoginProfile: (id) => {
     set({ autoLoginProfileId: id })
     get().saveToDisk()
@@ -471,89 +477,61 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const settings = await window.api.settings.getAll()
       if (settings) {
-        // Migrate from old trakt tokens on first load
-        if (!settings.profiles && settings.traktAccessToken) {
-          const id = Date.now().toString()
-          set({
-            profiles: [{
-              id,
-              name: 'Default',
-              avatarPath: undefined,
-              avatarColor: pickAvatarColor(id),
-              traktAccessToken: settings.traktAccessToken,
-              traktRefreshToken: settings.traktRefreshToken,
-              sportsSelected: settings.sportsSelected || []
-            }],
-            activeProfileId: id,
-          });
-        } else {
-          // Backfill missing fields on stored profiles
-          if (settings.profiles) {
-            settings.profiles = (settings.profiles as any[]).map((p) => ({
-              ...p,
-              avatarColor: p.avatarColor || pickAvatarColor(p.id),
-              sportsSelected: p.sportsSelected || settings.sportsSelected || []
-            }))
-          }
-          // Migrate old maxTorrentSize -> maxDownloadSize
-          if (!(settings as any).maxDownloadSize && (settings as any).maxTorrentSize) {
-            (settings as any).maxDownloadSize = (settings as any).maxTorrentSize
-          }
-          set(settings as Partial<SettingsState>);
+      if (!settings.profiles) {
+        const id = Date.now().toString()
+        set({
+          profiles: [{
+            id,
+            name: 'Default',
+            avatarPath: undefined,
+            avatarColor: pickAvatarColor(id),
+            sportsSelected: settings.sportsSelected || []
+          }],
+          activeProfileId: id,
+        });
+      } else {
+        // Backfill missing fields on stored profiles
+        settings.profiles = (settings.profiles as any[]).map((p) => ({
+          ...p,
+          avatarColor: p.avatarColor || pickAvatarColor(p.id),
+          sportsSelected: p.sportsSelected || settings.sportsSelected || []
+        }))
+        // Migrate old maxTorrentSize -> maxDownloadSize
+        if (!(settings as any).maxDownloadSize && (settings as any).maxTorrentSize) {
+          (settings as any).maxDownloadSize = (settings as any).maxTorrentSize
         }
+        set(settings as Partial<SettingsState>);
       }
+    }
 
-      // Handle auto-login: if autologin profile is set, resolve to it
-      const { activeProfileId, autoLoginProfileId } = get()
-      if (autoLoginProfileId) {
-        if (activeProfileId !== autoLoginProfileId) {
-          set({ activeProfileId: autoLoginProfileId });
-        }
-      } else {
-        // Auto-login is off - don't restore last active profile
-        set({ activeProfileId: null });
+    // Handle auto-login: if autologin profile is set, resolve to it
+    const { activeProfileId, autoLoginProfileId } = get()
+    if (autoLoginProfileId) {
+      if (activeProfileId !== autoLoginProfileId) {
+        set({ activeProfileId: autoLoginProfileId });
       }
+    } else {
+      // Auto-login is off - don't restore last active profile
+      set({ activeProfileId: null });
+    }
 
-      // Sync trakt state with active profile
-      const activeProfile = get().getActiveProfile();
-
-      // If top-level DB keys are fresher than the profile's tokens (e.g. after
-      // a token refresh while the app was running), update the profile so it
-      // doesn't overwrite the fresh tokens on next loadFromDisk.
-      if (activeProfile && settings.traktAccessToken && settings.traktAccessToken !== activeProfile.traktAccessToken) {
-        const updatedProfiles = get().profiles.map(p =>
-          p.id === activeProfile!.id
-            ? { ...p, traktAccessToken: settings.traktAccessToken as string, traktRefreshToken: (settings.traktRefreshToken as string) || p.traktRefreshToken }
-            : p
-        )
-        set({ profiles: updatedProfiles })
-        get().saveToDisk()
-      }
-
-      if (activeProfile && activeProfile.traktAccessToken) {
-        try {
-          await window.api.trakt.setTokens(
-            activeProfile.traktAccessToken,
-            activeProfile.traktRefreshToken || null
-          );
-        } catch { /* ignore */ }
-        set({ traktConnected: true });
-      } else {
-        set({ traktConnected: false });
-      }
-
-      // Sync MDBList state with active profile
-      if (activeProfile && activeProfile.mdblistAccessToken) {
-        try {
-          await window.api.mdblist.setTokens(
-            activeProfile.mdblistAccessToken,
-            activeProfile.mdblistRefreshToken || null
-          );
-        } catch { /* ignore */ }
-        set({ mdblistConnected: true });
-      } else {
-        set({ mdblistConnected: false });
-      }
+    // Sync MDBList state with active profile
+    const activeProfile = get().getActiveProfile();
+    if (activeProfile && activeProfile.mdblistAccessToken) {
+      try {
+        await window.api.mdblist.setTokens(
+          activeProfile.mdblistAccessToken,
+          activeProfile.mdblistRefreshToken || null
+        );
+      } catch { /* ignore */ }
+      set({ mdblistConnected: true });
+    } else {
+      // No token for this profile — make sure main doesn't keep a stale
+      // in-memory token (from a previous profile/boot) that would report
+      // authenticated and hammer the API with 401s.
+      try { await window.api.mdblist.setTokens(null, null) } catch { /* ignore */ }
+      set({ mdblistConnected: false });
+    }
 
       const rdKey = await window.api.settings.get('realDebridApiKey');
       if (rdKey) set({ realDebridConnected: true });
@@ -591,10 +569,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await Promise.all([
         window.api.settings.set('tmdbApiKey', state.tmdbApiKey),
         window.api.settings.set('fanartApiKey', state.fanartApiKey),
-        window.api.settings.set('traktConnected', state.traktConnected),
-        window.api.settings.set('watchProvider', state.watchProvider),
         window.api.settings.set('mdblistConnected', state.mdblistConnected),
-        window.api.settings.set('mdblistClientId', state.mdblistClientId),
         window.api.settings.set('realDebridApiKey', state.realDebridApiKey),
         window.api.settings.set('realDebridConnected', state.realDebridConnected),
         window.api.settings.set('torboxApiKey', state.torboxApiKey),

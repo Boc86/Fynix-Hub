@@ -119,14 +119,6 @@ export interface Video {
   type: string
 }
 
-export interface TraktDeviceCode {
-  deviceCode: string
-  userCode: string
-  verificationUrl: string
-  expiresIn: number
-  interval: number
-}
-
 export interface TorrentResult {
   title: string
   seeders: number

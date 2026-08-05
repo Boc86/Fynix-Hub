@@ -19,7 +19,6 @@ import type { LiveTVAPI } from './components/LiveTV/LiveTV'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
-import { getWatchApi, useWatchConnected } from './utils/watchProvider'
 
 // Heavy screens are code-split so the shell (Browser) paints instantly and
 // each screen chunk loads only on first visit. The type-only import keeps
@@ -244,18 +243,18 @@ export default function App() {
   const storeResume = useMediaStore((s) => s.resumeProgress)
 
   const fetchWatchedData = useCallback(async () => {
-    const authStatus = await getWatchApi().getAuthStatus()
+    const authStatus = await window.api.mdblist.getAuthStatus()
     if (authStatus.authenticated) {
       const [watchedMovies, watchedShows] = await Promise.all([
-        getWatchApi().getWatchedMovies().catch(() => null),
-        getWatchApi().getWatchedShows().catch(() => null),
+        window.api.mdblist.getWatchedMovies().catch(() => null),
+        window.api.mdblist.getWatchedShows().catch(() => null),
       ])
 
       if (watchedMovies || watchedShows) {
         const ids = new Set<number>()
         if (watchedMovies) watchedMovies.forEach((m: any) => { if (m.movie?.ids?.tmdb) ids.add(m.movie.ids.tmdb) })
         if (watchedShows) watchedShows.forEach((s: any) => { if (s.show?.ids?.tmdb) ids.add(s.show.ids.tmdb) })
-        useMediaStore.getState().setTraktWatched(ids)
+        useMediaStore.getState().setWatchedIds(ids)
 
         const epMap = new Map<number, Map<number, Set<number>>>()
         if (watchedShows) {
@@ -291,21 +290,26 @@ export default function App() {
     return () => { cancelled = true }
   }, [loadFromDisk, fetchWatchedData])
 
-  // Re-fetch watched data when the active watch provider is newly connected
-  // OR the user switches provider between two connected services (both stay
-  // "connected", so the boolean edge alone would miss the switch).
-  const watchProvider = useSettingsStore((s) => s.watchProvider)
-  const watchConnected = useWatchConnected()
-  const prevWatchRef = useRef({ provider: watchProvider, connected: watchConnected })
+  // Re-fetch watched data when MDBList is newly connected
+  const mdblistConnected = useSettingsStore((s) => s.mdblistConnected)
+  const prevConnectedRef = useRef(false)
   useEffect(() => {
-    const prev = prevWatchRef.current
-    const providerChanged = prev.provider !== watchProvider
-    const connectedNow = watchConnected && !prev.connected
-    if (providerChanged || connectedNow) {
+    const connectedNow = mdblistConnected && !prevConnectedRef.current
+    if (connectedNow) {
       fetchWatchedData()
     }
-    prevWatchRef.current = { provider: watchProvider, connected: watchConnected }
-  }, [watchConnected, watchProvider, fetchWatchedData])
+    prevConnectedRef.current = mdblistConnected
+  }, [mdblistConnected, fetchWatchedData])
+
+  // Main process invalidated MDBList's tokens (refresh failed with
+  // invalid_grant) — strip them from the active profile and flip the
+  // connected flag off so the UI shows the reconnect state instead of
+  // re-installing the dead token on every load.
+  useEffect(() => {
+    return window.api.onWatchAuthCleared(() => {
+      useSettingsStore.getState().clearMdblistAuth()
+    })
+  }, [])
 
   // Keep resumeDurationRef in sync with playerInfo for torrent prioritization
   useEffect(() => {
@@ -1421,7 +1425,7 @@ export default function App() {
           : target.season !== undefined
             ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
-      await getWatchApi().markUnwatched(payload)
+      await window.api.mdblist.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
@@ -1436,7 +1440,7 @@ export default function App() {
           : target.season !== undefined
             ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
-      await getWatchApi().markWatched(payload)
+      await window.api.mdblist.markWatched(payload)
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
   }, [])
@@ -1450,7 +1454,7 @@ export default function App() {
           : target.season !== undefined
             ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
-      await getWatchApi().markUnwatched(payload)
+      await window.api.mdblist.markUnwatched(payload)
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
   }, [])
@@ -1478,7 +1482,7 @@ export default function App() {
 
   const handleDropShow = useCallback(async (target: ContextTarget) => {
     try {
-      await getWatchApi().markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
+      await window.api.mdblist.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
     } catch { /* ignore */ }
     useMediaStore.getState().triggerRefresh()
   }, [])

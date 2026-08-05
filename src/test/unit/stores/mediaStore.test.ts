@@ -17,8 +17,8 @@ describe('mediaStore', () => {
       continueWatching: [],
       upNext: [],
       resumeProgress: null,
-      traktWatched: new Set(),
-      traktPlayback: [],
+      watchedIds: new Set(),
+      playback: [],
       episodeWatched: new Map(),
       isLoading: false,
       error: null,
@@ -55,12 +55,12 @@ describe('mediaStore', () => {
     expect(state.seasonEpisodes).toEqual([])
   })
 
-  it('clearTraktData clears only Trakt-related fields', () => {
+  it('clearWatchData clears only watch-related fields', () => {
     useMediaStore.setState({
       continueWatching: [{ id: 1 } as any],
       upNext: [{ item: { id: 2 } as any, season: 1, episode: 1 }],
-      traktWatched: new Set([1, 2, 3]),
-      traktPlayback: [{ tmdbId: 1, mediaType: 'movie', progress: 0.5 }],
+      watchedIds: new Set([1, 2, 3]),
+      playback: [{ tmdbId: 1, mediaType: 'movie', progress: 0.5 }],
       episodeWatched: new Map([[1, new Map([[1, new Set([1, 2])]])]]),
       resumeProgress: 50,
       // These should NOT be cleared
@@ -68,16 +68,16 @@ describe('mediaStore', () => {
       selectedMedia: { id: 99 } as any,
     })
 
-    useMediaStore.getState().clearTraktData()
+    useMediaStore.getState().clearWatchData()
 
     const state = useMediaStore.getState()
     expect(state.continueWatching).toEqual([])
     expect(state.upNext).toEqual([])
-    expect(state.traktWatched.size).toBe(0)
-    expect(state.traktPlayback).toEqual([])
+    expect(state.watchedIds.size).toBe(0)
+    expect(state.playback).toEqual([])
     expect(state.episodeWatched.size).toBe(0)
     expect(state.resumeProgress).toBeNull()
-    // Non-trakt data preserved
+    // Non-watch data preserved
     expect(state.trending).toHaveLength(1)
     expect(state.selectedMedia).not.toBeNull()
   })

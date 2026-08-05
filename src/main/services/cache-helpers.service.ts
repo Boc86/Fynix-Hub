@@ -23,7 +23,7 @@ export const TTL = {
   SPORTS_TEAMS: 86_400_000,     // 24h
   TMDB_DETAILS: 3_600_000,      // 1 hr
   TMDB_LISTS: 300_000,          // 5 min — trending/discover rotates
-  TRAKT_PROGRESS: 300_000,      // 5 min
+  MDBLIST_PROGRESS: 300_000,     // 5 min
   DEBRID_CACHE: 120_000,        // 2 min
   SUBTITLES: 1_800_000,         // 30 min
   YOUTUBE_STREAM: 3_600_000,    // 1 hr

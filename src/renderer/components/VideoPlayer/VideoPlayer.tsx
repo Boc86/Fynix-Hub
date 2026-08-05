@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
-import { getWatchApi } from '../../utils/watchProvider'
 import type { IntroSegment } from '../../types.d'
 import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
@@ -167,7 +166,7 @@ function VideoPlayerInner({
   const [searchingSubs, setSearchingSubs] = useState(false)
   const showSubNotFoundRef = useRef(false)
 
-  // ── Trakt scrobble ─────────────────────────────────────────────────────
+  // ── MDBList scrobble ──────────────────────────────────────────────────
 
   const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
     if (!mediaInfo || mediaInfo.isTrailer) return
@@ -184,7 +183,7 @@ function VideoPlayerInner({
         mediaInfo.tmdbId, mediaInfo.mediaType, progress,
         mediaInfo.season, mediaInfo.episode,
       )
-      await getWatchApi().scrobble(action, payload)
+      await window.api.mdblist.scrobble(action, payload)
       window.api.log(`[Watch] scrobble ${action} ${Math.round(progress * 100)}%`)
     } catch (e: any) {
       window.api.log(`[Watch] scrobble ${action} failed: ${e?.message || e}`)
@@ -203,7 +202,7 @@ function VideoPlayerInner({
         mediaInfo.tmdbId, mediaInfo.mediaType,
         mediaInfo.season, mediaInfo.episode,
       )
-      await getWatchApi().markWatched(payload)
+      await window.api.mdblist.markWatched(payload)
       console.log('[Watch] markWatched ok', payload)
     } catch (e: any) {
       window.api.log(`[Watch] markWatched failed: ${e?.message || e}`)
@@ -405,7 +404,7 @@ function VideoPlayerInner({
   const handleTimeUpdate = useCallback((time: number) => {
     currentTimeRef.current = time
     // Advance lastGoodPosRef only forward (or within 30s) — crash/reset can
-    // cause pos to jump to 0, corrupting Trakt scrobble position.
+    // cause pos to jump to 0, corrupting MDBList scrobble position.
     if (time > lastGoodPosRef.current || Math.abs(time - lastGoodPosRef.current) < 30) {
       lastGoodPosRef.current = time
     }
@@ -422,7 +421,7 @@ function VideoPlayerInner({
       startScrobbledRef.current = true
     }
 
-    // Periodic progress update to Trakt (throttled to 60s inside scrobble()).
+    // Periodic progress update to MDBList (throttled to 60s inside scrobble()).
     if (playing && startScrobbledRef.current) {
       scrobble('start')
     }
@@ -457,7 +456,7 @@ function VideoPlayerInner({
     isPlayingRef.current = true
     const prev = prevPlayStateRef.current
     if (!prev && startScrobbledRef.current) {
-      // Resume after pause: send a fresh start so Trakt logs the resume time.
+      // Resume after pause: send a fresh start so MDBList logs the resume time.
       scrobble('start')
     }
     prevPlayStateRef.current = true

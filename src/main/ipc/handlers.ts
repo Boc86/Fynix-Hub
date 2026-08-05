@@ -6,7 +6,6 @@ import path from 'path'
 const TMDB_CACHE_VERSION = 2 // bump when TMDB append_to_response fields change
 
 import * as TmdbService from '../services/tmdb.service'
-import * as TraktService from '../services/trakt.service'
 import * as MdbListService from '../services/mdblist.service'
 import * as WebTorrentService from '../services/webtorrent.service'
 import * as TorrentSearchService from '../services/torrent-search.service'
@@ -36,7 +35,6 @@ import * as RecordingsService from '../services/recordings.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
-  TraktService.loadCredentials()
   MdbListService.loadCredentials()
   DebridService.loadKeys()
   FanartService.loadApiKey()
@@ -231,72 +229,6 @@ export async function registerIpcHandlers(): Promise<void> {
     return TmdbService.findByImdb(imdbId)
   })
 
-  handle('trakt:poll-for-token', async (_event, deviceCode) => {
-    return TraktService.pollForToken(deviceCode)
-  })
-
-  handle('trakt:get-watched-movies', async () => {
-    return TraktService.getWatchedMovies()
-  })
-
-  handle('trakt:get-watched-shows', async () => {
-    return TraktService.getWatchedShows()
-  })
-
-  handle('trakt:scrobble', async (_event, action, media) => {
-    console.log('[Trakt] IPC scrobble called:', action)
-    return TraktService.scrobble(action, media)
-  })
-
-  handle('trakt:mark-watched', async (_event, media) => {
-    return TraktService.markWatched(media)
-  })
-
-  handle('trakt:mark-unwatched', async (_event, media) => {
-    return TraktService.markUnwatched(media)
-  })
-
-  handle('trakt:get-auth-status', () => {
-    return { authenticated: TraktService.isAuthenticated() }
-  })
-
-  handle('trakt:get-playback', async () => {
-    return TraktService.getPlayback()
-  })
-
-  handle('trakt:get-playback-movies', async () => {
-    return TraktService.getPlaybackMovies()
-  })
-
-  handle('trakt:get-playback-episodes', async () => {
-    return TraktService.getPlaybackEpisodes()
-  })
-
-  handle('trakt:get-watched-progress', async () => {
-    try {
-      return await TraktService.getWatchedShowsWithProgress()
-    } catch (err: any) {
-      console.error('[Handler] trakt:get-watched-progress failed:', err.message)
-      return []
-    }
-  })
-
-  handle('trakt:get-tokens', async () => {
-    return TraktService.getTokens()
-  })
-
-  handle('trakt:get-device-code', async () => {
-    return TraktService.getDeviceCode()
-  })
-
-  handle('trakt:set-tokens', async (_event, accessToken, refreshToken) => {
-    TraktService.setTokens(accessToken, refreshToken)
-  })
-
-  handle('trakt:clear-cache', async () => {
-    TraktService.clearCache()
-  })
-
   handle('mdblist:poll-for-token', async (_event, deviceCode) => {
     return MdbListService.pollForToken(deviceCode)
   })
@@ -365,10 +297,6 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('mdblist:clear-cache', async () => {
     MdbListService.clearCache()
-  })
-
-  handle('mdblist:reload-credentials', async () => {
-    MdbListService.loadCredentials()
   })
 
   handle('torrent:search', async (event, query) => {
