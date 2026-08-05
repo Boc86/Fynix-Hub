@@ -14,8 +14,8 @@ interface MediaState {
   continueWatching: MediaItem[]
   upNext: Array<{ item: MediaItem; season: number; episode: number; episodeTitle?: string }>
   resumeProgress: number | null
-  traktWatched: Set<number>
-  traktPlayback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
+  watchedIds: Set<number>
+  playback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
   episodeWatched: Map<number, Map<number, Set<number>>>
   isLoading: boolean
   error: string | null
@@ -34,14 +34,14 @@ interface MediaState {
   setContinueWatching: (items: MediaItem[]) => void
   setUpNext: (items: Array<{ item: MediaItem; season: number; episode: number; episodeTitle?: string }>) => void
   setResumeProgress: (progress: number | null) => void
-  setTraktWatched: (ids: Set<number>) => void
-  setTraktPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
+  setWatchedIds: (ids: Set<number>) => void
+  setPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
   setEpisodeWatched: (data: Map<number, Map<number, Set<number>>>) => void
   setWatchProviders: (providers: Array<{ providerId: number; providerName: string; logoPath: string }>) => void
   setSelectedProvider: (providerId: number | null) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
-  clearTraktData: () => void
+  clearWatchData: () => void
   triggerRefresh: () => void
 }
 
@@ -58,8 +58,8 @@ export const useMediaStore = create<MediaState>((set) => ({
   continueWatching: [],
   upNext: [],
   resumeProgress: null,
-  traktWatched: new Set<number>(),
-  traktPlayback: [],
+  watchedIds: new Set<number>(),
+  playback: [],
   episodeWatched: new Map<number, Map<number, Set<number>>>(),
   isLoading: false,
   error: null,
@@ -85,18 +85,18 @@ export const useMediaStore = create<MediaState>((set) => ({
   setContinueWatching: (items) => set({ continueWatching: items }),
   setUpNext: (items) => set({ upNext: items }),
   setResumeProgress: (progress) => set({ resumeProgress: progress }),
-  setTraktWatched: (ids) => set({ traktWatched: ids }),
-  setTraktPlayback: (items) => set({ traktPlayback: items }),
+  setWatchedIds: (ids) => set({ watchedIds: ids }),
+  setPlayback: (items) => set({ playback: items }),
   setEpisodeWatched: (data) => set({ episodeWatched: data }),
   setWatchProviders: (providers) => set({ watchProviders: providers }),
   setSelectedProvider: (providerId) => set({ selectedProvider: providerId }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
-  clearTraktData: () => set({
+  clearWatchData: () => set({
     continueWatching: [],
     upNext: [],
-    traktWatched: new Set<number>(),
-    traktPlayback: [],
+    watchedIds: new Set<number>(),
+    playback: [],
     episodeWatched: new Map<number, Map<number, Set<number>>>(),
     resumeProgress: null,
   }),

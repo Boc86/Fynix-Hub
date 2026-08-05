@@ -18,6 +18,11 @@ const api = {
       ipcRenderer.on('remote:action', handler)
       return () => { ipcRenderer.removeListener('remote:action', handler) }
     },
+    onWatchAuthCleared: (callback: (provider: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, provider: string) => callback(provider)
+      ipcRenderer.on('watch:auth-cleared', handler)
+      return () => { ipcRenderer.removeListener('watch:auth-cleared', handler) }
+    },
     writeDebugFile: (data: unknown) => ipcRenderer.invoke('app:write-debug-file', data),
     clearImageCache: () => ipcRenderer.invoke('app:clear-image-cache'),
   youtube: {
@@ -76,28 +81,6 @@ const api = {
     findByImdb: (imdbId: string) =>
       ipcRenderer.invoke('tmdb:find-by-imdb', imdbId),
   },
-  trakt: {
-    getDeviceCode: () => ipcRenderer.invoke('trakt:get-device-code'),
-    pollForToken: (deviceCode: string) =>
-      ipcRenderer.invoke('trakt:poll-for-token', deviceCode),
-    setTokens: (accessToken: string | null, refreshToken: string | null) =>
-      ipcRenderer.invoke('trakt:set-tokens', accessToken, refreshToken),
-      getTokens: () => ipcRenderer.invoke('trakt:get-tokens'),
-      clearCache: () => ipcRenderer.invoke('trakt:clear-cache'),
-    getWatchedMovies: () => ipcRenderer.invoke('trakt:get-watched-movies'),
-    getWatchedShows: () => ipcRenderer.invoke('trakt:get-watched-shows'),
-    scrobble: (action: string, media: object) =>
-      ipcRenderer.invoke('trakt:scrobble', action, media),
-    markWatched: (media: object) =>
-      ipcRenderer.invoke('trakt:mark-watched', media),
-    markUnwatched: (media: object) =>
-      ipcRenderer.invoke('trakt:mark-unwatched', media),
-    getAuthStatus: () => ipcRenderer.invoke('trakt:get-auth-status'),
-    getPlayback: () => ipcRenderer.invoke('trakt:get-playback'),
-    getPlaybackMovies: () => ipcRenderer.invoke('trakt:get-playback-movies'),
-    getPlaybackEpisodes: () => ipcRenderer.invoke('trakt:get-playback-episodes'),
-    getWatchedProgress: () => ipcRenderer.invoke('trakt:get-watched-progress'),
-  },
   mdblist: {
     getDeviceCode: () => ipcRenderer.invoke('mdblist:get-device-code'),
     pollForToken: (deviceCode: string) =>
@@ -120,7 +103,6 @@ const api = {
     getPlaybackEpisodes: () => ipcRenderer.invoke('mdblist:get-playback-episodes'),
     getWatchedProgress: () => ipcRenderer.invoke('mdblist:get-watched-progress'),
     getSettings: () => ipcRenderer.invoke('mdblist:get-settings'),
-    reloadCredentials: () => ipcRenderer.invoke('mdblist:reload-credentials'),
   },
   torrent: {
     onRiveResult: (callback: (result: any) => void) => {

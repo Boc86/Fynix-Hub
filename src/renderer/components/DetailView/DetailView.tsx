@@ -32,8 +32,8 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     setSeasonEpisodes,
     setResumeProgress,
     resumeProgress,
-    traktWatched,
-    traktPlayback,
+    watchedIds,
+    playback,
   } = useMediaStore();
 
   const classificationCountry = useSettingsStore((s) => s.classificationCountry)
@@ -110,11 +110,11 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
           const store = useMediaStore.getState();
           const seasonWatched = store.episodeWatched.get(tv.id)?.get(seasonNum);
           const watchedNums: Set<number> = seasonWatched ?? new Set();
-          const hasTraktData = seasonWatched !== undefined;
+          const hasWatchData = seasonWatched !== undefined;
           const episodes = airedEpisodes;
 
-          // 1. Find in-progress episode from traktPlayback for this season
-          const inProgress = traktPlayback.find(
+          // 1. Find in-progress episode from playback for this season
+          const inProgress = playback.find(
             (pb: any) => pb.tmdbId === tv.id && pb.season === seasonNum
           );
           if (inProgress && inProgress.episode) {
@@ -123,7 +123,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
           }
 
           // 2. Find newest unwatched (highest episode number not fully watched)
-          if (hasTraktData) {
+          if (hasWatchData) {
             for (let i = episodes.length - 1; i >= 0; i--) {
               if (!watchedNums.has(episodes[i].episodeNumber)) {
                 setSelectedEpisode(episodes[i].episodeNumber);
@@ -135,7 +135,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
           // 3. Fallback: first aired episode (or last if all watched)
           setSelectedEpisode(
             episodes.length > 0
-              ? hasTraktData
+              ? hasWatchData
                 ? episodes[episodes.length - 1]?.episodeNumber || null
                 : episodes[0]?.episodeNumber || null
               : null
@@ -466,7 +466,7 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     ) : (
       <h1 className={styles.title}>
       {selectedMedia.title}
-      {traktWatched.has(selectedMedia.id) && <span className={styles.watchedBadge}>Watched</span>}
+      {watchedIds.has(selectedMedia.id) && <span className={styles.watchedBadge}>Watched</span>}
       </h1>
     )}
 

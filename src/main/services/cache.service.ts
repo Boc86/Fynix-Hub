@@ -66,6 +66,25 @@ export function setSetting(key: string, value: unknown) {
   getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, JSON.stringify(value))
 }
 
+/**
+ * Remove the given token keys from the ACTIVE profile so invalidated tokens
+ * can't be re-installed on the next loadFromDisk. No-op when no active profile.
+ */
+export function clearActiveProfileTokens(...keys: string[]) {
+  try {
+    const profiles = getSetting<Array<Record<string, unknown>>>('profiles')
+    const activeProfileId = getSetting<string>('activeProfileId')
+    if (!profiles || !activeProfileId) return
+    const updated = profiles.map((p) => {
+      if (p.id !== activeProfileId) return p
+      const next = { ...p }
+      for (const k of keys) delete next[k]
+      return next
+    })
+    setSetting('profiles', updated)
+  } catch { /* ignore */ }
+}
+
 const ENCRYPTED_PREFIX = '__enc__:'
 
 export function setEncryptedSetting(key: string, value: string) {
@@ -145,10 +164,6 @@ export function clearImageCache() {
 
 export function clearSportsCache() {
   getDb().prepare("DELETE FROM cache WHERE key LIKE 'sports:%'").run()
-}
-
-export function clearTraktCache() {
-  getDb().prepare("DELETE FROM cache WHERE key LIKE 'trakt:%'").run()
 }
 
 export function clearMdblistCache() {

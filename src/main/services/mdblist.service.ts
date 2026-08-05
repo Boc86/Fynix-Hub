@@ -11,9 +11,8 @@ const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 
 const XOR_KEY = 0xAB
 
-// Fynix Media Hub's MDBList Device Code app (registered at mdblist.com/developer).
-// XOR-obfuscated with the same scheme Trakt uses; users can still override
-// with their own client ID in Settings (stored as `mdblistClientId`).
+// Fynix Media Hub's MDBList Device Code app (registered at mdblist.com/developer),
+// XOR-obfuscated. The app always uses this built-in client ID.
 const OBFUSCATED_CLIENT_ID = [
   231, 159, 153, 236, 192, 231, 248, 242, 230, 153, 219, 205, 236, 199, 194, 216,
   225, 220, 154, 192, 146, 197, 199, 217, 239, 211, 242, 146, 192, 155, 224, 155,
@@ -26,8 +25,8 @@ function deobfuscate(bytes: number[]): string {
 
 /**
  * Exported for tests — resolves the baked-in MDBList client ID.
- * Trakt's deobfuscate returns a hex string (Trakt keys are hex); MDBList
- * client IDs are alphanumeric, so decode the hex back to ASCII here.
+ * The deobfuscate returns a hex string; MDBList client IDs are alphanumeric,
+ * so decode the hex back to ASCII here.
  */
 export function getBakedInClientId(): string {
   return Buffer.from(deobfuscate(OBFUSCATED_CLIENT_ID), 'hex').toString('utf-8')
@@ -39,8 +38,7 @@ let refreshToken: string | null = null
 let refreshLock: Promise<void> | null = null
 
 export function loadCredentials() {
-  const override = CacheService.getSetting<string>('mdblistClientId')
-  clientId = override || getBakedInClientId()
+  clientId = getBakedInClientId()
   accessToken = CacheService.getSetting<string>('mdblistAccessToken') || null
   refreshToken = CacheService.getSetting<string>('mdblistRefreshToken') || null
 }
@@ -60,6 +58,16 @@ export function getTokens() {
 
 export function clearCache() {
   CacheService.clearMdblistCache()
+}
+
+/** Tell all renderer windows that this provider's tokens were invalidated. */
+function notifyAuthCleared(provider: string) {
+  try {
+    const { BrowserWindow } = require('electron') as typeof import('electron')
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('watch:auth-cleared', provider)
+    }
+  } catch { /* ignore */ }
 }
 
 export function isAuthenticated(): boolean {
@@ -112,6 +120,11 @@ export async function pollForToken(deviceCode: string) {
 }
 
 async function fetchMdbList(path: string, options: RequestInit = {}): Promise<any> {
+  // All watched/playback/scrobble endpoints require auth — fail fast
+  // locally instead of hammering the API with anonymous requests.
+  if (!accessToken) {
+    throw new Error('MDBList error: 401 - not authenticated')
+  }
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': USER_AGENT,
@@ -129,6 +142,7 @@ async function fetchMdbList(path: string, options: RequestInit = {}): Promise<an
     // If another concurrent request is already refreshing, wait for it
     if (refreshLock) {
       await refreshLock
+      if (!accessToken) throw new Error('MDBList error: 401 - not authenticated')
       headers['Authorization'] = `Bearer ${accessToken}`
       const retryRes = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers })
       if (retryRes.ok) return retryRes.json()
@@ -156,6 +170,10 @@ async function fetchMdbList(path: string, options: RequestInit = {}): Promise<an
         const errBody = await refreshRes.text().catch(() => 'unknown')
         console.warn(`[MDBList] Token refresh failed (${refreshRes.status}): ${errBody.slice(0, 300)}, clearing auth`)
         setTokens(null, null)
+        // Dead token must not survive in the active profile or it gets
+        // re-installed on next load (401 → refresh → 400 loop).
+        CacheService.clearActiveProfileTokens('mdblistAccessToken', 'mdblistRefreshToken')
+        notifyAuthCleared('mdblist')
       }
     } finally {
       refreshLock = null
@@ -170,7 +188,7 @@ async function fetchMdbList(path: string, options: RequestInit = {}): Promise<an
   return res.json()
 }
 
-// ── Payload converters (Trakt-shaped consumer payloads → MDBList API) ──
+// ── Payload converters (MDBList API uses Trakt-style consumer payloads) ──
 
 export function convertScrobblePayload(media: any): any {
   if (media && media.show && media.episode) {
@@ -207,17 +225,17 @@ export function unwrapWatched(data: any): any[] {
   return [...(data.movies || []), ...(data.shows || [])]
 }
 
-// ── Data functions (mirror trakt.service.ts surface) ──
+// ── Data functions ──
 
 export async function getWatchedMovies() {
-  return withCache('mdblist:v2:watched-movies', TTL.TRAKT_PROGRESS, async () => {
+  return withCache('mdblist:v2:watched-movies', TTL.MDBLIST_PROGRESS, async () => {
     const data = await fetchMdbList('/sync/watched?mediatype=movie&limit=1000')
     return unwrapWatched(data)
   })
 }
 
 export async function getWatchedShows() {
-  return withCache('mdblist:v2:watched-shows', TTL.TRAKT_PROGRESS, async () => {
+  return withCache('mdblist:v2:watched-shows', TTL.MDBLIST_PROGRESS, async () => {
     // Fetch unfiltered so we also get the top-level `seasons`/`episodes`
     // arrays, which carry the episode-level watched detail that the show
     // items themselves lack. Real shape:
@@ -301,7 +319,7 @@ export async function getSettings() {
 }
 
 export async function getPlayback() {
-  return withCache('mdblist:v2:playback', TTL.TRAKT_PROGRESS, () =>
+  return withCache('mdblist:v2:playback', TTL.MDBLIST_PROGRESS, () =>
     fetchMdbList('/sync/playback'))
 }
 
@@ -359,7 +377,7 @@ export function mapUpnext(data: any): any[] {
 }
 
 export async function getWatchedShowsWithProgress() {
-  const data = await withCache('mdblist:v2:watched-progress', TTL.TRAKT_PROGRESS, () =>
+  const data = await withCache('mdblist:v2:watched-progress', TTL.MDBLIST_PROGRESS, () =>
     fetchMdbList('/upnext?hide_unreleased=true'))
   return mapUpnext(data)
 }

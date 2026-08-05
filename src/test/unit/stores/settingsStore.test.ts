@@ -13,7 +13,7 @@ Object.defineProperty(globalThis, 'window', {
   value: {
     api: {
       settings: { set: mockSet, getAll: mockGetAll, get: mockGet },
-      trakt: { setTokens: mockSetTokens, clearCache: mockClearCache },
+      mdblist: { setTokens: mockSetTokens, clearCache: mockClearCache },
     },
   },
   writable: true,
@@ -30,7 +30,7 @@ describe('settingsStore — profile management', () => {
       activeProfileId: null,
       autoLoginProfileId: null,
       sportsSelected: [],
-      traktConnected: false,
+      mdblistConnected: false,
     })
   })
 
@@ -162,6 +162,52 @@ describe('settingsStore — profile management', () => {
 
     await useSettingsStore.getState().setActiveProfile(id2)
     expect(useSettingsStore.getState().sportsSelected).toEqual(['basketball'])
+  })
+
+  it('clearMdblistAuth strips dead tokens from the active profile and flips connected off', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000)
+    useSettingsStore.getState().addProfile('User 1')
+    const id1 = useSettingsStore.getState().profiles[0].id
+    vi.restoreAllMocks()
+
+    useSettingsStore.setState({
+      activeProfileId: id1,
+      mdblistConnected: true,
+      profiles: useSettingsStore.getState().profiles.map(p => ({
+        ...p,
+        mdblistAccessToken: 'dead-access',
+        mdblistRefreshToken: 'dead-refresh',
+      })),
+    })
+
+    useSettingsStore.getState().clearMdblistAuth()
+
+    const profile = useSettingsStore.getState().profiles.find(p => p.id === id1)!
+    expect(profile.mdblistAccessToken).toBeUndefined()
+    expect(profile.mdblistRefreshToken).toBeUndefined()
+    expect(useSettingsStore.getState().mdblistConnected).toBe(false)
+  })
+
+  it('loadFromDisk clears main tokens when the active profile has none', async () => {
+    mockGetAll.mockResolvedValueOnce({
+      profiles: [{ id: 'p1', name: 'User 1', avatarColor: '#000', sportsSelected: [] }],
+      activeProfileId: 'p1',
+      autoLoginProfileId: 'p1',
+    })
+    await useSettingsStore.getState().loadFromDisk()
+    expect(mockSetTokens).toHaveBeenCalledWith(null, null)
+    expect(useSettingsStore.getState().mdblistConnected).toBe(false)
+  })
+
+  it('loadFromDisk installs profile tokens into main and marks connected', async () => {
+    mockGetAll.mockResolvedValueOnce({
+      profiles: [{ id: 'p1', name: 'User 1', avatarColor: '#000', sportsSelected: [], mdblistAccessToken: 'tok-access', mdblistRefreshToken: 'tok-refresh' }],
+      activeProfileId: 'p1',
+      autoLoginProfileId: 'p1',
+    })
+    await useSettingsStore.getState().loadFromDisk()
+    expect(mockSetTokens).toHaveBeenCalledWith('tok-access', 'tok-refresh')
+    expect(useSettingsStore.getState().mdblistConnected).toBe(true)
   })
 })
 

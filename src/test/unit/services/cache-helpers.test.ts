@@ -69,7 +69,7 @@ describe('withCache', () => {
     expect(TTL.TMDB_DETAILS).toBe(3_600_000)
     expect(TTL.TORRENT_SEARCH).toBe(300_000)
     expect(TTL.DEBRID_CACHE).toBe(120_000)
-    expect(TTL.TRAKT_PROGRESS).toBe(300_000)
+    expect(TTL.MDBLIST_PROGRESS).toBe(300_000)
     expect(TTL.SPORTS_LIST).toBe(86_400_000)
   })
 })
