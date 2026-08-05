@@ -421,6 +421,71 @@ function pathMatchesTokens(filePath: string, tokens: string[]): boolean {
   })
 }
 
+/**
+ * Find the nzbget history/group entry whose FinalDir/DestDir contains `dir`,
+ * preferring the MOST SPECIFIC (longest) base so a shared DestDir candidate
+ * can't shadow the per-download folder. Pure — unit-testable.
+ */
+export function findMostSpecificDirMatch(candidates: any[], dir: string): any | null {
+  const dirClean = dir.replace(/\/+$/, '').replace(/\/+/g, '/')
+  return candidates
+    .map((c) => ({ c, base: (c.FinalDir || c.DestDir || '').replace(/\/+$/, '').replace(/\/+/g, '/') }))
+    .filter(({ base }) => base && dirClean.startsWith(base))
+    .sort((a, b) => b.base.length - a.base.length)[0]?.c ?? null
+}
+
+/** Resolve a download's on-disk folder from nzbget history/groups by NZBID. */
+async function resolveDownloadDir(nzbId: number): Promise<{ dir: string; nzbName?: string } | null> {
+  try {
+    const histItems = await NzbgetService.history()
+    const hist = histItems.find(h => h.NZBID === nzbId)
+    if (hist) {
+      const dir = hist.FinalDir || hist.DestDir
+      if (dir) return { dir, nzbName: hist.NZBFilename }
+    }
+    const groups = await NzbgetService.listGroups()
+    const g = groups.find(x => x.NZBID === nzbId)
+    if (g) {
+      const dir = g.FinalDir || g.DestDir
+      if (dir) return { dir, nzbName: g.NZBFilename }
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+/**
+ * Delete a download's files from disk. NEVER deletes the shared nzbget
+ * DestDir/InterDir root (would wipe every download): per-download folders are
+ * removed recursively; flat layouts (file directly in the base dir) only
+ * delete files whose name matches the item's NZB filename tokens.
+ */
+async function deleteDirSafely(dir: string, nzbName?: string): Promise<void> {
+  try {
+    const config = await NzbgetService.getConfig().catch(() => [] as any[])
+    const baseDest = (config.find((c: any) => c.Name === 'DestDir')?.Value || '').replace(/\/+$/, '')
+    const baseInter = (config.find((c: any) => c.Name === 'InterDir')?.Value || '').replace(/\/+$/, '')
+    const dirClean = dir.replace(/\/+$/, '')
+    const isBaseDir = (baseDest && dirClean === baseDest) || (baseInter && dirClean === baseInter)
+    const fsPromises = await import('fs/promises')
+    if (!isBaseDir) {
+      await fsPromises.rm(dir, { recursive: true, force: true })
+      return
+    }
+    if (!nzbName) return
+    const tokens = [nzbName.replace(/\.nzb$/i, '')]
+    const entries = await fsPromises.readdir(dir).catch(() => [] as string[])
+    for (const entry of entries) {
+      const full = path.join(dir, entry)
+      const stat = await fsPromises.stat(full).catch(() => null)
+      if (stat?.isFile() && pathMatchesTokens(entry, tokens)) {
+        await fsPromises.rm(full, { force: true }).catch(() => {})
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[UDB] deleteDirSafely failed for ${dir}: ${e?.message}`)
+  }
+}
+
 export async function listDownloads(): Promise<any[]> {
   try {
     const histItems = await NzbgetService.history()
@@ -440,37 +505,10 @@ export async function listDownloads(): Promise<any[]> {
 // subfolder, never the shared nzbget DestDir root, to avoid wiping other
 // downloads. `nzbid` is the nzbget NZBID used to locate FinalDir/DestDir.
 async function deleteDownloadDirectory(nzbid: number): Promise<void> {
-  let dir: string | undefined
-  try {
-    // Prefer the per-download completed folder from history.
-    const histItems = await NzbgetService.history()
-    const hist = histItems.find(h => h.NZBID === nzbid)
-    if (hist) dir = hist.FinalDir || hist.DestDir
-    if (!dir) {
-      const groups = await NzbgetService.listGroups()
-      const g = groups.find(x => x.NZBID === nzbid)
-      if (g) dir = g.FinalDir || g.DestDir
-    }
-  } catch { /* ignore */ }
-
-  if (!dir) return
-
-  // Safety: never delete the shared base DestDir (would remove all downloads).
-  try {
-    const config = await NzbgetService.getConfig()
-    const baseDest = (config.find((c: any) => c.Name === 'DestDir')?.Value || '').replace(/\/+$/, '')
-    const baseInter = (config.find((c: any) => c.Name === 'InterDir')?.Value || '').replace(/\/+$/, '')
-    const dirClean = dir.replace(/\/+$/, '')
-    if ((baseDest && dirClean === baseDest) || (baseInter && dirClean === baseInter)) return
-  } catch { /* ignore */ }
-
-  try {
-    const fsPromises = await import('fs/promises')
-    await fsPromises.rm(dir, { recursive: true, force: true })
-    console.log(`[UDB] deleted download directory: ${dir}`)
-  } catch (e: any) {
-    console.warn(`[UDB] failed to delete directory ${dir}: ${e?.message}`)
-  }
+  const resolved = await resolveDownloadDir(nzbid)
+  if (!resolved) return
+  await deleteDirSafely(resolved.dir, resolved.nzbName)
+  console.log(`[UDB] deleted download directory: ${resolved.dir}`)
 }
 
 export async function removeDownload(id: string): Promise<boolean> {
@@ -479,9 +517,16 @@ export async function removeDownload(id: string): Promise<boolean> {
   const nzbId = active?.nzbId ?? Number(id)
 
   try {
+    // Resolve the on-disk dir BEFORE nzbget cleanup — deleteNzb/historyDelete
+    // remove the entry, so a post-cleanup lookup finds nothing and the files
+    // would stay on disk forever (the "completed downloads never deleted" bug).
+    const resolved = await resolveDownloadDir(nzbId)
     await NzbgetService.deleteNzb(nzbId).catch(() => {})
     await NzbgetService.historyDelete(nzbId).catch(() => {})
-    await deleteDownloadDirectory(nzbId)
+    if (resolved) {
+      await deleteDirSafely(resolved.dir, resolved.nzbName)
+      console.log(`[UDB] removeDownload: deleted ${resolved.dir}`)
+    }
     activeDownloads.delete(id)
     return true
   } catch {
@@ -491,8 +536,8 @@ export async function removeDownload(id: string): Promise<boolean> {
 
 export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
   try {
-    const fsPromises = await import('fs/promises')
-    const dir = path.dirname(filePath.replace(/^file:\/\//, ''))
+    const cleanPath = filePath.replace(/^file:\/\//, '')
+    const dir = path.dirname(cleanPath)
 
     // Find the nzbget history/group entry whose FinalDir/DestDir contains this
     // file, then delete the whole folder + the matching history entry.
@@ -501,22 +546,18 @@ export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
       ...(await NzbgetService.history()),
     ]
     console.log('[UDB] deleteUsenetByPath dir:', dir, 'candidates:', candidates.length)
-    const match = candidates.find((c: any) => {
-      const base = (c.FinalDir || c.DestDir || '').replace(/\/+$/, '').replace(/\/+/g, '/')
-      const matched = base && dir.startsWith(base)
-      if (matched) console.log('[UDB] matched candidate NZBID=' + c.NZBID, 'base:', base)
-      return matched
-    })
+    const match = findMostSpecificDirMatch(candidates, dir)
+    if (match) console.log('[UDB] matched candidate NZBID=' + match.NZBID, 'base:', match.FinalDir || match.DestDir)
 
+    // Delete on disk FIRST — then clean up nzbget, NOT the other way around.
+    // Resolving the folder from nzbget after cleanup would find nothing.
     if (match) {
       const nzbId = match.NZBID
       console.log('[UDB] deleteUsenetByPath: deleting NZBID=' + nzbId, 'dir:', dir)
-      // Delete on disk FIRST — then clean up nzbget, NOT the other way around.
-      // deleteDownloadDirectory queries nzbget for FinalDir, so if we delete
-      // from nzbget first, it can't find the entry.
-      await fsPromises.rm(dir, { recursive: true, force: true }).catch((e: any) =>
-        console.warn('[UDB] failed to delete dir:', e?.message),
-      )
+      // deleteDirSafely refuses to wipe the shared DestDir/InterDir root and
+      // falls back to deleting only files that name-match this item (flat
+      // layouts), so an unknown-path call can never nuke every download.
+      await deleteDirSafely(dir, match.NZBFilename)
       // Remove from nzbget queue + history
       await NzbgetService.deleteNzb(nzbId).catch(() => {})
       await NzbgetService.historyDelete(nzbId).catch(() => {})
@@ -526,7 +567,19 @@ export async function deleteUsenetByPath(filePath: string): Promise<boolean> {
       }
     } else {
       console.log('[UDB] deleteUsenetByPath: no nzbget match for', dir, '— deleting folder only')
-      await fsPromises.rm(dir, { recursive: true, force: true }).catch(() => {})
+      // No nzbget entry to resolve a safe target from: if this is the shared
+      // base dir (flat layout, entry gone), remove just the played file.
+      const config = await NzbgetService.getConfig().catch(() => [] as any[])
+      const baseDest = (config.find((c: any) => c.Name === 'DestDir')?.Value || '').replace(/\/+$/, '')
+      const baseInter = (config.find((c: any) => c.Name === 'InterDir')?.Value || '').replace(/\/+$/, '')
+      const dirClean = dir.replace(/\/+$/, '')
+      const isBaseDir = (baseDest && dirClean === baseDest) || (baseInter && dirClean === baseInter)
+      const fsPromises = await import('fs/promises')
+      if (isBaseDir) {
+        await fsPromises.rm(cleanPath, { force: true }).catch(() => {})
+      } else {
+        await fsPromises.rm(dir, { recursive: true, force: true }).catch(() => {})
+      }
     }
     return true
   } catch (e: any) {

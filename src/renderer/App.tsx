@@ -19,6 +19,7 @@ import type { LiveTVAPI } from './components/LiveTV/LiveTV'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
+import { forceRefreshWatchData } from './utils/refreshWatchData'
 
 // Heavy screens are code-split so the shell (Browser) paints instantly and
 // each screen chunk loads only on first visit. The type-only import keeps
@@ -747,6 +748,7 @@ export default function App() {
             streamed = true
             const audioLang = getAudioLang()
             try {
+              currentUsenetPathRef.current = stream.url
               await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               window.api.log('[App] Early stream started')
@@ -766,6 +768,7 @@ export default function App() {
               streamed = true
               const audioLang = getAudioLang()
               try {
+                currentUsenetPathRef.current = stream.url
                 await startPlayerUrl(stream.url)
                 setPlayerLoading(false)
                 window.api.log('[App] Early stream started')
@@ -776,7 +779,9 @@ export default function App() {
           }
           if (s.progress >= 100) {
             clearInterval(poll)
-            currentUsenetIdRef.current = null
+            // Keep currentUsenetIdRef set — playback may still be streaming
+            // (early-stream case) and handlePlayerBack needs it to delete the
+            // completed download on exit.
             if (streamed) {
               window.api.log('[App] Already streaming, skipping duplicate player.start at 100%')
               setPlayerLoading(false)
@@ -997,6 +1002,7 @@ export default function App() {
             streamed = true
             const audioLang = getAudioLang()
             try {
+              currentUsenetPathRef.current = stream.url
               await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               window.api.log('[App] Auto-play early stream started')
@@ -1016,6 +1022,7 @@ export default function App() {
               streamed = true
               const audioLang = getAudioLang()
               try {
+                currentUsenetPathRef.current = stream.url
                 await startPlayerUrl(stream.url)
                 setPlayerLoading(false)
                 window.api.log('[App] Auto-play early stream started')
@@ -1026,10 +1033,12 @@ export default function App() {
           }
           if (s.progress >= 100) {
             clearInterval(poll)
-            currentUsenetIdRef.current = null
+            // Keep currentUsenetIdRef set so handlePlayerBack can delete the
+            // completed download on exit.
             const stream = await window.api.usenet.getStreamUrl(status.id)
             if (stream?.url) {
               const audioLang = getAudioLang()
+              currentUsenetPathRef.current = stream.url
               await startPlayerUrl(stream.url)
               setPlayerLoading(false)
               return
@@ -1361,12 +1370,12 @@ export default function App() {
       }
     }
 
-    if (currentUsenetIdRef.current) {
+    if (currentUsenetPathRef.current && currentUsenetPathRef.current.startsWith('file://')) {
       if (isCompleted) {
-        window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
-        currentUsenetIdRef.current = null
+        window.api.usenet.deleteByPath(currentUsenetPathRef.current).catch(() => {})
+        currentUsenetPathRef.current = null
       } else {
-        setDeletePromptOpen({ usenetId: currentUsenetIdRef.current, isCompleted: false })
+        setDeletePromptOpen({ usenetPath: currentUsenetPathRef.current, isCompleted: false })
         setStreamUrl(undefined)
         setDlhdEmbedUrl(null)
         resumePositionRef.current = undefined
@@ -1378,12 +1387,12 @@ export default function App() {
       }
     }
 
-    if (currentUsenetPathRef.current) {
+    if (currentUsenetIdRef.current) {
       if (isCompleted) {
-        window.api.usenet.deleteByPath(currentUsenetPathRef.current).catch(() => {})
-        currentUsenetPathRef.current = null
+        window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
+        currentUsenetIdRef.current = null
       } else {
-        setDeletePromptOpen({ usenetPath: currentUsenetPathRef.current, isCompleted: false })
+        setDeletePromptOpen({ usenetId: currentUsenetIdRef.current, isCompleted: false })
         setStreamUrl(undefined)
         setDlhdEmbedUrl(null)
         resumePositionRef.current = undefined
@@ -1428,7 +1437,7 @@ export default function App() {
       await window.api.mdblist.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
     } catch { /* ignore */ }
-    useMediaStore.getState().triggerRefresh()
+    await forceRefreshWatchData()
   }, [])
 
   const handleMarkWatched = useCallback(async (target: ContextTarget) => {
@@ -1442,7 +1451,7 @@ export default function App() {
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.mdblist.markWatched(payload)
     } catch { /* ignore */ }
-    useMediaStore.getState().triggerRefresh()
+    await forceRefreshWatchData()
   }, [])
 
   const handleMarkUnwatched = useCallback(async (target: ContextTarget) => {
@@ -1456,7 +1465,7 @@ export default function App() {
             : { shows: [{ ids: { tmdb: target.tmdbId } }] }
       await window.api.mdblist.markUnwatched(payload)
     } catch { /* ignore */ }
-    useMediaStore.getState().triggerRefresh()
+    await forceRefreshWatchData()
   }, [])
 
   const handleShowSources = useCallback(async (target: ContextTarget) => {
@@ -1484,7 +1493,7 @@ export default function App() {
     try {
       await window.api.mdblist.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
     } catch { /* ignore */ }
-    useMediaStore.getState().triggerRefresh()
+    await forceRefreshWatchData()
   }, [])
 
 
