@@ -197,3 +197,52 @@ describe('getStreamUrl dir name variants', () => {
     expect(variants).toHaveLength(unique.size)
   })
 })
+
+describe('pathMatchesTokens (bare-dir wrong-file guard)', () => {
+  // Replicates the bare-customDir guard from getStreamUrl: an unfiltered
+  // recursive scan of the download dir returns whichever video readdir lists
+  // first (usually the LAST completed download) — the fix name-filters hits.
+  function normalizeName(s: string): string {
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  }
+
+  function nameWords(s: string): string[] {
+    return s.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3)
+  }
+
+  function pathMatchesTokens(filePath: string, tokens: string[]): boolean {
+    const pathNorm = normalizeName(filePath)
+    return tokens.some(t => {
+      const words = [...new Set(nameWords(t))]
+      if (words.length === 0) return false
+      const needed = words.slice(0, Math.min(2, words.length))
+      return needed.every(w => pathNorm.includes(w))
+    })
+  }
+
+  const tokens = ['Disclosure Day-2026-1080p-WEBRip', 'Disclosure_Day-2026-1080p-WEBRip']
+
+  it('rejects another download in the bare dir (the reported bug)', () => {
+    const otherFile = '/downloads/completed/Some_Other_Movie.2025.1080p.mkv'
+    expect(pathMatchesTokens(otherFile, tokens)).toBe(false)
+  })
+
+  it('accepts the selected item in the bare dir (flat DestDir layout)', () => {
+    const ownFile = '/downloads/completed/Disclosure_Day-2026-1080p-WEBRip-x265.mkv'
+    expect(pathMatchesTokens(ownFile, tokens)).toBe(true)
+  })
+
+  it('accepts the selected item nested in its own subdir', () => {
+    const nested = '/downloads/completed/Disclosure_Day-2026-1080p/Disclosure.Day.2026.mkv'
+    expect(pathMatchesTokens(nested, tokens)).toBe(true)
+  })
+
+  it('normalizes spaces vs underscores (both token forms match)', () => {
+    expect(pathMatchesTokens('/dl/completed/Disclosure Day-2026 1080p.mkv', tokens)).toBe(true)
+    expect(pathMatchesTokens('/dl/completed/Disclosure_Day-2026_1080p.mkv', tokens)).toBe(true)
+  })
+
+  it('returns false with no usable tokens (never plays wrong content)', () => {
+    expect(pathMatchesTokens('/downloads/completed/Any.Movie.mkv', [])).toBe(false)
+  })
+})

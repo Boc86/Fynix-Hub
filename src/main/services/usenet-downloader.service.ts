@@ -279,10 +279,15 @@ export async function getStreamUrl(id: string): Promise<string | null> {
     // User-configured download directory (overrides RPC-reported paths)
     const customDir = CacheService.getSetting<string>('nzbgetDownloadDir') || ''
     console.log(`[UDB] getStreamUrl customDir="${customDir}"`)
+    const bareDirs = new Set<string>()
     if (customDir) {
       const customDirClean = customDir.replace(/\/+$/, '')
       for (const v of dirNameVariants) searchDirs.push(path.join(customDirClean, v))
-      searchDirs.push(customDirClean)
+      // Bare dir — files land directly in the root on flat DestDir layouts.
+      // Scanned LAST and name-filtered: an unfiltered recursive scan of the
+      // whole dir returns whichever video readdir lists first (usually the
+      // last completed download), playing the wrong item.
+      bareDirs.add(customDirClean)
       const customInterDir = customDirClean.replace(/\/completed\/?$/i, '/intermediate')
       if (customInterDir !== customDirClean) {
         for (const v of dirNameVariants) searchDirs.push(path.join(customInterDir, v))
@@ -310,6 +315,17 @@ export async function getStreamUrl(id: string): Promise<string | null> {
       }
     }
 
+    // Bare download dir last — the per-item dirs above must win.
+    for (const d of bareDirs) searchDirs.push(d)
+
+    // Name tokens used to verify a bare-dir hit actually belongs to this item
+    // (renderer title, NZB filename, confirmed file name — normalized).
+    const nameTokens: string[] = []
+    if (nzbName) nameTokens.push(nzbName)
+    if (group?.NZBFilename) nameTokens.push(group.NZBFilename.replace(/\.nzb$/i, ''))
+    if (histMatch?.NZBFilename) nameTokens.push(histMatch.NZBFilename.replace(/\.nzb$/i, ''))
+    if (confirmedFile?.Filename) nameTokens.push(confirmedFile.Filename)
+
     // Deduplicate and try each directory
     const seen = new Set<string>()
     for (const dir of searchDirs) {
@@ -318,7 +334,11 @@ export async function getStreamUrl(id: string): Promise<string | null> {
       console.log(`[UDB] getStreamUrl searching dir="${dir}"`)
       const videoFile = await findVideoFile(dir)
       console.log(`[UDB] getStreamUrl dir result: ${videoFile || 'null'}`)
-      if (videoFile) return `file://${videoFile}`
+      // Bare-dir hits must name-match the item — otherwise we'd play another
+      // download's file.
+      if (videoFile && !(bareDirs.has(dir) && !pathMatchesTokens(videoFile, nameTokens))) {
+        return `file://${videoFile}`
+      }
       // If listFiles told us a confirmed filename, also try exact match with .nzbget.tmp
       if (confirmedFile && confirmedFile.Filename) {
         const exactPath = path.join(dir, confirmedFile.Filename + '.nzbget.tmp')
@@ -373,6 +393,32 @@ async function findVideoFile(dir: string, depth = 0): Promise<string | null> {
   }
   console.log(`[UDB] findVideoFile matched: none`)
   return null
+}
+
+/** Lowercase alphanumerics only — "Disclosure Day" and "Disclosure_Day" both → "disclosureday". */
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+/** Words ≥3 chars from a release name — the distinctive title words. */
+function nameWords(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3)
+}
+
+/**
+ * True if the file path contains the leading title words of any expected
+ * token (title / NZB filename / confirmed file). Used to verify a bare-dir
+ * hit actually belongs to this item — "Disclosure Day" vs "Disclosure_Day"
+ * both match, an unrelated download never does.
+ */
+function pathMatchesTokens(filePath: string, tokens: string[]): boolean {
+  const pathNorm = normalizeName(filePath)
+  return tokens.some(t => {
+    const words = [...new Set(nameWords(t))]
+    if (words.length === 0) return false
+    const needed = words.slice(0, Math.min(2, words.length))
+    return needed.every(w => pathNorm.includes(w))
+  })
 }
 
 export async function listDownloads(): Promise<any[]> {
