@@ -223,7 +223,12 @@ function HlsStartFix({
   tick.current++
   const id = useRef(Math.random().toString(36).slice(2, 6)).current
 
-  console.log(`[HlsStartFix:${id}] RENDER #${tick.current} shouldResume=${shouldResume} media=${typeof media} engine=${typeof engine}`)
+  // Gate the per-render log: useMedia re-renders this component on every player
+  // event (hundreds/sec during initial buffering), and each console.log costs CPU
+  // with DevTools open. Log the first few + periodic samples; the counter gaps
+  // still show the render rate.
+  if (tick.current <= 3 || tick.current % 200 === 0)
+    console.log(`[HlsStartFix:${id}] RENDER #${tick.current} shouldResume=${shouldResume} media=${typeof media} engine=${typeof engine}`)
 
   // ── Poll for engine if not immediately available ────────────────
   useEffect(() => {
@@ -1212,6 +1217,19 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
               config={{
                 hlsJs: {
                   startPosition: 0,
+                  // Kodi-style buffering: keep a deep forward buffer so
+                  // network jitter / FFmpeg chunk-rotation joins never starve
+                  // the decoder, and let MSE drop old data behind the cursor.
+                  maxBufferLength: 60,
+                  maxMaxBufferLength: 300,
+                  backBufferLength: 60,
+                  // Generous retries — FFmpeg reconnect / rotation joins
+                  // look like transient fragment failures.
+                  fragLoadingMaxRetry: 6,
+                  levelLoadingMaxRetry: 6,
+                  manifestLoadingMaxRetry: 4,
+                  fragLoadingRetryDelay: 500,
+                  manifestLoadingRetryDelay: 500,
                 },
               }}
               onTimeUpdate={handleTimeUpdateInternal}

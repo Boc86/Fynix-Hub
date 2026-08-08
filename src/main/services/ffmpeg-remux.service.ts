@@ -42,11 +42,20 @@ interface RemuxSession {
   ended: boolean
   /** Interval watching for the first real playlist write. */
   readyWatcher?: NodeJS.Timeout
+  /** True for http(s) live inputs — chunked into periodic respawns. */
+  isLive: boolean
+  /** Watchdog timer that SIGTERMs ffmpeg if it misses the chunk boundary. */
+  rotationTimer?: NodeJS.Timeout
+  /** True when WE initiated the exit (watchdog kill) — respawn on exit. */
+  expectingExit: boolean
+  /** Playlist sum at the last rotation — detects a stalled/exhausted source
+   *  when probing is unavailable (short-chunk fallback). */
+  lastChunkSum?: number
 }
 
 interface RemuxRequest {
   sessionId: string
-  filename: string // "playlist.m3u8" | "init.mp4" | "segment00000.m4s" | ...
+  filename: string // "playlist.m3u8" | "segment00000.ts" | ...
   req: IncomingMessage
   res: ServerResponse
 }
@@ -57,6 +66,11 @@ const sessions = new Map<string, RemuxSession>()
 let basePort = 0 // Set by init()
 
 const REMUX_BASE = path.join(os.tmpdir(), 'fynix-remux')
+// Live streams are remuxed in bounded chunks: ffmpeg exits cleanly at the
+// boundary (-t) and we respawn into the same session/playlist. Each fresh
+// process re-syncs A/V and reconnects to the source, bounding timestamp drift
+// that accumulates in a single long-running process (stutter + audio drift).
+const LIVE_CHUNK_SECONDS = 300 // 5 minutes
 const WAIT_FILE_TIMEOUT = 10_000 // ms — max wait for a file to appear
 const SEGMENT_POLL_INTERVAL = 200 // ms
 const PLACEHOLDER_PLAYLIST =
@@ -70,6 +84,13 @@ function debug(...args: unknown[]) {
 
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+}
+
+/** Local torrent server URLs serve a FINITE file — not a live stream.
+ *  Chunk rotation on these would respawn ffmpeg at byte 0 and replay the
+ *  file from 0:00 (the torrent restart-to-0 bug). */
+function isLocalHttpUrl(url: string): boolean {
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(url)
 }
 
 function getSessionDir(id: string): string {
@@ -104,13 +125,13 @@ function responseIsOpen(res: ServerResponse): boolean {
 /** Get MIME type for HLS file. */
 function getContentType(filename: string): string {
   if (filename.endsWith('.m3u8')) return 'application/x-mpegURL; charset=utf-8'
-  if (filename.endsWith('.mp4') || filename.endsWith('.m4s')) return 'video/mp4'
+  if (filename.endsWith('.ts')) return 'video/mp2t'
   return 'application/octet-stream'
 }
 
 // ─── Session Management ──────────────────────────────────────────────────────
 
-function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false, audioTrackIndex?: number, appendList = false): string[] {
+export function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] = [], transcodeVideo = false, audioTrackIndex?: number, appendList = false, chunkSeconds?: number, outputTsOffset?: number): string[] {
   const args = [
     '-hide_banner',
     '-loglevel', 'info',
@@ -130,8 +151,10 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
   }
 
   args.push(
-    // Reconnect for live HTTP streams that drop connections — not needed for local files
-    ...(inputUrl.startsWith('http') ? [
+    // Reconnect for live HTTP streams that drop connections — not needed for
+    // local files, and reconnect_at_eof on a FINITE local torrent file would
+    // make ffmpeg re-open it at EOF and loop from 0:00.
+    ...(inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl) ? [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_at_eof', '1',
@@ -167,23 +190,44 @@ function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: string[] 
   args.push(
     // Always transcode audio to AAC — browser MSE doesn't support AC-3, DTS,
     // TrueHD, etc. AAC is lightweight and universally supported.
+    // aresample=async=1 resamples audio to follow the video clock, fixing
+    // A/V drift from sloppy IPTV source timestamps.
+    '-af', 'aresample=async=1',
     '-c:a', 'aac',
     '-b:a', '256k',
     '-ac', '2',
     '-max_muxing_queue_size', '4096',
+    // Bounded live chunks: ffmpeg exits cleanly at the boundary, we respawn
+    // into the same playlist (see LIVE_CHUNK_SECONDS / scheduleChunkRotation).
+    ...(chunkSeconds ? ['-t', String(chunkSeconds)] : []),
+    // Respawned chunks continue the timeline instead of restarting at PTS 0:
+    // without this, every rotation creates a timestamp hole → hls.js
+    // bufferStalledError + seek over the hole (visible stutter) and, in the
+    // app, can escalate into a full restart-to-0. Verified empirically.
+    ...(outputTsOffset ? ['-output_ts_offset', String(outputTsOffset)] : []),
     '-f', 'hls',
     '-hls_time', '4',
     '-hls_list_size', '0',
     '-hls_playlist_type', 'event',
-    '-hls_segment_type', 'fmp4',
-    '-hls_fmp4_init_filename', 'init.mp4',
-    // append_list (respawn only): continue the EXISTING playlist instead of
-    // truncating+rewriting it — segment numbering is derived from the list,
-    // so the media sequence never restarts and hls.js never sees the stream
-    // shrink. Verified empirically (ffmpeg 8.1): playlist continues, inserts
-    // #EXT-X-DISCONTINUITY at the join (hls.js handles it).
-    '-hls_flags', appendList ? 'independent_segments+append_list' : 'independent_segments',
-    '-hls_segment_filename', path.join(outputDir, 'segment%05d.m4s'),
+    // muxdelay 0: first-frame PTS starts at ~0 so the accumulated playlist
+    // duration and the media timeline stay aligned across rotations. With the
+    // default muxdelay the media PTS runs ~1.4s ahead of the playlist, which
+    // turns each rotation's #EXT-X-DISCONTINUITY into a buffer hole (seek).
+    '-muxdelay', '0',
+    '-muxpreload', '0',
+    // MPEG-TS segments (NOT fmp4): -output_ts_offset is baked into the TS
+    // packet PTS itself. With fmp4 the offset lands in an edit-list in the
+    // init.mp4 that players read once — respawned chunks would restart at 0.
+    // omit_endlist: never let ffmpeg write #EXT-X-ENDLIST on a clean -t exit —
+    // if hls.js polls the playlist in that window it treats the live stream as
+    // ended and stops. The service appends ENDLIST itself when the session truly
+    // ends (appendEndList). append_list (respawn only): continue the EXISTING
+    // playlist instead of truncating+rewriting it — segment numbering derives
+    // from the list, so the media sequence never restarts. With the timestamp
+    // offset + muxdelay 0, appended chunks join seamlessly; the residual
+    // DISCONTINUITY tag hls.js sees is within maxBufferHole (verified).
+    '-hls_flags', appendList ? 'independent_segments+append_list+omit_endlist' : 'independent_segments+omit_endlist',
+    '-hls_segment_filename', path.join(outputDir, 'segment%05d.ts'),
     path.join(outputDir, 'playlist.m3u8'),
   )
 
@@ -252,6 +296,23 @@ function stripEndList(session: RemuxSession): void {
   }
 }
 
+/** Sum of #EXTINF durations in the current playlist — the timeline position a
+ *  respawned chunk must start at to join seamlessly (-output_ts_offset). */
+function sumPlaylistDuration(session: RemuxSession): number {
+  try {
+    const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
+    const content = fs.readFileSync(playlistPath, 'utf-8')
+    let sum = 0
+    const re = /#EXTINF:([\d.]+)/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(content))) sum += parseFloat(m[1])
+    return sum
+  } catch (err: any) {
+    debug('sumPlaylistDuration failed:', err?.message)
+    return 0
+  }
+}
+
 /** Append #EXT-X-ENDLIST so hls.js plays out to the end instead of stalling. */
 function appendEndList(session: RemuxSession): void {
   try {
@@ -280,6 +341,25 @@ function armReadyWatcher(session: RemuxSession): void {
       }
     } catch {}
   }, 300)
+}
+
+/**
+ * Live chunk watchdog: ffmpeg exits cleanly at its -t limit (the primary
+ * rotation trigger), but if it wedges on a reconnect/stalled source and never
+ * reaches the boundary, SIGTERM it after a grace period so the exit handler
+ * respawns it (expectingExit). Re-armed on every respawn.
+ */
+function scheduleChunkRotation(session: RemuxSession, headers: string[], audioTrackIndex?: number): void {
+  if (session.rotationTimer) clearTimeout(session.rotationTimer)
+  if (!session.isLive || session.ended) return
+  session.rotationTimer = setTimeout(() => {
+    session.rotationTimer = undefined
+    if (session.process && !session.process.killed) {
+      session.expectingExit = true
+      session.process.kill('SIGTERM')
+      debug('Live chunk watchdog: SIGTERM sent to wedged FFmpeg')
+    }
+  }, LIVE_CHUNK_SECONDS * 1000 + 30_000)
 }
 
 /**
@@ -313,11 +393,45 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
     debug(`FFmpeg exited with code ${code} signal ${signal}`)
     if (session.process !== proc) return // superseded by an in-place respawn
     if (session.readyWatcher) { clearInterval(session.readyWatcher); session.readyWatcher = undefined }
-    if (code !== 0 && !session.lastError) {
+    // Live chunk boundary: clean exit at the -t limit, or our watchdog kill.
+    const isRotation =
+      session.isLive && !session.ended &&
+      (code === 0 || (signal === 'SIGTERM' && session.expectingExit))
+    if (!isRotation && code !== 0 && !session.lastError) {
       const stderrTail = session.stderrBuffer.slice(-5).join('; ')
       session.lastError = stderrTail
         ? `FFmpeg exited with code ${code}: ${stderrTail}`
         : `FFmpeg exited with code ${code}`
+    }
+    if (isRotation) {
+      // ffmpeg hit its -t chunk limit (or the watchdog caught a wedge).
+      // Respawn fresh into the SAME session dir with append_list so the
+      // playlist the renderer polls keeps growing — hls.js handles the
+      // #EXT-X-DISCONTINUITY at the join (independent_segments).
+      session.expectingExit = false
+      debug('Live chunk boundary — respawning FFmpeg (append_list)')
+      stripEndList(session)
+      // Continue the timeline at the exact end of the previous chunk so hls.js
+      // sees one continuous growing playlist — no timestamp hole at the join.
+      const tsOffset = sumPlaylistDuration(session)
+      const args = buildFFmpegArgs(session.inputUrl, session.outputDir, headers, false, audioTrackIndex, true, LIVE_CHUNK_SECONDS, tsOffset)
+      let newProc: ChildProcess
+      try {
+        newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch (err: any) {
+        debug('Live chunk respawn failed:', err?.message)
+        session.ended = true
+        appendEndList(session)
+        return
+      }
+      session.process = newProc
+      session.lastError = null
+      session.stderrBuffer = []
+      wireProcess(session, newProc, headers, audioTrackIndex)
+      armReadyWatcher(session)
+      scheduleChunkRotation(session, headers, audioTrackIndex)
+      debug('Respawned FFmpeg for next live chunk')
+      return
     }
     // Growing-file restart: when input is a local file still being written
     // (e.g. NZB download or recording), FFmpeg hits EOF when the current
@@ -338,8 +452,13 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
           // Remove ffmpeg's premature ENDLIST so the appended segments land
           // before the end marker.
           stripEndList(session)
+          // -ss is an INPUT seek: ffmpeg re-zeroes output PTS at the seek
+          // point, so appended segments must be shifted by the playlist
+          // duration or hls.js sees a timestamp hole → bufferSeekOverHole →
+          // seek → restart-to-0 (the usenet restart bug, same as live-TV).
+          const tsOffset = sumPlaylistDuration(session)
           const args: string[] = ['-ss', String(lastDuration)]
-          args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, false, audioTrackIndex, true))
+          args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, false, audioTrackIndex, true, undefined, tsOffset))
           let newProc: ChildProcess
           try {
             newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -401,7 +520,12 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
    }
    // ponytail: Chromium (Electron 42) with VAAPI decodes HEVC natively.
    // No transcode needed — just remux (copy) the video stream.
-   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false, audioTrackIndex))
+   // Live http(s) streams are chunked: -t caps each FFmpeg process, the exit
+   // handler respawns append_list (see LIVE_CHUNK_SECONDS). Localhost HTTP
+   // (torrent server) and file:// are FINITE files — chunk rotation would
+   // respawn ffmpeg at byte 0 and replay the file from 0:00.
+   const isLive = inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false, audioTrackIndex, false, isLive ? LIVE_CHUNK_SECONDS : undefined))
 
    debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 
@@ -431,7 +555,9 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
      stderrBuffer: [],
      openedBytes: 0,
      ended: false,
-   }
+     isLive,
+     expectingExit: false,
+     }
 
    sessions.set(id, session)
 
@@ -448,6 +574,7 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
    // Monitor output, handle respawn-on-growth and end-of-stream below.
    wireProcess(session, proc, headers, audioTrackIndex)
    armReadyWatcher(session)
+   if (isLive) scheduleChunkRotation(session, headers, audioTrackIndex)
 
    const port = portGetter ? portGetter() : 0
    const streamUrl = `http://127.0.0.1:${port}/remux/${id}/playlist.m3u8`
@@ -459,6 +586,7 @@ function cleanupSession(id: string) {
   const session = sessions.get(id)
   if (!session) return
   sessions.delete(id)
+  if (session.rotationTimer) { clearTimeout(session.rotationTimer); session.rotationTimer = undefined }
 
   // Kill FFmpeg if still running.
   try {
@@ -525,7 +653,7 @@ export function clearAllSessions(): void {
  * Handle an HTTP request for a remux file.
  *
  * Called from local-cache.service.ts when the URL matches:
- *   /remux/<sessionId>/<playlist.m3u8|init.mp4|segmentNNNNN.m4s>
+ *   /remux/<sessionId>/<playlist.m3u8|segmentNNNNN.ts>
  */
 export async function handleRemuxRequest(
   sessionId: string,
