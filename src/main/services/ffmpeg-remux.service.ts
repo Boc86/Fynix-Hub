@@ -620,16 +620,13 @@ export function shutdown(): void {
     cleanupSession(id)
   }
   sessions.clear()
+  // Sweep orphaned dirs too (crashed sessions never ran cleanupSession) —
+  // otherwise segments survive until the next playback stop.
+  sweepOrphanedDirs()
 }
 
-/** Kill all sessions and remove all temp files. Called on playback exit. */
-export function clearAllSessions(): void {
-  debug('Clearing all sessions and temp files')
-  for (const [id] of sessions) {
-    cleanupSession(id)
-  }
-  sessions.clear()
-  // Also clean up any orphaned session dirs
+/** Remove any session dir under REMUX_BASE not tracked in `sessions`. */
+function sweepOrphanedDirs(): void {
   try {
     if (fs.existsSync(REMUX_BASE)) {
       const entries = fs.readdirSync(REMUX_BASE)
@@ -645,6 +642,16 @@ export function clearAllSessions(): void {
   } catch (e: any) {
     debug('Failed to clean remux base dir:', e?.message)
   }
+}
+
+/** Kill all sessions and remove all temp files. Called on playback exit. */
+export function clearAllSessions(): void {
+  debug('Clearing all sessions and temp files')
+  for (const [id] of sessions) {
+    cleanupSession(id)
+  }
+  sessions.clear()
+  sweepOrphanedDirs()
 }
 
 // ─── Request Handling ────────────────────────────────────────────────────────

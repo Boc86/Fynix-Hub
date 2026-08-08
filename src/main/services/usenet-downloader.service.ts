@@ -592,12 +592,18 @@ export async function clearAllDownloads(): Promise<void> {
   try {
     const groups = await NzbgetService.listGroups()
     for (const g of groups) {
+      // Delete the on-disk dir BEFORE GroupDelete removes the entry —
+      // resolveDownloadDir queries nzbget, so post-cleanup it finds nothing
+      // and the files would stay on disk forever (same ordering bug fixed in
+      // removeDownload; clearAll had the inverse order and silently leaked
+      // every completed folder).
+      await deleteDownloadDirectory(g.NZBID).catch(() => {})
       await NzbgetService.deleteNzb(g.NZBID).catch(() => {})
     }
     const histItems = await NzbgetService.history()
     for (const h of histItems) {
-      await NzbgetService.historyDelete(h.NZBID).catch(() => {})
       await deleteDownloadDirectory(h.NZBID).catch(() => {})
+      await NzbgetService.historyDelete(h.NZBID).catch(() => {})
     }
   } catch { /* ignore */ }
 }
