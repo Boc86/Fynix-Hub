@@ -600,8 +600,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     return
   }
 
-  // Handle /remux/<sessionId>/<filename> — FFmpeg HLS remux output
-  const remuxMatch = url.match(/^\/remux\/([a-zA-Z0-9]+)\/(playlist\.m3u8|init\.mp4|segment\d{5}\.m4s)$/)
+  // Handle /remux/<sessionId>/<filename> — FFmpeg HLS remux output (MPEG-TS segments)
+  const remuxMatch = url.match(/^\/remux\/([a-zA-Z0-9]+)\/(playlist\.m3u8|segment\d{5}\.ts)$/)
   if (remuxMatch) {
     FfmpegRemux.handleRemuxRequest(remuxMatch[1], remuxMatch[2], req, res)
     return
