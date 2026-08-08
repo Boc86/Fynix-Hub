@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { buildFFmpegArgs } from '@/main/services/ffmpeg-remux.service'
+import * as os from 'os'
+import * as fs from 'fs'
+import * as path from 'path'
+import { buildFFmpegArgs, clearAllSessions, shutdown } from '@/main/services/ffmpeg-remux.service'
 
 describe('buildFFmpegArgs (live chunk remux)', () => {
   const base = buildFFmpegArgs('http://example.com/stream.ts', '/tmp/out')
@@ -49,5 +52,33 @@ describe('buildFFmpegArgs (live chunk remux)', () => {
     expect(torrent).not.toContain('-t')
     // No reconnect_at_eof either (would loop the file at EOF)
     expect(torrent).not.toContain('-reconnect')
+  })
+})
+
+describe('remux temp-dir cleanup (segments must not stay on disk)', () => {
+  const os = require('os') as typeof import('os')
+  const fs = require('fs') as typeof import('fs')
+  const path = require('path') as typeof import('path')
+  const REMUX_BASE = path.join(os.tmpdir(), 'fynix-remux')
+
+  const dropFakeSession = (name: string) => {
+    const dir = path.join(REMUX_BASE, name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'segment00000.ts'), 'x')
+    return dir
+  }
+
+  it('clearAllSessions removes tracked AND orphaned session dirs', () => {
+    const tracked = dropFakeSession('test-tracked')
+    const orphan = dropFakeSession('test-orphan')
+    clearAllSessions()
+    expect(fs.existsSync(tracked)).toBe(false)
+    expect(fs.existsSync(orphan)).toBe(false)
+  })
+
+  it('app shutdown sweeps orphaned session dirs too (crash leftovers)', () => {
+    const orphan = dropFakeSession('test-orphan-2')
+    shutdown()
+    expect(fs.existsSync(orphan)).toBe(false)
   })
 })
