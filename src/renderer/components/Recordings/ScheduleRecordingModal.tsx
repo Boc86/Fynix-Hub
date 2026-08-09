@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { loadMergedChannels, MergedChannel } from '../../utils/channels'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface ScheduleRecordingModalProps {
   onClose: () => void
@@ -44,6 +45,8 @@ export default function ScheduleRecordingModal({ onClose, onScheduled }: Schedul
   const [endTime, setEndTime] = useState('21:00')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(containerRef)
 
   // Only channels with an M3U source can be FFmpeg-recorded (CDN streams use
   // one-time-use tokens), so filter those out for the dropdown.
@@ -61,15 +64,22 @@ export default function ScheduleRecordingModal({ onClose, onScheduled }: Schedul
     return () => { cancelled = true }
   }, [])
 
-  // Escape closes the modal; the parent handler bails out while this is open,
-  // so the keypress never reaches the page-level navigation logic.
+  // Autofocus the channel dropdown so the modal is immediately operable.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    containerRef.current?.querySelector<HTMLElement>('select')?.focus()
+  }, [loading])
+
+  // Modal-level keys: Escape closes; every other key is swallowed so nothing
+  // leaks to the app's global handler (Enter on an input would otherwise pop
+  // the virtual keyboard, 's' would open search, …).
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      onClose()
+      return
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    e.stopPropagation()
+  }
 
   const channel = channels.find((ch) => ch.id === channelId) || null
 
@@ -100,7 +110,7 @@ export default function ScheduleRecordingModal({ onClose, onScheduled }: Schedul
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+    <div ref={containerRef} onKeyDown={handleKeyDown} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
       onClick={onClose}>
       <div style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
         onClick={(e) => e.stopPropagation()}>

@@ -74,6 +74,39 @@ describe('Prompt', () => {
     fireEvent.click(backdrop)
     expect(onCancel).toHaveBeenCalled()
   })
+
+  describe('keyboard navigation', () => {
+    it('auto-focuses the input on mount', () => {
+      render(<Prompt title="T" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      expect(screen.getByRole('textbox')).toHaveFocus()
+    })
+
+    it('Escape on a button (focus not on input) calls onCancel', () => {
+      const onCancel = vi.fn()
+      render(<Prompt title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
+      screen.getByText('Cancel').focus()
+      fireEvent.keyDown(screen.getByText('Cancel'), { key: 'Escape' })
+      expect(onCancel).toHaveBeenCalledOnce()
+    })
+
+    it('keys do not leak to the window while open (\'s\' swallowed)', () => {
+      const windowSpy = vi.fn()
+      window.addEventListener('keydown', windowSpy)
+      render(<Prompt title="T" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 's' })
+      expect(windowSpy).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', windowSpy)
+    })
+
+    it('Tab wraps from the OK button back to the input (focus trap)', () => {
+      render(<Prompt title="T" defaultValue="x" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      const ok = screen.getByText('OK')
+      const input = screen.getByRole('textbox')
+      ok.focus()
+      fireEvent.keyDown(ok, { key: 'Tab' })
+      expect(input).toHaveFocus()
+    })
+  })
 })
 
 describe('Confirm', () => {
@@ -111,5 +144,48 @@ describe('Confirm', () => {
     const backdrop = document.querySelector('[style*="position: fixed"]')!
     fireEvent.click(backdrop)
     expect(onCancel).toHaveBeenCalled()
+  })
+
+  describe('keyboard navigation', () => {
+    it('Escape calls onCancel and does not bubble to window', () => {
+      const onCancel = vi.fn()
+      const windowSpy = vi.fn()
+      window.addEventListener('keydown', windowSpy)
+      render(<Confirm title="T" onConfirm={vi.fn()} onCancel={onCancel} />)
+      fireEvent.keyDown(screen.getByText('Cancel'), { key: 'Escape' })
+      expect(onCancel).toHaveBeenCalledOnce()
+      expect(windowSpy).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', windowSpy)
+    })
+
+    it('keys do not leak to the window while open (\'s\' swallowed)', () => {
+      const windowSpy = vi.fn()
+      window.addEventListener('keydown', windowSpy)
+      render(<Confirm title="T" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      fireEvent.keyDown(screen.getByText('Cancel'), { key: 's' })
+      expect(windowSpy).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', windowSpy)
+    })
+
+    it('Tab wraps from OK back to Cancel (focus trap)', () => {
+      render(<Confirm title="T" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      const ok = screen.getByText('OK')
+      const cancel = screen.getByText('Cancel')
+      ok.focus()
+      fireEvent.keyDown(ok, { key: 'Tab' })
+      expect(cancel).toHaveFocus()
+      fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true })
+      expect(ok).toHaveFocus()
+    })
+
+    it('Enter on the focused button is swallowed but NOT preventDefaulted', () => {
+      const windowSpy = vi.fn()
+      window.addEventListener('keydown', windowSpy)
+      render(<Confirm title="T" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      const notPrevented = fireEvent.keyDown(screen.getByText('Cancel'), { key: 'Enter' })
+      expect(notPrevented).toBe(true)
+      expect(windowSpy).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', windowSpy)
+    })
   })
 })

@@ -136,4 +136,51 @@ describe('ErrorModal', () => {
       expect(screen.getByText('Retry')).toBeInTheDocument()
     })
   })
+
+  describe('keyboard navigation', () => {
+    it('auto-focuses Retry (primary) on mount', () => {
+      render(<ErrorModal message="Error" onBack={() => {}} onRetry={() => {}} />)
+      expect(screen.getByText('Retry')).toHaveFocus()
+    })
+
+    it('falls back to Go Back when no onRetry', () => {
+      render(<ErrorModal message="Error" onBack={() => {}} />)
+      expect(screen.getByText('Go Back')).toHaveFocus()
+    })
+
+    it('Enter on the focused button is swallowed but NOT preventDefaulted (native click fires)', () => {
+      const windowSpy = vi.fn()
+      window.addEventListener('keydown', windowSpy)
+      render(<ErrorModal message="Error" onBack={() => {}} onRetry={() => {}} />)
+      // fireEvent returns false if the event was preventDefaulted — we must NOT
+      // preventDefault, or the button's native Enter activation wouldn't fire.
+      const notPrevented = fireEvent.keyDown(screen.getByText('Retry'), { key: 'Enter' })
+      expect(notPrevented).toBe(true)
+      // stopPropagation: the window-level keydown delegator must never see it.
+      expect(windowSpy).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', windowSpy)
+    })
+
+    it('Escape calls onBack and does not bubble to window', () => {
+      const onBack = vi.fn()
+      const windowSpy = vi.fn()
+      window.addEventListener('keydown', windowSpy)
+      render(<ErrorModal message="Error" onBack={onBack} onRetry={() => {}} />)
+      fireEvent.keyDown(screen.getByText('Retry'), { key: 'Escape' })
+      expect(onBack).toHaveBeenCalledOnce()
+      expect(windowSpy).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', windowSpy)
+    })
+
+    it('Tab from the last button wraps to the first (focus trap)', () => {
+      render(<ErrorModal message="Error" onBack={() => {}} onRetry={() => {}} />)
+      const retry = screen.getByText('Retry')
+      const back = screen.getByText('Go Back')
+      retry.focus()
+      fireEvent.keyDown(retry, { key: 'Tab' })
+      expect(back).toHaveFocus()
+      fireEvent.keyDown(back, { key: 'Tab', shiftKey: true })
+      expect(retry).toHaveFocus()
+    })
+  })
 })

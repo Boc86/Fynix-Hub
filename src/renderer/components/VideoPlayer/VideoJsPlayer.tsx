@@ -51,6 +51,8 @@ interface VideoJsPlayerProps {
   /** Whether to resume from saved position (false = start from beginning) */
   shouldResume?: boolean
   onPlay?: () => void
+  /** Fired when the video actually starts rendering frames (first `playing` event). */
+  onPlaying?: () => void
   onPause?: () => void
     onCanPlay?: () => void
     onError?: (error: MediaError | Error) => void
@@ -323,6 +325,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       onEnded,
       shouldResume = false,
       onPlay,
+      onPlaying,
       onPause,
       onCanPlay,
       onError,
@@ -1217,19 +1220,15 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
               config={{
                 hlsJs: {
                   startPosition: 0,
-                  // Kodi-style buffering: keep a deep forward buffer so
-                  // network jitter / FFmpeg chunk-rotation joins never starve
-                  // the decoder, and let MSE drop old data behind the cursor.
-                  maxBufferLength: 60,
-                  maxMaxBufferLength: 300,
-                  backBufferLength: 60,
-                  // Generous retries — FFmpeg reconnect / rotation joins
-                  // look like transient fragment failures.
-                  fragLoadingMaxRetry: 6,
-                  levelLoadingMaxRetry: 6,
-                  manifestLoadingMaxRetry: 4,
-                  fragLoadingRetryDelay: 500,
-                  manifestLoadingRetryDelay: 500,
+                  // NOTE: v2.1.8 added Kodi-style deep buffering + generous retries
+                  // (maxBufferLength 60 / backBufferLength 60 / retry 4-6) for the
+                  // FFmpeg remux path, but it applies globally — including direct
+                  // CDN live playback (no FFmpeg involved). It stalled first-attempt
+                  // startup on live edges (MSE initialized, zero fragments appended,
+                  // 8s watchdog → reconnect storm until the upstream conn warms).
+                  // Reverted to v2.1.3 baseline ({ startPosition: 0 }) which starts
+                  // instantly. If remux chunk-rotation regresses, re-add these
+                  // ONLY to the remux branch (per-source config, not global).
                 },
               }}
               onTimeUpdate={handleTimeUpdateInternal}
@@ -1237,6 +1236,7 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
               onEnded={onEnded}
               onError={(e: React.SyntheticEvent<HTMLVideoElement>) => onError?.(e.currentTarget.error as MediaError)}
               onPlay={handlePlayInternal}
+              onPlaying={onPlaying}
               onPause={handlePauseInternal}
               onCanPlay={onCanPlay}
               onClick={handleVideoClick}

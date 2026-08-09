@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../store/settingsStore'
 import { useChannelLogo } from '../../utils/useChannelLogo'
 import { normalizeLogoUrl } from '../../utils/logos'
 import ScheduleRecordingModal from './ScheduleRecordingModal'
+import { Confirm } from '../Prompt/Prompt'
 
 export interface Recording {
   id: string
@@ -266,26 +267,15 @@ export default function Recordings({ onPlayUrl, onBack }: RecordingsProps) {
       )}
 
       {confirmDelete && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
-          onClick={() => setConfirmDelete(null)}>
-          <div style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, padding: 24, minWidth: 360, maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
-            onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Delete recording?</h3>
-            <p style={{ margin: '0 0 20px', fontSize: 14, color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 }}>
-              "{confirmDelete.title}" and its file will be permanently removed. This cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button tabIndex={0} onClick={() => setConfirmDelete(null)}
-                style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: 14 }}>
-                Cancel
-              </button>
-              <button tabIndex={0} onClick={() => handleDelete(confirmDelete)}
-                style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#ff3b30', color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <Confirm
+          title="Delete recording?"
+          message={`"${confirmDelete.title}" and its file will be permanently removed. This cannot be undone.`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={() => handleDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
 
       {showScheduler && (

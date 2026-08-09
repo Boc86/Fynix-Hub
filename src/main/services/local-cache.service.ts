@@ -395,6 +395,35 @@ function rewriteHlsUrls(playlist: string, baseUrl: string, proxyId: string): str
   )
 }
 
+/**
+ * Write response headers / body only if the response is still open. When the
+ * client aborts (hls.js retry, src change, HMR reload, auto-reconnect), the
+ * `req 'error'` handler in handleRequest calls res.end() → headers are already
+ * sent → a later writeHead() throws ERR_HTTP_HEADERS_SENT, and the catch block
+ * writing a 500 throws AGAIN → unhandled promise rejection in the main process
+ * and the stream response hls.js was waiting for never arrives. Guarding every
+ * write makes aborted requests a silent no-op instead of a crash.
+ */
+function safeWriteHead(res: http.ServerResponse, status: number, headers?: http.OutgoingHttpHeaders): void {
+  if (res.headersSent || res.writableEnded || res.destroyed) return
+  res.writeHead(status, headers)
+}
+
+function safeEnd(res: http.ServerResponse, chunk?: string | Buffer): void {
+  // NOTE: NOT guarded on headersSent — writeHead() sets headersSent=true, and
+  // res.end() is precisely what flushes the buffered headers + body. Only skip
+  // when the response is already finished (aborted client, req 'error' handler).
+  if (res.writableEnded || res.destroyed) return
+  res.end(chunk)
+}
+
+/** Send an error response, but only if nothing has been written yet. */
+function safeError(res: http.ServerResponse, message: string): void {
+  if (res.headersSent || res.writableEnded || res.destroyed) return
+  res.writeHead(500, { 'Access-Control-Allow-Origin': '*' })
+  res.end(message)
+}
+
 async function serveRemotePlaylist(
   remoteUrl: string, proxyId: string, req: http.IncomingMessage, res: http.ServerResponse,
 ) {
@@ -404,24 +433,23 @@ async function serveRemotePlaylist(
 
     if (status !== 200) {
       debug('Remote playlist HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status, { 'Access-Control-Allow-Origin': '*' })
-      res.end('Remote playlist fetch failed')
+      safeWriteHead(res, status, { 'Access-Control-Allow-Origin': '*' })
+      safeEnd(res, 'Remote playlist fetch failed')
       return
     }
 
     const content = body.toString('utf-8')
     const rewritten = rewriteHlsUrls(content, remoteUrl, proxyId)
 
-    res.writeHead(200, {
+    safeWriteHead(res, 200, {
       'Content-Type': contentType || 'application/x-mpegURL; charset=utf-8',
       'Cache-Control': 'no-store',
       'Access-Control-Allow-Origin': '*',
     })
-    res.end(rewritten)
+    safeEnd(res, rewritten)
   } catch (err: any) {
     debug('Remote playlist error:', err.message)
-    res.writeHead(500)
-    res.end('Remote playlist proxy error')
+    safeError(res, 'Remote playlist proxy error')
   }
 }
 
@@ -434,8 +462,8 @@ async function serveRemoteFile(
 
     if (status !== 200) {
       debug('Remote file HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status, { 'Access-Control-Allow-Origin': '*' })
-      res.end('Remote file fetch failed')
+      safeWriteHead(res, status, { 'Access-Control-Allow-Origin': '*' })
+      safeEnd(res, 'Remote file fetch failed')
       return
     }
 
@@ -446,7 +474,7 @@ async function serveRemoteFile(
       const end = parts[1] ? parseInt(parts[1], 10) : body.length - 1
       const chunkSize = end - start + 1
 
-      res.writeHead(206, {
+      safeWriteHead(res, 206, {
         'Content-Range': `bytes ${start}-${end}/${body.length}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
@@ -454,21 +482,20 @@ async function serveRemoteFile(
         'Cache-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
       })
-      res.end(body.slice(start, end + 1))
+      safeEnd(res, body.slice(start, end + 1))
     } else {
-      res.writeHead(200, {
+      safeWriteHead(res, 200, {
         'Content-Length': body.length,
         'Content-Type': contentType || 'video/mp4',
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
       })
-      res.end(body)
+      safeEnd(res, body)
     }
   } catch (err: any) {
     debug('Remote file error:', err.message)
-    res.writeHead(500)
-    res.end('Remote file proxy error')
+    safeError(res, 'Remote file proxy error')
   }
 }
 
@@ -484,8 +511,8 @@ async function serveProxiedContent(
 
     if (status !== 200) {
       debug('Proxied content HTTP', status, 'for', remoteUrl.slice(0, 80))
-      res.writeHead(status)
-      res.end('Proxied fetch failed')
+      safeWriteHead(res, status)
+      safeEnd(res, 'Proxied fetch failed')
       return
     }
 
@@ -497,12 +524,12 @@ async function serveProxiedContent(
       // Rewrite the playlist's internal URLs to go through the proxy
       const content = body.toString('utf-8')
       const rewritten = rewriteHlsUrls(content, remoteUrl, proxyId)
-      res.writeHead(200, {
+      safeWriteHead(res, 200, {
         'Content-Type': contentType || 'application/x-mpegURL; charset=utf-8',
         'Cache-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
       })
-      res.end(rewritten)
+      safeEnd(res, rewritten)
     } else {
       // Serve raw segment bytes
       const rangeHeader = req.headers.range
@@ -512,7 +539,7 @@ async function serveProxiedContent(
         const end = parts[1] ? parseInt(parts[1], 10) : body.length - 1
         const chunkSize = end - start + 1
 
-        res.writeHead(206, {
+        safeWriteHead(res, 206, {
           'Content-Range': `bytes ${start}-${end}/${body.length}`,
           'Accept-Ranges': 'bytes',
           'Content-Length': chunkSize,
@@ -520,22 +547,21 @@ async function serveProxiedContent(
           'Cache-Control': 'no-store',
           'Access-Control-Allow-Origin': '*',
         })
-        res.end(body.slice(start, end + 1))
+        safeEnd(res, body.slice(start, end + 1))
       } else {
-        res.writeHead(200, {
+        safeWriteHead(res, 200, {
           'Content-Length': body.length,
           'Content-Type': contentType || 'video/mp4',
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'no-store',
           'Access-Control-Allow-Origin': '*',
         })
-        res.end(body)
+        safeEnd(res, body)
       }
     }
   } catch (err: any) {
     debug('Proxied content error:', err.message)
-    res.writeHead(500)
-    res.end('Proxied content error')
+    safeError(res, 'Proxied content error')
   }
 }
 
@@ -543,6 +569,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   // Prevent unhandled socket errors from crashing the Electron main process.
   req.on('error', () => { if (!res.writableEnded) res.end() })
   res.on('error', () => {})
+
+  // Allow cross-origin reads from the renderer (dev server origin
+  // http://localhost:5173, and the packaged file:// origin). Must cover ALL
+  // responses — error paths included — or hls.js XHRs CORS-block upstream
+  // 503s and the console fills with "No 'Access-Control-Allow-Origin' header".
+  // writeHead() merges with headers set here, so one line covers every branch.
+  res.setHeader('Access-Control-Allow-Origin', '*')
 
   const url = req.url || '/'
 

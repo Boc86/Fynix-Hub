@@ -122,8 +122,24 @@ function VideoPlayerInner({
   const startScrobbledRef = useRef(false)
   const exitedRef = useRef(false)
   const retryCountRef = useRef(0)
+  // Chain cap for auto-reconnects: reset ONLY on real playback (playing event),
+  // NOT on streamUrl change — otherwise the retry gate re-arms after every
+  // reconnect and the app auto-reconnects forever (each attempt spawns a fresh
+  // proxy session + manifest/segment burst, which keeps cdnlivetv's rate
+  // limiter 503ing — the reconnect storm is self-inflicted).
+  const autoRetriesRef = useRef(0)
   const playbackCompletedRef = useRef(false)
   const [displayError, setDisplayError] = useState<string | null>(null)
+  // True from src change until the video's first `playing` event (frames
+  // actually rendering) — covers the reconnect gap where App's playerLoading
+  // splash disappears as soon as the IPC call resolves, not when playback
+  // starts. Kept on error so a reconnect attempt stays covered.
+  const [preparing, setPreparing] = useState(true)
+
+  // Reset whenever a new stream URL arrives (including auto-reconnect).
+  useEffect(() => {
+    setPreparing(true)
+  }, [streamUrl])
 
   const selectedMedia = useMediaStore((s) => s.selectedMedia)
   const preferredLanguages = useSettingsStore((s) => s.preferredLanguages)
@@ -499,8 +515,9 @@ function VideoPlayerInner({
       }
     }
 
-    if (isReconnectableStream() && retryCountRef.current < 1 && onRetryStream) {
+    if (isReconnectableStream() && retryCountRef.current < 1 && autoRetriesRef.current < 1 && onRetryStream) {
       retryCountRef.current++
+      autoRetriesRef.current++
       window.api.log(`[VP] stream error, auto-reconnect attempt ${retryCountRef.current}`)
       exitedRef.current = false
       onRetryStream()
@@ -612,6 +629,7 @@ function VideoPlayerInner({
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={(d) => { durationRef.current = d }}
           onPlay={handlePlay}
+          onPlaying={() => { setPreparing(false); autoRetriesRef.current = 0 }}
           onPause={handlePause}
           onEnded={handleEnded}
           onError={handleError}
@@ -623,6 +641,17 @@ function VideoPlayerInner({
           isRemux={isRemux}
           onAudioTrackSelect={handleAudioTrackSelect}
         />
+      )}
+
+      {/* Preparing stream splash — covers the video until frames actually
+          render (first `playing` event). Stays up across reconnects so the
+          user never stares at a black player between attempts. */}
+      {preparing && (
+        <div className={styles.splashOverlay}>
+          <span className={styles.splashLogo}>Fynix Media Hub</span>
+          <span className={styles.splashSub}>Preparing stream&hellip;</span>
+          <div className={styles.splashSpinner} />
+        </div>
       )}
 
       {/* Skip intro / recap button overlay */}
