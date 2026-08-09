@@ -4,6 +4,7 @@ import type { CustomIndexer } from '../../../main/services/torrent-search.servic
 import type { SportarrSport } from '../../types.d'
 import Prompt, { Confirm } from '../Prompt/Prompt'
 import ChannelSelector from './ChannelSelector'
+import NetworkAccessSection from './NetworkAccessSection'
 import styles from './Settings.module.css'
 
 interface BuiltInDefinition {
@@ -27,7 +28,7 @@ interface SettingsProps {
   initialOpen?: boolean
 }
 
-type SettingsTab = 'general' | 'search' | 'connections' | 'torrents' | 'usenet' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote'
+type SettingsTab = 'general' | 'search' | 'connections' | 'torrents' | 'usenet' | 'youtube' | 'sports' | 'live-tv' | 'profiles' | 'advanced' | 'remote' | 'network'
 
 const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'general', label: 'General', shortcut: '1' },
@@ -41,6 +42,7 @@ const TABS: Array<{ id: SettingsTab; label: string; shortcut: string }> = [
   { id: 'profiles', label: 'Profiles', shortcut: '9' },
   { id: 'advanced', label: 'Advanced', shortcut: '' },
   { id: 'remote', label: 'Remote', shortcut: '' },
+  { id: 'network', label: 'Network Access', shortcut: '' },
 ]
 
 export default function Settings({ onClose }: SettingsProps) {
@@ -1592,6 +1594,13 @@ export default function Settings({ onClose }: SettingsProps) {
           </div>
         )
       }
+
+      case 'network':
+        return (
+          <div className={styles.tabContent}>
+            <NetworkAccessSection />
+          </div>
+        )
 
       case 'youtube':
         return (

@@ -95,6 +95,10 @@ interface SettingsState {
   profiles: UserProfile[]
   activeProfileId: string | null
   autoLoginProfileId: string | null
+  networkEnabled: boolean
+  networkPort: number
+  networkUsername: string
+  networkPassword: string
 
   setTmdbApiKey: (key: string) => void
   setFanartApiKey: (key: string) => void
@@ -163,6 +167,10 @@ interface SettingsState {
   setVylaSearchLimit: (limit: number) => void
   setTorrentSearchLimit: (limit: number) => void
   setUsenetSearchLimit: (limit: number) => void
+  setNetworkEnabled: (enabled: boolean) => void
+  setNetworkPort: (port: number) => void
+  setNetworkUsername: (username: string) => void
+  setNetworkPassword: (password: string) => void
 
   // Profile management
   addProfile: (name: string, avatarPath?: string) => void
@@ -242,6 +250,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   profiles: [],
   activeProfileId: null,
   autoLoginProfileId: null,
+  networkEnabled: false,
+  networkPort: 43862,
+  networkUsername: '',
+  networkPassword: '',
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
   setFanartApiKey: (key) => set({ fanartApiKey: key }),
@@ -359,6 +371,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setVylaSearchLimit: (limit) => { set({ vylaSearchLimit: limit }); get().saveToDisk() },
   setTorrentSearchLimit: (limit) => { set({ torrentSearchLimit: limit }); get().saveToDisk() },
   setUsenetSearchLimit: (limit) => { set({ usenetSearchLimit: limit }); get().saveToDisk() },
+  setNetworkEnabled: (enabled) => { set({ networkEnabled: enabled }); get().saveToDisk() },
+  setNetworkPort: (port) => { set({ networkPort: port }); get().saveToDisk() },
+  setNetworkUsername: (username) => { set({ networkUsername: username }); get().saveToDisk() },
+  setNetworkPassword: (password) => { set({ networkPassword: password }); get().saveToDisk() },
 
   // --- Profile Management Actions ---
   addProfile: (name, avatarPath) => {
@@ -559,6 +575,24 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (typeof savedSportsTz === 'string') {
         set({ sportsTimezone: savedSportsTz });
       }
+
+      // Restore network access (Android TV bridge) settings from top-level DB keys
+      const savedNetworkEnabled = await window.api.settings.get('networkEnabled');
+      if (typeof savedNetworkEnabled === 'boolean') {
+        set({ networkEnabled: savedNetworkEnabled });
+      }
+      const savedNetworkPort = await window.api.settings.get('networkPort');
+      if (typeof savedNetworkPort === 'number') {
+        set({ networkPort: savedNetworkPort });
+      }
+      const savedNetworkUsername = await window.api.settings.get('networkUsername');
+      if (typeof savedNetworkUsername === 'string') {
+        set({ networkUsername: savedNetworkUsername });
+      }
+      const savedNetworkPassword = await window.api.settings.get('networkPassword');
+      if (typeof savedNetworkPassword === 'string') {
+        set({ networkPassword: savedNetworkPassword });
+      }
     } catch { /* ignore */ }
   },
 
@@ -633,6 +667,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         window.api.settings.set('profiles', state.profiles),
         window.api.settings.set('activeProfileId', state.activeProfileId),
         window.api.settings.set('autoLoginProfileId', state.autoLoginProfileId),
+        window.api.settings.set('networkEnabled', state.networkEnabled),
+        window.api.settings.set('networkPort', state.networkPort),
+        window.api.settings.set('networkUsername', state.networkUsername),
+        window.api.settings.set('networkPassword', state.networkPassword),
       ]);
     } catch (error) {
       console.error('Failed to save settings to disk:', error);

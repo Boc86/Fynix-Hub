@@ -33,12 +33,41 @@ export interface StartPlaybackResult {
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
-let currentSessionId: string | null = null
-/** Last resume position passed to startPlayback — preserved across audio switches. */
-let currentResumePosition: number = 0
-let currentProxyId: string | null = null
-let currentFileSessionId: string | null = null
-let currentChapters: Chapter[] = []
+
+interface SessionState {
+  remuxId: string | null
+  proxyId: string | null
+  fileSessionId: string | null
+  resumePosition: number
+  chapters: Chapter[]
+  audioTracks: AudioTrackInfo[]
+  timer: ReturnType<typeof setInterval> | null
+}
+
+/**
+ * One playback session per client (e.g. 'desktop', or a future 'android-tv'
+ * client) so multiple clients can play concurrently. Each session owns its
+ * FFmpeg remux / local-cache proxy / file-session resources, its resume
+ * position, its metadata and its watchdog timer.
+ */
+const sessions = new Map<string, SessionState>()
+
+function session(clientId: string): SessionState {
+  let s = sessions.get(clientId)
+  if (!s) {
+    s = {
+      remuxId: null,
+      proxyId: null,
+      fileSessionId: null,
+      resumePosition: 0,
+      chapters: [],
+      audioTracks: [],
+      timer: null,
+    }
+    sessions.set(clientId, s)
+  }
+  return s
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -79,10 +108,13 @@ export async function startPlayback(
   referer?: string,
   forceRemux?: boolean,
   audioTrackIndex?: number,
+  clientId = 'desktop',
 ): Promise<StartPlaybackResult> {
-  debug('startPlayback called url=', inputUrl.slice(0, 80), 'resumePosition=', resumePosition)
-  currentResumePosition = resumePosition ?? 0
-  await stopPlayback()
+  debug('startPlayback called url=', inputUrl.slice(0, 80), 'resumePosition=', resumePosition, 'clientId=', clientId)
+  // Tear down any previous session for this client, then create a fresh one.
+  await stopPlayback(clientId)
+  const s = session(clientId)
+  s.resumePosition = resumePosition ?? 0
 
   let resolvedUrl = inputUrl
 
@@ -120,7 +152,7 @@ export async function startPlayback(
     if (/^file:\/\//.test(resolvedUrl)) {
       const filePath = resolvedUrl.replace(/^file:\/\//, '')
       const { sessionId, url } = LocalCache.createFileSession(filePath)
-      currentFileSessionId = sessionId
+      s.fileSessionId = sessionId
       debug('Local file served via HTTP:', url.slice(0, 80))
       return { streamUrl: url, duration: null, chapters: [], audioTracks: [], isRemux: false }
     }
@@ -130,7 +162,7 @@ export async function startPlayback(
       // The proxy injects Referer/Origin headers that the browser can't send.
       debug('CDN stream needs proxy for auth headers:', resolvedUrl.slice(0, 80))
       const { proxyId, proxyUrl } = LocalCache.createProxySession(resolvedUrl)
-      currentProxyId = proxyId
+      s.proxyId = proxyId
       return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
     }
 
@@ -176,15 +208,18 @@ export async function startPlayback(
     throw new Error(`FFmpeg remux failed: ${msg}`)
   }
 
-  currentSessionId = result.sessionId
+  s.remuxId = result.sessionId
 
   // Watch for unexpected FFmpeg exit and notify renderer
-  if (currentSessionId) {
-    const checkInterval = setInterval(() => {
-      if (!currentSessionId) { clearInterval(checkInterval); return }
-      const err = FfmpegRemux.getSessionError(currentSessionId)
+  if (s.remuxId) {
+    s.timer = setInterval(() => {
+      if (!s.remuxId) {
+        if (s.timer) { clearInterval(s.timer); s.timer = null }
+        return
+      }
+      const err = FfmpegRemux.getSessionError(s.remuxId)
       if (err) {
-        clearInterval(checkInterval)
+        if (s.timer) { clearInterval(s.timer); s.timer = null }
         const { BrowserWindow } = require('electron') as typeof import('electron')
         for (const win of BrowserWindow.getAllWindows()) {
           if (!win.isDestroyed()) {
@@ -198,33 +233,57 @@ export async function startPlayback(
   const duration = FfmpegRemux.probeDuration(resolvedUrl)
   const chapters = FfmpegRemux.probeChapters(resolvedUrl)
   const audioTracks = FfmpegRemux.probeAudioTracks(resolvedUrl)
-  currentChapters = chapters
+  s.chapters = chapters
+  s.audioTracks = audioTracks
 
   debug('Remux session started:', result.sessionId, 'duration:', duration)
   return { streamUrl: result.streamUrl, duration, chapters, audioTracks, isRemux: true }
 }
 
 /**
- * Stop the current playback session.
+ * Tear down one client's session: kill its FFmpeg remux / proxy / file
+ * sessions, clear its watchdog timer and drop the record.
  */
-export async function stopPlayback(): Promise<void> {
-  if (currentFileSessionId) {
-    LocalCache.removeFileSession(currentFileSessionId)
-    currentFileSessionId = null
+function teardownSession(clientId: string): void {
+  const s = sessions.get(clientId)
+  if (!s) return
+  if (s.timer) {
+    clearInterval(s.timer)
+    s.timer = null
   }
-  if (currentProxyId) {
-    debug('Removing proxy session:', currentProxyId)
-    LocalCache.removeProxySession(currentProxyId)
-    currentProxyId = null
+  if (s.fileSessionId) {
+    LocalCache.removeFileSession(s.fileSessionId)
+    s.fileSessionId = null
   }
-  if (currentSessionId) {
-    debug('Stopping session:', currentSessionId)
-    FfmpegRemux.killSession(currentSessionId)
-    currentSessionId = null
+  if (s.proxyId) {
+    debug('Removing proxy session:', s.proxyId)
+    LocalCache.removeProxySession(s.proxyId)
+    s.proxyId = null
   }
-  // Clear all remux temp files on playback stop
+  if (s.remuxId) {
+    debug('Stopping session:', s.remuxId)
+    FfmpegRemux.killSession(s.remuxId)
+    s.remuxId = null
+  }
+  sessions.delete(clientId)
+}
+
+/**
+ * Stop playback. With a clientId, only that client's session is torn down;
+ * without one, ALL sessions are stopped (desktop compat — the renderer's
+ * player:stop passes no arg and must still kill everything, including any
+ * concurrent network-client sessions).
+ */
+export async function stopPlayback(clientId?: string): Promise<void> {
+  if (clientId !== undefined) {
+    teardownSession(clientId)
+    return
+  }
+  for (const id of [...sessions.keys()]) {
+    teardownSession(id)
+  }
+  // Belt-and-braces sweep of orphaned remux temp files (old behavior).
   FfmpegRemux.clearAllSessions()
-  currentChapters = []
 }
 
 /**
@@ -232,37 +291,38 @@ export async function stopPlayback(): Promise<void> {
  * Stops the current session, restarts with the selected audio index.
  * Returns the new stream URL, or null if no session is active.
  */
-export async function switchAudioTrack(audioIndex: number): Promise<string | null> {
-  if (!currentSessionId) return null
-  const info = FfmpegRemux.getSessionInfo(currentSessionId)
+export async function switchAudioTrack(audioIndex: number, clientId = 'desktop'): Promise<string | null> {
+  const s = sessions.get(clientId)
+  if (!s || !s.remuxId) return null
+  const info = FfmpegRemux.getSessionInfo(s.remuxId)
   if (!info) return null
   const inputUrl = info.inputUrl
   // Capture current playback position before tearing down the session —
   // otherwise the user has to seek back to where they were after every
   // language switch.
-  const resumePosition = currentResumePosition ?? 0
-  await stopPlayback()
-  const result = await startPlayback(inputUrl, resumePosition, undefined, false, audioIndex)
+  const resumePosition = s.resumePosition ?? 0
+  await stopPlayback(clientId)
+  const result = await startPlayback(inputUrl, resumePosition, undefined, false, audioIndex, clientId)
   return result.streamUrl
 }
 
 /**
  * Get chapters for the current playback session.
  */
-export function getChapters(): Chapter[] {
-  return currentChapters
+export function getChapters(clientId = 'desktop'): Chapter[] {
+  return sessions.get(clientId)?.chapters ?? []
 }
 
 /**
  * Get the current active session ID (or null).
  */
-export function getCurrentSessionId(): string | null {
-  return currentSessionId
+export function getCurrentSessionId(clientId = 'desktop'): string | null {
+  return sessions.get(clientId)?.remuxId ?? null
 }
 
 /**
  * Shutdown — kill all sessions.
  */
 export function shutdown(): void {
-  stopPlayback()
+  void stopPlayback()
 }

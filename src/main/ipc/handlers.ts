@@ -32,6 +32,7 @@ import * as UsenetService from '../services/usenet.service'
 import * as UpdaterService from '../services/updater.service'
 import { getDlhdEmbedUrl } from '../services/dlhd-window'
 import * as RecordingsService from '../services/recordings.service'
+import * as NetworkApiService from '../services/network-api.service'
 
 export async function registerIpcHandlers(): Promise<void> {
   TmdbService.loadApiKey()
@@ -44,6 +45,8 @@ export async function registerIpcHandlers(): Promise<void> {
   await WebTorrentService.init()
   LocalCacheService.init()
   FfmpegRemux.init(() => LocalCacheService.getPort())
+  await NetworkApiService.init()
+  NetworkApiService.startIdleSweep()
   if (IndexerCatalogService.shouldRefreshCatalog()) {
     IndexerCatalogService.refreshIndexerCatalog().catch(err => {
       console.error('[Handler] Background indexer catalog refresh failed:', err.message)
@@ -561,12 +564,16 @@ export async function registerIpcHandlers(): Promise<void> {
     if (key === 'fanartApiKey') FanartService.setApiKey(String(value))
     if (key === 'opensubtitlesApiKey') OpenSubtitlesService.setApiKey(String(value))
     if (key === 'liveTvUser' || key === 'liveTvPlan') DamiTVService.clearChannelsCache()
+    if (key === 'networkEnabled' || key === 'networkPort' || key === 'networkUsername' || key === 'networkPassword') NetworkApiService.reload()
     // SportsService uses public Sportarr API, no key needed
 })
 
   handle('settings:get-all', () => {
     return CacheService.getAllSettings()
   })
+
+  handle('network:get-status', () => NetworkApiService.getStatus())
+  handle('network:set-config', (_e, cfg: any) => NetworkApiService.setConfig(cfg))
 
   handle('watch:update-progress', (_event, tmdbId, mediaType, progress, season, episode) => {
     CacheService.updateWatchProgress(tmdbId, mediaType, progress, season, episode)
