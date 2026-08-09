@@ -175,6 +175,10 @@ const api = {
       ipcRenderer.invoke('settings:set', key, value),
     getAll: () => ipcRenderer.invoke('settings:get-all'),
   },
+  network: {
+    getStatus: () => ipcRenderer.invoke('network:get-status'),
+    setConfig: (cfg: any) => ipcRenderer.invoke('network:set-config', cfg),
+  },
   watch: {
     updateProgress: (tmdbId: number, mediaType: string, progress: number, season?: number, episode?: number) =>
       ipcRenderer.invoke('watch:update-progress', tmdbId, mediaType, progress, season, episode),

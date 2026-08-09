@@ -39,6 +39,39 @@ let cachedSources: IPTVSource[] | null = null
 let cacheTimestamp = 0
 let fetchPromise: Promise<IPTVSource[]> | null = null // dedupe concurrent fetches
 
+// Inverted index: normalized name → [{source, channel}] pairs
+// Built once when sources are cached; gives O(1) lookup vs O(N*M) per search.
+let nameIndex: Map<string, Array<{ source: IPTVSource; channel: IPTVChannel }>> | null = null
+
+function rebuildNameIndex(): void {
+  if (!cachedSources) { nameIndex = null; return }
+  const idx = new Map<string, Array<{ source: IPTVSource; channel: IPTVChannel }>>()
+  for (const source of cachedSources) {
+    for (const channel of source.channels) {
+      const key = normalizeChannelName(channel.name)
+      let arr = idx.get(key)
+      if (!arr) { idx.set(key, arr = []) }
+      arr.push({ source, channel })
+    }
+  }
+  nameIndex = idx
+}
+
+function normalizeChannelName(name: string): string {
+  let n = cleanChannelName(name).toLowerCase()
+  n = n.replace(/\bzero\b/gi, '0')
+  n = n.replace(/\bone\b/gi, '1')
+  n = n.replace(/\btwo\b/gi, '2')
+  n = n.replace(/\bthree\b/gi, '3')
+  n = n.replace(/\bfour\b/gi, '4')
+  n = n.replace(/\bfive\b/gi, '5')
+  n = n.replace(/\bsix\b/gi, '6')
+  n = n.replace(/\bseven\b/gi, '7')
+  n = n.replace(/\beight\b/gi, '8')
+  n = n.replace(/\bnine\b/gi, '9')
+  return n.trim().replace(/\s+/g, ' ')
+}
+
 /**
  * Strip quality/format/region suffixes (HD, FHD, FD 50fps, BACKUP, EAST, ...)
  * and filter out category-header lines (===== SPORT =====, - - - NEWS - - -)
@@ -140,6 +173,7 @@ function labelFromUrl(url: string): string {
 export async function getAllSources(forceRefresh = false): Promise<IPTVSource[]> {
   // Memory cache hit
   if (cachedSources && !forceRefresh && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+    rebuildNameIndex()
     return cachedSources
   }
 
@@ -149,6 +183,7 @@ export async function getAllSources(forceRefresh = false): Promise<IPTVSource[]>
     if (disk) {
       cachedSources = disk.sources
       cacheTimestamp = disk.timestamp
+      rebuildNameIndex()
       console.log(`[IPTV-M3U] Loaded ${disk.sources.length} sources from disk cache`)
       return disk.sources
     }
@@ -165,6 +200,7 @@ export async function getAllSources(forceRefresh = false): Promise<IPTVSource[]>
     return await fetchPromise
   } finally {
     fetchPromise = null
+    rebuildNameIndex() // index ready even if fetch fails (cache may be stale)
   }
 }
 
@@ -279,41 +315,22 @@ export async function findChannelInSources(
 ): Promise<{ source: IPTVSource; channel: IPTVChannel }[]> {
   const sources = await getAllSources()
 
-  const normalize = (name: string): string => {
-    let n = cleanChannelName(name).toLowerCase()
-    n = n.replace(/\bzero\b/gi, '0')
-    n = n.replace(/\bone\b/gi, '1')
-    n = n.replace(/\btwo\b/gi, '2')
-    n = n.replace(/\bthree\b/gi, '3')
-    n = n.replace(/\bfour\b/gi, '4')
-    n = n.replace(/\bfive\b/gi, '5')
-    n = n.replace(/\bsix\b/gi, '6')
-    n = n.replace(/\bseven\b/gi, '7')
-    n = n.replace(/\beight\b/gi, '8')
-    n = n.replace(/\bnine\b/gi, '9')
-    return n.trim().replace(/\s+/g, ' ')
-  }
-
-  const normalisedQuery = normalize(query)
+  const normalisedQuery = normalizeChannelName(query)
   const matches: { source: IPTVSource; channel: IPTVChannel }[] = []
 
-  for (const source of sources) {
-    // Try normalised exact match first
-    let match = source.channels.find(ch => normalize(ch.name) === normalisedQuery)
-    // Then containment
-    if (!match) {
-      match = source.channels.find(ch => {
-        const cn = normalize(ch.name)
-        return cn.includes(normalisedQuery) || normalisedQuery.includes(cn)
-      })
-    }
-    // Last resort: raw lowercase
-    if (!match) {
-      const rawQuery = query.toLowerCase()
-      match = source.channels.find(ch => ch.name.toLowerCase().includes(rawQuery))
-    }
-    if (match) {
-      matches.push({ source, channel: match })
+  // Fast path: exact match from inverted index
+  const exact = nameIndex?.get(normalisedQuery)
+  if (exact) {
+    matches.push(...exact)
+    return matches
+  }
+
+  // Fallback: containment search (rare — triggers only for partial queries)
+  // ponytail: O(N) scan only for non-exact queries; most lookups hit the index.
+  if (!nameIndex) return matches
+  for (const [key, entries] of nameIndex) {
+    if (key.includes(normalisedQuery) || normalisedQuery.includes(key)) {
+      matches.push(...entries)
     }
   }
 
