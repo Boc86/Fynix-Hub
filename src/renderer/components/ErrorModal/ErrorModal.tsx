@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 interface Props {
   title?: string
@@ -46,9 +47,53 @@ function friendlyMessage(raw: string): string {
 
 export default function ErrorModal({ title = 'Playback Error', message, onBack, onRetry }: Props) {
   const display = friendlyMessage(message)
+  const backRef = useRef<HTMLButtonElement>(null)
+  const retryRef = useRef<HTMLButtonElement>(null)
 
-  return (
+  // Auto-focus the primary action on mount — the player behind holds focus
+  // otherwise, so Enter/arrows go nowhere (or leak to the global delegator).
+  useEffect(() => {
+    ;(retryRef.current ?? backRef.current)?.focus()
+  }, [])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Tab') {
+      // Focus trap: keep Tab/Shift+Tab cycling between the modal buttons so
+      // focus never escapes into the hidden app UI behind the overlay.
+      const buttons = [backRef.current, retryRef.current].filter(Boolean) as HTMLButtonElement[]
+      if (buttons.length < 2) return
+      const first = buttons[0]
+      const last = buttons[buttons.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
+    if (e.key === 'Escape') {
+      // Swallow Escape so the window-level handler never also navigates
+      // (modal rule: stopPropagation on Escape/Enter). No onBack → let the
+      // global Escape (leave player) run instead of trapping the user.
+      if (onBack) {
+        e.stopPropagation()
+        onBack()
+      }
+      return
+    }
+    // Enter/Space on a focused button: swallow so the window-level delegator
+    // never also reacts (same rule as the Skip Intro/Up Next overlays).
+    // No preventDefault — the button's native click still fires.
+    if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement).tagName === 'BUTTON') {
+      e.stopPropagation()
+    }
+  }
+
+  const modal = (
     <div
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
@@ -70,6 +115,7 @@ export default function ErrorModal({ title = 'Playback Error', message, onBack, 
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
           {onBack && (
             <button
+              ref={backRef}
               tabIndex={0}
               onClick={onBack}
               style={{
@@ -83,6 +129,7 @@ export default function ErrorModal({ title = 'Playback Error', message, onBack, 
           )}
           {onRetry && (
             <button
+              ref={retryRef}
               tabIndex={0}
               onClick={onRetry}
               style={{
@@ -98,4 +145,9 @@ export default function ErrorModal({ title = 'Playback Error', message, onBack, 
       </div>
     </div>
   )
+
+  // Portal to document.body — the player view may sit under animated
+  // wrappers whose persisted transform would anchor position:fixed to the
+  // wrapper box instead of the viewport (repo-wide fixed-overlay rule).
+  return createPortal(modal, document.body)
 }

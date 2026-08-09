@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface PromptProps {
   title: string
@@ -15,11 +16,25 @@ interface PromptProps {
 export default function Prompt({ title, message, placeholder, defaultValue, confirmLabel = 'OK', cancelLabel = 'Cancel', onConfirm, onCancel }: PromptProps) {
   const [value, setValue] = useState(defaultValue || '')
   const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(containerRef)
 
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
   }, [])
+
+  // Modal-level keys: Escape (when focus is on a button — the input already
+  // handles its own Escape/Enter) and swallow everything else so keys never
+  // leak to the app's global handler ('s' opens search, arrows navigate, …).
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      onCancel()
+      return
+    }
+    e.stopPropagation()
+  }
 
   // Portal to document.body: any non-none transform on an ancestor (e.g. the
   // .animate-fade entrance animation leaves an identity transform) makes it the
@@ -28,6 +43,8 @@ export default function Prompt({ title, message, placeholder, defaultValue, conf
   // root restores true viewport anchoring.
   return createPortal(
     <div
+      ref={containerRef}
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed',
         inset: 0,
@@ -140,6 +157,20 @@ interface ConfirmProps {
 }
 
 export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Cancel', destructive, onConfirm, onCancel }: ConfirmProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(containerRef)
+
+  // Modal-level keys: Escape cancels; everything else is swallowed so keys
+  // never leak to the app's global handler while the dialog is open.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      onCancel()
+      return
+    }
+    e.stopPropagation()
+  }
+
   // Portal to document.body: any non-none transform on an ancestor (e.g. the
   // .animate-fade entrance animation leaves an identity transform) makes it the
   // containing block for position:fixed descendants, so a fixed overlay would
@@ -147,6 +178,8 @@ export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Ca
   // root restores true viewport anchoring.
   return createPortal(
     <div
+      ref={containerRef}
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed',
         inset: 0,

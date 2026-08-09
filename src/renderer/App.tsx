@@ -78,6 +78,7 @@ export default function App() {
   const [trailerUrl, setTrailerUrl] = useState<string | null>(null)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updatePercent, setUpdatePercent] = useState(0)
+  const [updateSpeed, setUpdateSpeed] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [genreType, setGenreType] = useState<'movie' | 'tv' | undefined>()
   const [deletePromptOpen, setDeletePromptOpen] = useState<{
@@ -131,18 +132,22 @@ export default function App() {
       if (data.status === 'downloading') {
         setUpdateDownloading(true)
         setUpdatePercent(data.percent ?? 0)
+        setUpdateSpeed(data.bytesPerSecond ?? 0)
         setUpdateError(null)
       } else if (data.status === 'downloaded') {
         // Briefly show 100% before quitAndInstall fires
         setUpdateDownloading(true)
         setUpdatePercent(100)
+        setUpdateSpeed(0)
       } else if (data.status === 'error') {
         setUpdateDownloading(true)
         setUpdatePercent(0)
+        setUpdateSpeed(0)
         setUpdateError(data.message || 'Download failed')
       } else if (data.status === 'not-available') {
         setUpdateDownloading(false)
         setUpdatePercent(0)
+        setUpdateSpeed(0)
         setUpdateError(null)
       }
     })
@@ -1682,7 +1687,7 @@ export default function App() {
           <VirtualKeyboard inputElement={keyboardInputRef.current as HTMLInputElement | HTMLTextAreaElement | null} onClose={() => setVirtualKeyboardOpen(false)} />
         )}
         {updateDownloading && (
-          <UpdateModal percent={updatePercent} error={updateError} onCancel={() => setUpdateDownloading(false)} />
+          <UpdateModal percent={updatePercent} speed={updateSpeed} error={updateError} onCancel={() => setUpdateDownloading(false)} />
         )}
       </>
     )

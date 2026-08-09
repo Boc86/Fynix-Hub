@@ -38,7 +38,13 @@ autoUpdater.on('update-not-available', () => {
 
 autoUpdater.on('download-progress', (progress) => {
   downloadProgress = progress.percent
-  sendStatus({ status: 'downloading', percent: progress.percent })
+  sendStatus({
+    status: 'downloading',
+    percent: progress.percent,
+    bytesPerSecond: progress.bytesPerSecond,
+    transferred: progress.transferred,
+    total: progress.total,
+  })
 })
 
 autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
