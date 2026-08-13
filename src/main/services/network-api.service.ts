@@ -184,6 +184,48 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return
   }
 
+  // GET /api/profiles — returns lightweight profile list for companion apps
+  if (path === '/api/profiles' && req.method === 'GET') {
+    try {
+      const profiles = getSetting<Array<{ id: string; name: string; avatarColor?: string }>>('profiles') || []
+      const activeProfileId = getSetting<string>('activeProfileId')
+      json(res, 200, {
+        ok: true,
+        profiles: profiles.map(p => ({
+          id: p.id,
+          name: p.name,
+          avatarColor: p.avatarColor || '#E50914',
+          isActive: p.id === activeProfileId,
+        })),
+        activeProfileId,
+      });
+      return
+    } catch (err: any) {
+      json(res, 500, { ok: false, error: err?.message || 'Failed to fetch profiles' })
+      return
+    }
+  }
+
+  // POST /api/profiles/select — select active profile (companion app)
+  if (path === '/api/profiles/select' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const { profileId } = JSON.parse(body)
+        if (!profileId || typeof profileId !== 'string') {
+          json(res, 400, { ok: false, error: 'profileId required' })
+          return
+        }
+        setSetting('activeProfileId', profileId)
+        json(res, 200, { ok: true })
+      } catch (err: any) {
+        json(res, 500, { ok: false, error: err?.message || 'Failed to select profile' })
+      }
+    })
+    return
+  }
+
   // GET /api/channels
   if (path === '/api/channels' && req.method === 'GET') {
     const limit = Math.min(Number(urlObj.searchParams.get('limit')) || 500, 5000)
@@ -217,7 +259,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   // GET /api/stream/<channelId>/p/<encoded>
   const streamMatch = path.match(/^\/api\/stream\/([^/]+)\/p\/?(.*)$/)
   if (streamMatch && req.method === 'GET') {
-    const channelId = streamMatch[1]
+    const channelId = decodeURIComponent(streamMatch[1])
     const encoded = streamMatch[2]
 
     try {
