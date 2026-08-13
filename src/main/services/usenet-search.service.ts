@@ -1,3 +1,4 @@
+import * as CacheService from './cache.service'
 import * as TmdbService from './tmdb.service'
 
 export interface UsenetQuery {
@@ -44,8 +45,60 @@ function qualityFromTitle(title: string): string {
   return 'Unknown'
 }
 
-function rankAndFilter(results: UsenetResult[], limit: number = 200): UsenetResult[] {
+const LANGUAGE_TAGS: Record<string, string[]> = {
+  english: ['english', 'eng', 'en'],
+  spanish: ['spanish', 'esp', 'es', 'castellano', 'latino'],
+  french: ['french', 'fr', 'fra', 'vf', 'vostfr'],
+  german: ['german', 'de', 'ger', 'deutsch'],
+  italian: ['italian', 'it', 'ita'],
+  portuguese: ['portuguese', 'pt', 'por', 'brazilian'],
+  japanese: ['japanese', 'jp', 'jap', 'jpn'],
+  korean: ['korean', 'kr', 'kor'],
+  chinese: ['chinese', 'cn', 'chi', 'mandarin', 'cantonese'],
+  russian: ['russian', 'ru', 'rus'],
+  hindi: ['hindi', 'hi'],
+  arabic: ['arabic', 'ar', 'ara'],
+  polish: ['polish', 'pl', 'polski'],
+  dutch: ['dutch', 'nl', 'nederlands'],
+  swedish: ['swedish', 'sv'],
+  norwegian: ['norwegian', 'no', 'norsk'],
+  danish: ['danish', 'da', 'dansk'],
+  finnish: ['finnish', 'fi', 'suomi'],
+  czech: ['czech', 'cs', 'czesky'],
+  hungarian: ['hungarian', 'hu', 'magyar'],
+  greek: ['greek', 'el', 'ell'],
+  turkish: ['turkish', 'tr', 'turkce'],
+  thai: ['thai', 'th'],
+  vietnamese: ['vietnamese', 'vi'],
+  romanian: ['romanian', 'ro'],
+  ukrainian: ['ukrainian', 'uk'],
+  persian: ['persian', 'fa', 'farsi'],
+}
+
+function matchesPreferredLanguage(title: string, preferredLanguages: string[]): boolean {
+  if (!preferredLanguages || preferredLanguages.length === 0) return true
+  const lower = title.toLowerCase()
+  // Build a regex for each language tag that matches on word boundaries
+  // (e.g. \bpl\b matches "pl" as a standalone token, not inside "copilot")
+  const allKnownTags = Object.values(LANGUAGE_TAGS).flat()
+  const hasLangTag = allKnownTags.some(t => new RegExp(`\\b${t.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`).test(lower))
+  // Untagged titles pass through (no info = could be any language)
+  if (!hasLangTag) return true
+  // Tagged titles must match one of the user's preferred languages
+  return preferredLanguages.some(lang => {
+    const key = lang.toLowerCase()
+    const patterns = LANGUAGE_TAGS[key] || [key]
+    return patterns.some(p => new RegExp(`\\b${p.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`).test(lower))
+  })
+}
+
+function rankAndFilter(
+  results: UsenetResult[],
+  limit: number = 200,
+  preferredLanguages?: string[]
+): UsenetResult[] {
   return [...results]
+    .filter(r => matchesPreferredLanguage(r.title, preferredLanguages || []))
     .sort((a, b) => {
       const qScore = (q: string) => ({ '4K': 3, '1080p': 2, '720p': 1 })[q] || 0
       const aScore = qScore(a.quality)
@@ -72,7 +125,8 @@ export async function searchUsenet(
   query: UsenetQuery,
   enabledIndexerIds: string[],
   customIndexers: UsenetIndexerConfig[],
-  onResult?: (result: UsenetResult) => void
+  onResult?: (result: UsenetResult) => void,
+  preferredLanguages?: string[]
 ): Promise<UsenetResult[]> {
   const searchTerm = query.query || query.title || ''
   if (!searchTerm) return []
@@ -99,7 +153,7 @@ export async function searchUsenet(
     onResult?.(r)
   }
 
-  return rankAndFilter(allResults)
+  return rankAndFilter(allResults, 200, preferredLanguages)
 }
 
 async function searchNewznabIndexer(

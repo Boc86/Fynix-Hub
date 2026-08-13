@@ -704,6 +704,7 @@ export default function App() {
     if (result.streamUrl) {
       window.api.log('[App] playUsenet: streaming directly from WebDAV cache')
       const audioLang = getAudioLang()
+      currentUsenetPathRef.current = result.streamUrl
       navigate('player')
       try {
         await startPlayerUrl(result.streamUrl)
@@ -962,6 +963,7 @@ export default function App() {
       if (result.streamUrl) {
         const audioLang = getAudioLang()
         try {
+          currentUsenetPathRef.current = result.streamUrl
           await startPlayerUrl(result.streamUrl)
           setPlayerLoading(false)
           return
@@ -1160,6 +1162,8 @@ export default function App() {
     autoPlayResultsRef.current = []
     autoPlayIndexRef.current = 0
     currentInfoHashRef.current = null
+    currentUsenetIdRef.current = null
+    currentUsenetPathRef.current = null
     searchInfoHashesRef.current = new Set()
     const session = ++searchSessionRef.current
     const caller = new Error().stack?.split('\n').slice(2, 4).map(l => l.trim()).join(' | ') || 'unknown'

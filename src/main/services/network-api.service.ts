@@ -14,7 +14,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { networkInterfaces } from 'node:os'
 import { timingSafeEqual } from 'node:crypto'
 import { app } from 'electron'
-import { getSetting } from './cache.service'
+import { getSetting, setSetting } from './cache.service'
 import * as ChannelMerge from './channel-merge.service'
 import { getProvider, extractUrlWithFallback, type LiveTVServerId } from './livetv-providers'
 import * as PlayerService from './player.service'

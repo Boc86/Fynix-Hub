@@ -844,11 +844,12 @@ export async function registerIpcHandlers(): Promise<void> {
   handle('usenet:search', async (event, query) => {
     const enabledIds = CacheService.getSetting<string[]>('enabledUsenetIndexers') || UsenetSearchService.getDefaultEnabledIndexerIds()
     const customIndexers = CacheService.getSetting<UsenetSearchService.UsenetIndexerConfig[]>('customUsenetIndexers') || []
+    const preferredLanguages = CacheService.getSetting<string[]>('preferredLanguages') || ['English']
     try {
       const [results, cacheResults] = await Promise.all([
         UsenetSearchService.searchUsenet(query, enabledIds, customIndexers, (result) => {
           event.sender.send('usenet:result', result)
-        }),
+        }, preferredLanguages),
         UsenetService.searchWebdavCache(query.query || query.title || '', { title: query.title, year: query.year, type: query.type, season: query.season, episode: query.episode }),
       ])
       // Merge WebDAV cache results (already downloaded — streamable immediately)
