@@ -83,9 +83,8 @@ export default function ErrorModal({ title = 'Playback Error', message, onBack, 
       }
       return
     }
-    // Enter/Space on a focused button: swallow so the window-level delegator
-    // never also reacts (same rule as the Skip Intro/Up Next overlays).
-    // No preventDefault — the button's native click still fires.
+    // Enter/Space on a button: let the native click fire (confirm/retry),
+    // but stop the event from reaching the window-level keydown handler.
     if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement).tagName === 'BUTTON') {
       e.stopPropagation()
     }
@@ -134,7 +133,7 @@ export default function ErrorModal({ title = 'Playback Error', message, onBack, 
               onClick={onRetry}
               style={{
                 padding: '10px 24px', borderRadius: 6,
-                border: '1px solid var(--accent, #FF6B00)', background: 'var(--accent, #FF6B00)',
+                border: 'none', background: 'var(--accent, #FF6B00)',
                 color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600,
               }}
             >

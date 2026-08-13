@@ -160,12 +160,18 @@ export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Ca
   const containerRef = useRef<HTMLDivElement>(null)
   useFocusTrap(containerRef)
 
-  // Modal-level keys: Escape cancels; everything else is swallowed so keys
-  // never leak to the app's global handler while the dialog is open.
+  // Modal-level keys: Escape cancels, Enter confirms. Everything else is
+  // swallowed so keys never leak to the app's global handler while the
+  // dialog is open.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
       onCancel()
+      return
+    }
+    if (e.key === 'Enter') {
+      e.stopPropagation()
+      onConfirm()
       return
     }
     e.stopPropagation()
@@ -215,6 +221,7 @@ export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Ca
           <button
             tabIndex={0}
             onClick={onCancel}
+            onKeyDown={handleKeyDown}
             autoFocus
             style={{
               padding: '8px 16px',
@@ -231,6 +238,7 @@ export function Confirm({ title, message, confirmLabel = 'OK', cancelLabel = 'Ca
           <button
             tabIndex={0}
             onClick={onConfirm}
+            onKeyDown={handleKeyDown}
             style={{
               padding: '8px 16px',
               borderRadius: 6,

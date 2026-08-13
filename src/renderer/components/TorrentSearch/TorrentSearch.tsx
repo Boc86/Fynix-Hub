@@ -54,11 +54,27 @@ function matchesLanguage(title: string, languages: string[]): boolean {
     russian: ['russian', 'ru', 'rus'],
     hindi: ['hindi', 'hi'],
     arabic: ['arabic', 'ar', 'ara'],
+    polish: ['polish', 'pl', 'polski'],
+    dutch: ['dutch', 'nl', 'nederlands'],
+    swedish: ['swedish', 'sv'],
+    norwegian: ['norwegian', 'no', 'norsk'],
+    danish: ['danish', 'da', 'dansk'],
+    finnish: ['finnish', 'fi', 'suomi'],
+    czech: ['czech', 'cs', 'czesky'],
+    hungarian: ['hungarian', 'hu', 'magyar'],
+    greek: ['greek', 'el', 'ell'],
+    turkish: ['turkish', 'tr', 'turkce'],
+    thai: ['thai', 'th'],
+    vietnamese: ['vietnamese', 'vi'],
+    romanian: ['romanian', 'ro'],
+    ukrainian: ['ukrainian', 'uk'],
+    persian: ['persian', 'fa', 'farsi'],
   }
 
-  // Check if the title has any explicit language tag
+  // Check if the title has any explicit language tag (word-boundary match
+  // so e.g. "en" doesn't match inside "french" or "copilot")
   const hasExplicitTag = Object.values(tags).some(patterns =>
-    patterns.some(p => lower.includes(p))
+    patterns.some(p => new RegExp(`\\b${p.replace(/[-/\\^$*+?.()|[\\]{}]/g, '\\$&')}\\b`).test(lower))
   )
 
   // Untagged torrents aren't penalized — they could be any language
@@ -68,7 +84,7 @@ function matchesLanguage(title: string, languages: string[]): boolean {
   return languages.some(lang => {
     const key = lang.toLowerCase()
     const patterns = tags[key] || [key]
-    return patterns.some(p => lower.includes(p))
+    return patterns.some(p => new RegExp(`\\b${p.replace(/[-/\\^$*+?.()|[\\]{}]/g, '\\$&')}\\b`).test(lower))
   })
 }
 

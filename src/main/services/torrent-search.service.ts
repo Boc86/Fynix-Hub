@@ -1,5 +1,6 @@
 import * as CacheService from './cache.service'
 import { withCache, TTL } from './cache-helpers.service'
+import * as TmdbService from './tmdb.service'
 
 export interface TorrentQuery {
   imdbId?: string
@@ -596,10 +597,18 @@ async function searchMediafusion(query: TorrentQuery): Promise<TorrentResult[]> 
       const infoHash = s.infoHash || ''
       if (!infoHash) continue
       const desc = (s.description || '').replace('📂 - ', '').replace('📂 ', '')
-      const title = (s.name || '').replace(/\[.*?\]\s*/g, '')
+      // Prefer behaviorHints.filename (actual release name) over s.name which
+      // contains the provider prefix (e.g. "MediaFusion | Midnight 🦢 ⏳ 2160p")
+      const rawTitle = s.behaviorHints?.filename || s.name || ''
+      const title = rawTitle
+        .replace(/^MediaFusion\s*\|\s*/i, '')
+        .replace(/\[.*?\]\s*/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
       const sizeMatch = desc.match(/([\d.]+)\s*(GB|MB|TB)/i)
       const size = sizeMatch ? parseSize(sizeMatch[0]) : 0
-      const seeders = extractNum(desc, [/(\d+)\s*seed/i, /💾\s*(\d+)/])
+      // MediaFusion description uses emoji markers: ▶️ for seeders, 💾 for peers
+      const seeders = extractNum(desc, [/▶️\s*(\d+)/, /(\d+)\s*seed/i, /💾\s*(\d+)/])
 
       results.push({
         title,
@@ -1003,6 +1012,14 @@ export async function searchTorrents(
   onResult?: (result: TorrentResult) => void
 ): Promise<TorrentResult[]> {
   const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
+  // Resolve an IMDB ID so indexers that require it (e.g. EZTV, 1337x) can be used
+  // instead of falling back to a loose title query.
+  if (!query.imdbId && query.tmdbId) {
+    try {
+      const ext = await TmdbService.getExternalIds(query.type === 'episode' ? 'tv' : query.type || 'movie', query.tmdbId)
+      if (ext?.imdbId) query = { ...query, imdbId: ext.imdbId }
+    } catch { /* fall back to title-based search */ }
+  }
   const cacheKey = `torrent:search:v2:${JSON.stringify({ q: query, e: enabledIndexerIds, c: (customIndexers || []).map(x => x.id).sort() })}`
 
   return withCache(cacheKey, TTL.TORRENT_SEARCH, async () => {
