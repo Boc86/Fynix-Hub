@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../store/settingsStore'
 interface ReplayResult {
   title: string; sport: string; category: string; thumbnail: string; date: string
   sources: { label: string; type: string; url: string }[]
+  relevanceScore?: number
 }
 
 const SPORT_ICONS_RAW: Record<string, string> = {
@@ -269,12 +270,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             return true
           })
 
-          // Filter: score each result by relevance
-          const filtered = deduped.filter(r => {
+          // Filter and score each result by relevance
+          const scoredResults = deduped.map(r => {
             // Check if date falls within season range
             const resultDate = new Date(r.date).getTime()
             const inRange = resultDate >= rangeStart && resultDate <= rangeEnd
-            if (!inRange) return false
+            if (!inRange) return null
 
             const lowerTitle = r.title.toLowerCase()
             const lowerCategory = (r.category || '').toLowerCase()
@@ -303,11 +304,20 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             if (lowerTitle.includes(leagueName.toLowerCase())) score += 30
 
             // Minimum score threshold
-            return score >= 20
+            if (score < 20) return null
+
+            return { ...r, relevanceScore: score }
+          }).filter((r): r is ReplayResult & { relevanceScore: number } => r !== null)
+
+          // Sort by date descending (newest first), then by score descending
+          scoredResults.sort((a, b) => {
+            const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime()
+            if (dateDiff !== 0) return dateDiff
+            return (b.relevanceScore || 0) - (a.relevanceScore || 0)
           })
 
-          window.api.log(`[Sports] Fallback replay search for "${leagueName}" (${sportName}): ${deduped.length} raw, ${filtered.length} matched`)
-          setFallbackReplayResults(filtered)
+          window.api.log(`[Sports] Fallback replay search for "${leagueName}" (${sportName}): ${deduped.length} raw, ${scoredResults.length} matched`)
+          setFallbackReplayResults(scoredResults)
           setFallbackSearchActive(true)
         }
       }
@@ -1135,20 +1145,61 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                               seen.add(r.title)
                               return true
                             })
-                            // Filter: only keep motorsport-relevant results for the current year
-                            const motorSports = ['Motor Sport', 'Motorsport', 'Other Motorsport', 'Formula 1', 'NASCAR', 'IndyCar', 'MotoGP']
-                            const motorCategories = ['MotoGP', 'Formula 1', 'NASCAR', 'IndyCar', 'Rally']
-                            const filtered = deduped.filter(r => {
-                              const yearMatch = r.date.startsWith(year.toString())
-                              const sportMatch = motorSports.some(ms => r.sport?.toLowerCase().includes(ms.toLowerCase()))
-                              const catMatch = motorCategories.some(mc => r.category?.toLowerCase().includes(mc.toLowerCase()))
-                              const titleMatch = r.title.toLowerCase().includes('moto') ||
-                                                r.title.toLowerCase().includes('formula') ||
-                                                r.title.toLowerCase().includes('nascar') ||
-                                                r.title.toLowerCase().includes('indycar')
-                              return yearMatch && (sportMatch || catMatch || titleMatch)
+
+                            // Use season dates for filtering
+                            const selectedLeague = useSportsStore.getState().selectedLeague
+                            const leagueName = selectedLeague?.name || ''
+                            const sportName = selectedLeague?.sportName || ''
+                            const year = store.selectedSeason?.year || new Date().getFullYear()
+                            const startDate = store.selectedSeason?.startDate || `${year}-01-01`
+                            const endDate = store.selectedSeason?.endDate || `${year}-12-31`
+                            const rangeStart = new Date(startDate).getTime()
+                            const rangeEnd = new Date(endDate).getTime()
+
+                            // Build filter keywords
+                            const filterKeywords = new Set<string>()
+                            leagueName.split(/[\s\-&]+/).forEach((w: string) => {
+                              if (w.length > 2) filterKeywords.add(w.toLowerCase())
                             })
-                            setFallbackReplayResults(filtered)
+                            sportName.split(/[\s\-&]+/).forEach((w: string) => {
+                              if (w.length > 2) filterKeywords.add(w.toLowerCase())
+                            })
+
+                            // Filter and score
+                            const scoredResults = deduped.map(r => {
+                              const resultDate = new Date(r.date).getTime()
+                              const inRange = resultDate >= rangeStart && resultDate <= rangeEnd
+                              if (!inRange) return null
+
+                              const lowerTitle = r.title.toLowerCase()
+                              const lowerCategory = (r.category || '').toLowerCase()
+                              const lowerSport = (r.sport || '').toLowerCase()
+
+                              let score = 0
+                              if (sportName) {
+                                if (lowerSport.includes(sportName.toLowerCase())) score += 50
+                                else if (lowerSport.includes(r.category?.toLowerCase() || '')) score += 30
+                              }
+                              filterKeywords.forEach(kw => {
+                                if (lowerCategory.includes(kw)) score += 20
+                              })
+                              filterKeywords.forEach(kw => {
+                                if (lowerTitle.includes(kw)) score += 10
+                              })
+                              if (lowerTitle.includes(leagueName.toLowerCase())) score += 30
+
+                              if (score < 20) return null
+                              return { ...r, relevanceScore: score }
+                            }).filter((r): r is ReplayResult & { relevanceScore: number } => r !== null)
+
+                            // Sort newest first, then by score
+                            scoredResults.sort((a, b) => {
+                              const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime()
+                              if (dateDiff !== 0) return dateDiff
+                              return (b.relevanceScore || 0) - (a.relevanceScore || 0)
+                            })
+
+                            setFallbackReplayResults(scoredResults)
                           })
                           .catch(() => setFallbackReplayResults([]))
                       }}
