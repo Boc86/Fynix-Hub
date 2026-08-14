@@ -185,8 +185,14 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       const todayStr = today.toISOString().split('T')[0]
       const fromDate = season.startDate || '2020-01-01'
       const past = await window.api.sports.getEventsInRange(leagueId, season.id, fromDate, todayStr)
+      // Sort newest - oldest so the most recent results appear first
+      const sortedPast = [...(past || [])].sort((a, b) => {
+        const ta = new Date(a.scheduledStart).getTime() || 0
+        const tb = new Date(b.scheduledStart).getTime() || 0
+        return tb - ta
+      })
       window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
-      store.setPastEvents(past || [])
+      store.setPastEvents(sortedPast)
     } catch { store.setError('Failed to load events') }
     store.setLoading(false)
   }, [store])

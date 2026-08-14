@@ -16,7 +16,7 @@ export default function UpNext({ episode, showTitle, countdown, onCancel, onPlay
       <div className={styles.card}>
         <div className={styles.header}>
           <span className={styles.badge}>Up Next</span>
-          <span className={styles.countdown}>{countdown}s</span>
+          {countdown >= 0 ? <span className={styles.countdown}>{countdown}s</span> : null}
         </div>
         <div className={styles.body}>
           <div className={styles.info}>

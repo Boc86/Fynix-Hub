@@ -31,7 +31,8 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
     setTopRatedMovies, setContinueWatching, setUpNext,
     setWatchedIds, setPlayback,
     setWatchProviders, setSelectedProvider,
-    setLoading, setError, refreshVersion, setEpisodeWatched
+    setLoading, setError, refreshVersion, setEpisodeWatched,
+    droppedFromPlayback
   } = useMediaStore()
 
   const loadedRef = useRef(false)
@@ -129,10 +130,13 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
       const pbItems: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }> = []
       const infoMap = new Map<number, ContinueInfo>()
 
+      const isDropped = (tmdbId: number) => droppedFromPlayback.has(tmdbId)
+
       if (moviePlayback && Array.isArray(moviePlayback)) {
         for (const p of moviePlayback) {
           const tmdbId = p?.movie?.ids?.tmdb
           if (!tmdbId) continue
+          if (isDropped(tmdbId)) continue
           const progress = (p.progress ?? 0) / 100
           pbItems.push({ tmdbId, mediaType: 'movie', progress })
           infoMap.set(tmdbId, { mediaType: 'movie', progress })
@@ -154,6 +158,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
         for (const p of episodeItems) {
           const tmdbId = p?.show?.ids?.tmdb
           if (!tmdbId) continue
+          if (isDropped(tmdbId)) continue
           const season = p?.episode?.season
           const episode = p?.episode?.number
           const progress = (p?.progress ?? 0) / 100

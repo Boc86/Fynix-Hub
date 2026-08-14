@@ -36,6 +36,9 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
     playback,
   } = useMediaStore();
 
+  const setEpisodeWatched = useMediaStore((s) => s.setEpisodeWatched)
+  const episodeWatched = useMediaStore((s) => s.episodeWatched);
+
   const classificationCountry = useSettingsStore((s) => s.classificationCountry)
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [clearlogo, setClearlogo] = useState<string | null>(null);
@@ -43,7 +46,6 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
   const [isTv, setIsTv] = useState(false);
 
   // Sync watched state from store every time episodeWatched changes
-  const episodeWatched = useMediaStore((s) => s.episodeWatched);
   const watchedEpisodeNums = useMemo(() => {
     if (!isTv || !selectedMedia) return new Set<number>();
     return episodeWatched.get(selectedMedia.id)?.get(selectedSeason) ?? new Set<number>();
@@ -109,8 +111,49 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
           // Read watched state from store
           const store = useMediaStore.getState();
           const seasonWatched = store.episodeWatched.get(tv.id)?.get(seasonNum);
-          const watchedNums: Set<number> = seasonWatched ?? new Set();
-          const hasWatchData = seasonWatched !== undefined;
+          const watchedNums: Set<number> = seasonWatched ? new Set(seasonWatched) : new Set<number>();
+          let hasWatchData = watchedNums.size > 0;
+
+          // If no explicit episode-level data from /sync/watched, infer from
+          // /upnext progress: shows with watched_episode_count + next_episode.
+      if (!hasWatchData) {
+            try {
+              const upNextData = await window.api.mdblist.getWatchedProgress()
+              if (Array.isArray(upNextData)) {
+                const showProgress = upNextData.find((p: any) => p?.show?.ids?.tmdb === tv.id)
+                if (showProgress?.next_episode) {
+                  const nextSeason = showProgress.next_episode.season
+                  const nextEpisode = showProgress.next_episode.number
+                  const inferred = new Set<number>()
+                  // All episodes in earlier seasons are watched
+                  if (seasonNum < nextSeason) {
+                    for (const ep of airedEpisodes) {
+                      inferred.add(ep.episodeNumber)
+                    }
+                  }
+                  // In the same season, mark episodes before the next unwatched
+                  else if (seasonNum === nextSeason) {
+                    for (const ep of airedEpisodes) {
+                      if (ep.episodeNumber < nextEpisode) {
+                        inferred.add(ep.episodeNumber)
+                      }
+                    }
+                  }
+                  if (inferred.size > 0) {
+                    watchedNums.clear()
+                    for (const n of inferred) watchedNums.add(n)
+                    hasWatchData = true
+                    // Sync to store so watchedEpisodeNums useMemo picks it up
+                    const freshStore = useMediaStore.getState()
+                    const epMap = new Map(freshStore.episodeWatched)
+                    if (!epMap.has(tv.id)) epMap.set(tv.id, new Map())
+                    epMap.get(tv.id)!.set(seasonNum, new Set(inferred))
+                    freshStore.setEpisodeWatched(epMap)
+                  }
+                }
+              }
+            } catch { /* ignore */ }
+          }
           const episodes = airedEpisodes;
 
           // 1. Find in-progress episode from playback for this season
@@ -168,6 +211,34 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
       setClearlogo(res.clearlogo || res.clearart || null);
     }).catch(() => {});
   }, [selectedMedia?.id, selectedMedia?.mediaType]);
+
+  // Ensure episode-level watched data is loaded even when DetailView is the
+  // active component (Browser may be unmounted or hasn't populated it yet).
+  useEffect(() => {
+    if (!isTv || !selectedMedia) return
+    const showTmdbId = selectedMedia.id
+    if (episodeWatched.has(showTmdbId)) return // already loaded
+    window.api.mdblist.getWatchedShows().catch(() => {}).then((watchedShows: any) => {
+      if (!watchedShows || !Array.isArray(watchedShows)) return
+      const epMap = new Map(episodeWatched)
+      const seasonsMap = new Map()
+      for (const s of watchedShows) {
+        if (s?.show?.ids?.tmdb !== showTmdbId) continue
+        for (const season of (s.seasons || [])) {
+          if (!season.number || season.number === 0) continue
+          const epSet = new Set()
+          for (const ep of (season.episodes || [])) {
+            if (ep.number && ep.number > 0) epSet.add(ep.number)
+          }
+          if (epSet.size > 0) seasonsMap.set(season.number, epSet)
+        }
+      }
+      if (seasonsMap.size > 0) {
+        epMap.set(showTmdbId, seasonsMap)
+        setEpisodeWatched(epMap)
+      }
+    })
+  }, [isTv, selectedMedia?.id, episodeWatched, setEpisodeWatched])
 
   useEffect(() => {
     if (!selectedMedia) return;
