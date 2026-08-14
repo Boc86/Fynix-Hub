@@ -288,6 +288,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
             // Score matching
             let score = 0
+            let hasRequiredMatch = false
 
             // Sport name match (high priority)
             if (sportName) {
@@ -297,16 +298,32 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
             // Category match
             filterKeywords.forEach(kw => {
-              if (lowerCategory.includes(kw)) score += 20
+              if (lowerCategory.includes(kw)) {
+                score += 20
+                hasRequiredMatch = true
+              }
             })
 
             // Title match with league keywords
             filterKeywords.forEach(kw => {
-              if (lowerTitle.includes(kw)) score += 10
+              if (lowerTitle.includes(kw)) {
+                score += 10
+                hasRequiredMatch = true
+              }
             })
 
-            // Exact league name in title
-            if (lowerTitle.includes(leagueName.toLowerCase())) score += 30
+            // Exact league name in title (highest priority)
+            if (lowerTitle.includes(leagueName.toLowerCase())) {
+              score += 30
+              hasRequiredMatch = true
+            }
+
+            // For generic sports (Motorsport, Soccer, etc.), require at least
+            // one specific keyword match to avoid showing all results from that sport
+            const isGenericSport = ['Motorsport', 'Soccer', 'Football', 'Tennis', 'Basketball'].some(s => s.toLowerCase() === lowerSport)
+            if (isGenericSport && !hasRequiredMatch) {
+              return null
+            }
 
             // Minimum score threshold
             if (score < 20) return null
