@@ -57,9 +57,6 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [replaySearching, setReplaySearching] = useState(false)
   const [replayFocused, setReplayFocused] = useState(0)
   const [showSchedule, setShowSchedule] = useState(false)
-  const [fallbackReplayResults, setFallbackReplayResults] = useState<ReplayResult[]>([])
-  const [fallbackReplaySearch, setFallbackReplaySearch] = useState(false)
-  const [fallbackSearchActive, setFallbackSearchActive] = useState(false)
   const scheduleMatches = store.scheduleMatches
   const scheduleLastUpdated = store.scheduleLastUpdated
   const [scheduleLoading, setScheduleLoading] = useState(false)
@@ -196,73 +193,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       })
       window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
 
-      // Also trigger fallback if the latest event is stale (no data after ~30 days)
-      const mostRecentDate = sortedPast.length > 0
-        ? new Date(sortedPast[0].scheduledStart).getTime()
-        : 0
-      const staleCutoff = today.getTime() - 30 * 24 * 60 * 60 * 1000
-      const isStale = sortedPast.length > 0 && mostRecentDate < staleCutoff
-
-      if (sortedPast.length === 0 || isStale) {
-        // Fallback: Search ReplayZone for motorsport/replay data
-        const selectedLeague = useSportsStore.getState().selectedLeague
-        const leagueName = selectedLeague?.name || season.name || ''
-        const year = season.year || today.getFullYear()
-
-        // Determine the primary search term and allowed categories based on league name
-        let primaryTerm = ''
-        let allowedCategories: string[] = []
-        const lowerLeague = leagueName.toLowerCase()
-
-        if (lowerLeague.includes('moto')) {
-          primaryTerm = `MotoGP ${year}`
-          allowedCategories = ['MotoGP', 'Other Motorsport']
-        } else if (lowerLeague.includes('formula') || lowerLeague.includes('f1')) {
-          primaryTerm = `Formula 1 ${year}`
-          allowedCategories = ['Formula 1', 'Formula 2', 'Formula 3']
-        } else if (lowerLeague.includes('nascar')) {
-          primaryTerm = `NASCAR ${year}`
-          allowedCategories = ['NASCAR']
-        } else if (lowerLeague.includes('indycar')) {
-          primaryTerm = `IndyCar ${year}`
-          allowedCategories = ['IndyCar']
-        }
-
-        const searchTerms: string[] = []
-        if (primaryTerm) searchTerms.push(primaryTerm)
-        if (!searchTerms.some(t => t === `${leagueName} ${year}`) && leagueName.trim()) {
-          searchTerms.push(`${leagueName} ${year}`)
-        }
-
-        if (searchTerms.length > 0) {
-          const allResults: ReplayResult[] = []
-          for (const term of searchTerms) {
-            const results = await window.api.sports.searchReplays(term)
-            allResults.push(...results)
-          }
-          // Deduplicate by title
-          const seen = new Set<string>()
-          const deduped = allResults.filter(r => {
-            if (seen.has(r.title)) return false
-            seen.add(r.title)
-            return true
-          })
-          // Filter: only keep results matching the specific series for current year
-          const filtered = deduped.filter(r => {
-            const yearMatch = r.date.startsWith(year.toString())
-            const categoryMatch = allowedCategories.some(
-              mc => r.category?.toLowerCase().includes(mc.toLowerCase())
-            )
-            const titleMatch = primaryTerm
-              ? r.title.toLowerCase().includes(primaryTerm.split(' ')[0].toLowerCase())
-              : true
-            return yearMatch && categoryMatch && titleMatch
-          })
-          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} raw, ${filtered.length} ${primaryTerm ? 'series-specific' : 'filtered'}`)
-          setFallbackReplayResults(filtered)
-          setFallbackSearchActive(true)
-        }
-      }
+      window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
 
       store.setPastEvents(sortedPast)
     } catch { store.setError('Failed to load events') }
@@ -978,43 +909,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       case 'events':
         return (
           <div>
-            {fallbackSearchActive && fallbackReplayResults.length > 0 && (
-              <>
-                <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>
-                  Replays for {store.selectedSeason?.name}
-                </h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {fallbackReplayResults.map((result: ReplayResult, i: number) => (
-                    <div
-                      key={`replay-${i}`}
-                      data-focus-index={i}
-                      tabIndex={0}
-                      style={cardStyle(isFocused(i, focusedIndex))}
-                      onClick={() => handleFallbackReplaySelect(result)}
-                      onMouseEnter={() => setFocusedIndex(i)}
-                    >
-                      <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-                        {result.thumbnail && (
-                          <img src={result.thumbnail} alt=""
-                            style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
-                            loading="lazy"
-                          />
-                        )}
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{result.title}</div>
-                          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                            {result.category} · {result.date} · {result.sources.length} sources
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
             {store.pastEvents.length > 0 && (
               <>
-                <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: `${fallbackSearchActive ? '32px 0 16px' : '0'} 0 16px 0` }}>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>
                   {store.selectedSeason?.isCurrent ? 'Results' : 'Past Results'}
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1023,101 +920,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </>
             )}
             {store.pastEvents.length === 0 && (
-              <div>
-                {fallbackReplaySearch ? (
-                  <>
-                    <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>
-                      Replays for {store.selectedSeason?.name}
-                    </h2>
-                    {fallbackReplayResults.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {fallbackReplayResults.map((result: ReplayResult, i: number) => (
-                          <div
-                            key={i}
-                            data-focus-index={i}
-                            tabIndex={0}
-                            style={cardStyle(isFocused(i, focusedIndex))}
-                            onClick={() => handleFallbackReplaySelect(result)}
-                            onMouseEnter={() => setFocusedIndex(i)}
-                          >
-                            <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-                              {result.thumbnail && (
-                                <img src={result.thumbnail} alt=""
-                                  style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
-                                  loading="lazy"
-                                />
-                              )}
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{result.title}</div>
-                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                                  {result.category} · {result.date} · {result.sources.length} sources
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>
-                        No replays found for this season
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: 40 }}>
-                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>No events found in schedule service</div>
-                    <button
-                      onClick={() => {
-                        setFallbackReplaySearch(true)
-                        setFallbackReplayResults([])
-                        const leagueName = store.selectedSeason?.name || ''
-                        const year = store.selectedSeason?.year || new Date().getFullYear()
-                        const terms: string[] = []
-                        if (leagueName.includes('MotoGP') || leagueName.includes('Moto')) terms.push(`MotoGP ${year}`)
-                        if (leagueName.includes('Formula') || leagueName.includes('F1')) terms.push(`Formula 1 ${year}`)
-                        if (leagueName.includes('NASCAR')) terms.push(`NASCAR ${year}`)
-                        if (leagueName.includes('IndyCar')) terms.push(`IndyCar ${year}`)
-                        terms.push(`${leagueName} ${year}`)
-                        Promise.all(terms.map(t => window.api.sports.searchReplays(t)))
-                          .then(results => {
-                            const all = results.flat()
-                            const seen = new Set<string>()
-                            const deduped = all.filter(r => {
-                              if (seen.has(r.title)) return false
-                              seen.add(r.title)
-                              return true
-                            })
-                            // Filter: only keep motorsport-relevant results for the current year
-                            const motorSports = ['Motor Sport', 'Motorsport', 'Other Motorsport', 'Formula 1', 'NASCAR', 'IndyCar', 'MotoGP']
-                            const motorCategories = ['MotoGP', 'Formula 1', 'NASCAR', 'IndyCar', 'Rally']
-                            const filtered = deduped.filter(r => {
-                              const yearMatch = r.date.startsWith(year.toString())
-                              const sportMatch = motorSports.some(ms => r.sport?.toLowerCase().includes(ms.toLowerCase()))
-                              const catMatch = motorCategories.some(mc => r.category?.toLowerCase().includes(mc.toLowerCase()))
-                              const titleMatch = r.title.toLowerCase().includes('moto') ||
-                                                r.title.toLowerCase().includes('formula') ||
-                                                r.title.toLowerCase().includes('nascar') ||
-                                                r.title.toLowerCase().includes('indycar')
-                              return yearMatch && (sportMatch || catMatch || titleMatch)
-                            })
-                            setFallbackReplayResults(filtered)
-                          })
-                          .catch(() => setFallbackReplayResults([]))
-                      }}
-                      style={{
-                        background: 'rgba(255,255,255,0.08)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#fff',
-                        padding: '10px 24px',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        fontSize: 14,
-                      }}
-                    >
-                      Search Replay Archive
-                    </button>
-                  </div>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>
+                No events found for this season
               </div>
             )}
           </div>
