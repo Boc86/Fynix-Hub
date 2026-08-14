@@ -245,6 +245,20 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           searchTerms.push(`${keyTerms[0]} ${startYear}`)
         }
 
+        // Always add specific sport category search for generic sports
+        // This helps find events like "MotoGP - Sprint - Thai GP"
+        const sportCategories: Record<string, string[]> = {
+          'Motorsport': ['MotoGP', 'Formula 1', 'NASCAR', 'IndyCar', 'Rally'],
+        }
+        if (sportCategories[sportName]) {
+          sportCategories[sportName].forEach(cat => {
+            searchTerms.push(`${cat} ${startYear}`)
+            if (startYear !== endYear) {
+              searchTerms.push(`${cat} ${endYear}`)
+            }
+          })
+        }
+
         // Build filter keywords from league and sport names
         const filterKeywords = new Set<string>()
         // Add individual words from league name
@@ -321,8 +335,13 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             // For generic sports (Motorsport, Soccer, etc.), require at least
             // one specific keyword match to avoid showing all results from that sport
             const isGenericSport = ['Motorsport', 'Soccer', 'Football', 'Tennis', 'Basketball'].some(s => s.toLowerCase() === lowerSport)
-            if (isGenericSport && !hasRequiredMatch) {
-              return null
+            if (isGenericSport) {
+              // Require exact league name OR specific category keywords in title/category
+              const hasExactMatch = lowerTitle.includes(leagueName.toLowerCase())
+              const hasCategoryMatch = filterKeywords.size > 0 && Array.from(filterKeywords).some(kw => lowerTitle.includes(kw) || lowerCategory.includes(kw))
+              if (!hasExactMatch && !hasCategoryMatch) {
+                return null
+              }
             }
 
             // Minimum score threshold
