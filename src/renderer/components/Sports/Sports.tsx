@@ -205,7 +205,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
       if (sortedPast.length === 0 || isStale) {
         // Fallback: Search ReplayZone for motorsport/replay data
-        const leagueName = season.name || ''
+        const selectedLeague = useSportsStore.getState().selectedLeague
+        const leagueName = selectedLeague?.name || season.name || ''
         const year = season.year || today.getFullYear()
 
         // Determine the primary search term and allowed categories based on league name
