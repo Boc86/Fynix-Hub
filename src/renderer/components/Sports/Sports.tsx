@@ -2,6 +2,11 @@ import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react'
 import { useSportsStore, type ScheduleMatch } from '../../store/sportsStore'
 import { useSettingsStore } from '../../store/settingsStore'
 
+interface ReplayResult {
+  title: string; sport: string; category: string; thumbnail: string; date: string
+  sources: { label: string; type: string; url: string }[]
+}
+
 const SPORT_ICONS_RAW: Record<string, string> = {
   'Soccer': '⚽', 'American Football': '🏈', 'Basketball': '🏀',
   'Baseball': '⚾', 'Ice Hockey': '🏒', 'Tennis': '🎾',
