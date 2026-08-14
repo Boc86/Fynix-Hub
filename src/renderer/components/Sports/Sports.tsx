@@ -59,6 +59,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [showSchedule, setShowSchedule] = useState(false)
   const [fallbackReplayResults, setFallbackReplayResults] = useState<ReplayResult[]>([])
   const [fallbackReplaySearch, setFallbackReplaySearch] = useState(false)
+  const [fallbackSearchActive, setFallbackSearchActive] = useState(false)
   const scheduleMatches = store.scheduleMatches
   const scheduleLastUpdated = store.scheduleLastUpdated
   const [scheduleLoading, setScheduleLoading] = useState(false)
@@ -195,7 +196,14 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       })
       window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
 
-      if (sortedPast.length === 0) {
+      // Also trigger fallback if the latest event is stale (no data after ~30 days)
+      const mostRecentDate = sortedPast.length > 0
+        ? new Date(sortedPast[0].scheduledStart).getTime()
+        : 0
+      const staleCutoff = today.getTime() - 30 * 24 * 60 * 60 * 1000
+      const isStale = sortedPast.length > 0 && mostRecentDate < staleCutoff
+
+      if (sortedPast.length === 0 || isStale) {
         // Fallback: Search ReplayZone for motorsport/replay data
         const leagueName = season.name || ''
         const year = season.year || today.getFullYear()
@@ -204,6 +212,10 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         if (leagueName.includes('Formula') || leagueName.includes('F1')) searchTerms.push(`Formula 1 ${year}`)
         if (leagueName.includes('NASCAR')) searchTerms.push(`NASCAR ${year}`)
         if (leagueName.includes('IndyCar')) searchTerms.push(`IndyCar ${year}`)
+        // Always also search with the league name
+        if (!searchTerms.some(t => t === `${leagueName} ${year}`) && leagueName.trim()) {
+          searchTerms.push(`${leagueName} ${year}`)
+        }
 
         if (searchTerms.length > 0) {
           const allResults: ReplayResult[] = []
@@ -220,6 +232,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           })
           window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} results`)
           setFallbackReplayResults(deduped)
+          setFallbackSearchActive(true)
         }
       }
 
@@ -937,9 +950,43 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       case 'events':
         return (
           <div>
-            {store.pastEvents.length > 0 && (
+            {fallbackSearchActive && fallbackReplayResults.length > 0 && (
               <>
                 <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>
+                  Replays for {store.selectedSeason?.name}
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {fallbackReplayResults.map((result: ReplayResult, i: number) => (
+                    <div
+                      key={`replay-${i}`}
+                      data-focus-index={i}
+                      tabIndex={0}
+                      style={cardStyle(isFocused(i, focusedIndex))}
+                      onClick={() => handleFallbackReplaySelect(result)}
+                      onMouseEnter={() => setFocusedIndex(i)}
+                    >
+                      <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
+                        {result.thumbnail && (
+                          <img src={result.thumbnail} alt=""
+                            style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                            loading="lazy"
+                          />
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{result.title}</div>
+                          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
+                            {result.category} · {result.date} · {result.sources.length} sources
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {store.pastEvents.length > 0 && (
+              <>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: `${fallbackSearchActive ? '32px 0 16px' : '0'} 0 16px 0` }}>
                   {store.selectedSeason?.isCurrent ? 'Results' : 'Past Results'}
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -961,9 +1008,9 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                             key={i}
                             data-focus-index={i}
                             tabIndex={0}
-                            style={cardStyle(isFocused(i + store.pastEvents.length, focusedIndex))}
+                            style={cardStyle(isFocused(i, focusedIndex))}
                             onClick={() => handleFallbackReplaySelect(result)}
-                            onMouseEnter={() => setFocusedIndex(i + store.pastEvents.length)}
+                            onMouseEnter={() => setFocusedIndex(i)}
                           >
                             <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
                               {result.thumbnail && (
@@ -1003,7 +1050,6 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                         if (leagueName.includes('NASCAR')) terms.push(`NASCAR ${year}`)
                         if (leagueName.includes('IndyCar')) terms.push(`IndyCar ${year}`)
                         terms.push(`${leagueName} ${year}`)
-                        setFallbackReplaySearch(true)
                         Promise.all(terms.map(t => window.api.sports.searchReplays(t)))
                           .then(results => {
                             const all = results.flat()
