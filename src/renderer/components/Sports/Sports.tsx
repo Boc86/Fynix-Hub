@@ -197,10 +197,17 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       })
       window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
 
-      // Only trigger fallback for current seasons with 0 results from Sportarr
+      // Only trigger fallback for current seasons
       // Previous seasons always have stale data (>30 days old)
       const isCurrentSeason = season.isCurrent
-      const shouldFallback = sortedPast.length === 0 && isCurrentSeason
+      // Check staleness: most recent event >30 days old
+      const mostRecentDate = sortedPast.length > 0
+        ? new Date(sortedPast[0].scheduledStart).getTime()
+        : 0
+      const staleCutoff = today.getTime() - 30 * 24 * 60 * 60 * 1000
+      const isStale = sortedPast.length > 0 && mostRecentDate < staleCutoff
+      // Fallback: 0 results OR stale data (current season only)
+      const shouldFallback = isCurrentSeason && (sortedPast.length === 0 || isStale)
 
       if (shouldFallback) {
         // Fallback: Search ReplayZone for all sports/leagues
