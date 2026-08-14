@@ -16,6 +16,7 @@ interface MediaState {
   resumeProgress: number | null
   watchedIds: Set<number>
   playback: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>
+  droppedFromPlayback: Set<number>
   episodeWatched: Map<number, Map<number, Set<number>>>
   isLoading: boolean
   error: string | null
@@ -36,6 +37,7 @@ interface MediaState {
   setResumeProgress: (progress: number | null) => void
   setWatchedIds: (ids: Set<number>) => void
   setPlayback: (items: Array<{ tmdbId: number; mediaType: string; progress: number; season?: number; episode?: number }>) => void
+  markDroppedFromPlayback: (tmdbId: number) => void
   setEpisodeWatched: (data: Map<number, Map<number, Set<number>>>) => void
   setWatchProviders: (providers: Array<{ providerId: number; providerName: string; logoPath: string }>) => void
   setSelectedProvider: (providerId: number | null) => void
@@ -60,6 +62,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   resumeProgress: null,
   watchedIds: new Set<number>(),
   playback: [],
+  droppedFromPlayback: new Set<number>(),
   episodeWatched: new Map<number, Map<number, Set<number>>>(),
   isLoading: false,
   error: null,
@@ -87,6 +90,11 @@ export const useMediaStore = create<MediaState>((set) => ({
   setResumeProgress: (progress) => set({ resumeProgress: progress }),
   setWatchedIds: (ids) => set({ watchedIds: ids }),
   setPlayback: (items) => set({ playback: items }),
+  markDroppedFromPlayback: (tmdbId) => set((state) => {
+    const next = new Set(state.droppedFromPlayback)
+    next.add(tmdbId)
+    return { droppedFromPlayback: next }
+  }),
   setEpisodeWatched: (data) => set({ episodeWatched: data }),
   setWatchProviders: (providers) => set({ watchProviders: providers }),
   setSelectedProvider: (providerId) => set({ selectedProvider: providerId }),
@@ -97,6 +105,7 @@ export const useMediaStore = create<MediaState>((set) => ({
     upNext: [],
     watchedIds: new Set<number>(),
     playback: [],
+    droppedFromPlayback: new Set<number>(),
     episodeWatched: new Map<number, Map<number, Set<number>>>(),
     resumeProgress: null,
   }),

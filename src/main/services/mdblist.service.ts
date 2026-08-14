@@ -136,56 +136,96 @@ async function fetchMdbList(path: string, options: RequestInit = {}): Promise<an
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`
   }
-  const res = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers })
 
-  if (res.status === 401 && refreshToken) {
-    // If another concurrent request is already refreshing, wait for it
-    if (refreshLock) {
-      await refreshLock
-      if (!accessToken) throw new Error('MDBList error: 401 - not authenticated')
-      headers['Authorization'] = `Bearer ${accessToken}`
-      const retryRes = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers })
-      if (retryRes.ok) return retryRes.json()
-      const body = await retryRes.text().catch(() => '(could not read body)')
-      throw new Error(`MDBList error: ${retryRes.status} - ${body.slice(0, 500)}`)
-    }
+  // Retry with exponential backoff for transient network failures (ETIMEDOUT, ECONNRESET).
+  // MDBList's Cloudflare edge occasionally drops connections.
+  const maxRetries = 3
+  const baseDelay = 500
+  let lastErr: unknown
 
-    console.log(`[MDBList] 401 on ${path}, attempting token refresh... refreshToken=${!!refreshToken} clientId=${!!clientId}`)
-    let resolveLock: () => void
-    refreshLock = new Promise<void>(r => { resolveLock = r })
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const refreshRes = await postForm('/oauth/token/', buildRefreshBody(refreshToken, clientId))
-      if (refreshRes.ok) {
-        const data = await refreshRes.json()
-        accessToken = data.access_token
-        refreshToken = data.refresh_token
-        setTokens(data.access_token, data.refresh_token)
-        headers['Authorization'] = `Bearer ${accessToken}`
-        console.log('[MDBList] Token refreshed successfully, retrying request')
-        const retryRes = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers })
-        if (retryRes.ok) return retryRes.json()
-        const body = await retryRes.text().catch(() => '(could not read body)')
-        throw new Error(`MDBList error: ${retryRes.status} - ${body.slice(0, 500)}`)
-      } else {
-        const errBody = await refreshRes.text().catch(() => 'unknown')
-        console.warn(`[MDBList] Token refresh failed (${refreshRes.status}): ${errBody.slice(0, 300)}, clearing auth`)
-        setTokens(null, null)
-        // Dead token must not survive in the active profile or it gets
-        // re-installed on next load (401 → refresh → 400 loop).
-        CacheService.clearActiveProfileTokens('mdblistAccessToken', 'mdblistRefreshToken')
-        notifyAuthCleared('mdblist')
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
+      const res = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers, signal: controller.signal })
+      clearTimeout(timeoutId)
+
+      if (res.status === 401 && refreshToken) {
+        // If another concurrent request is already refreshing, wait for it
+        if (refreshLock) {
+          await refreshLock
+          if (!accessToken) throw new Error('MDBList error: 401 - not authenticated')
+          headers['Authorization'] = `Bearer ${accessToken}`
+          const retryRes = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers })
+          if (retryRes.ok) return retryRes.json()
+          const body = await retryRes.text().catch(() => '(could not read body)')
+          throw new Error(`MDBList error: ${retryRes.status} - ${body.slice(0, 500)}`)
+        }
+
+        console.log(`[MDBList] 401 on ${path}, attempting token refresh... refreshToken=${!!refreshToken} clientId=${!!clientId}`)
+        let resolveLock: () => void
+        refreshLock = new Promise<void>(r => { resolveLock = r })
+        try {
+          const refreshRes = await postForm('/oauth/token/', buildRefreshBody(refreshToken, clientId))
+          if (refreshRes.ok) {
+            const data = await refreshRes.json()
+            accessToken = data.access_token
+            refreshToken = data.refresh_token
+            setTokens(data.access_token, data.refresh_token)
+            headers['Authorization'] = `Bearer ${accessToken}`
+            console.log('[MDBList] Token refreshed successfully, retrying request')
+            const retryRes = await fetch(`${MDBLIST_BASE}${path}`, { ...options, headers })
+            if (retryRes.ok) return retryRes.json()
+            const body = await retryRes.text().catch(() => '(could not read body)')
+            throw new Error(`MDBList error: ${retryRes.status} - ${body.slice(0, 500)}`)
+          } else {
+            const errBody = await refreshRes.text().catch(() => 'unknown')
+            console.warn(`[MDBList] Token refresh failed (${refreshRes.status}): ${errBody.slice(0, 300)}, clearing auth`)
+            setTokens(null, null)
+            CacheService.clearActiveProfileTokens?.('mdblistAccessToken', 'mdblistRefreshToken')
+            notifyAuthCleared('mdblist')
+          }
+        } finally {
+          refreshLock = null
+          resolveLock!()
+        }
       }
-    } finally {
-      refreshLock = null
-      resolveLock!()
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '(could not read body)')
+        throw new Error(`MDBList error: ${res.status} - ${body.slice(0, 500)}`)
+      }
+      return res.json()
+    } catch (err: any) {
+      lastErr = err
+      // Don't retry on auth errors or non-network issues
+      if (err?.message?.includes('401') || !isNetworkError(err)) {
+        throw err
+      }
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.warn(`[MDBList] fetch ${path} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`, err.message?.slice(0, 100))
+        await new Promise(r => setTimeout(r, delay))
+        // Re-set auth header (token may have been refreshed by another request)
+        headers['Authorization'] = `Bearer ${accessToken}`
+      }
     }
   }
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '(could not read body)')
-    throw new Error(`MDBList error: ${res.status} - ${body.slice(0, 500)}`)
-  }
-  return res.json()
+  console.error(`[MDBList] fetch ${path} failed after ${maxRetries + 1} attempts`)
+  throw lastErr
+}
+
+function isNetworkError(err: any): boolean {
+  const msg = (err?.message || err?.cause?.message || '').toLowerCase()
+  return (
+    (err?.code || err?.cause?.code) === 'ETIMEDOUT' ||
+    msg.includes('timed out') ||
+    msg.includes('etimedout') ||
+    msg.includes('econnreset') ||
+    msg.includes('enotfound') ||
+    msg.includes('fetch failed')
+  )
 }
 
 // ── Payload converters (MDBList API uses Trakt-style consumer payloads) ──
@@ -288,6 +328,23 @@ export async function getWatchedShows() {
       }
       return s
     }))
+
+    // Some shows appear ONLY in the `episodes` flat array (with tmdb ids) but
+    // not in the `shows` array — e.g. shows with partial episode history.
+    // Synthesize minimal show entries from epMap so their watched episodes
+    // still produce green ticks.
+    const existingIds = new Set(resolved.map((s: any) => s?.show?.ids?.tmdb).filter(Boolean))
+    for (const [tmdbId, seasonsMap] of epMap.entries()) {
+      if (existingIds.has(tmdbId)) continue
+      resolved.push({
+        show: { ids: { tmdb: tmdbId } },
+        seasons: [...seasonsMap.entries()].map(([number, eps]) => ({
+          number,
+          episodes: [...eps].map(n => ({ number: n })),
+        })),
+      })
+    }
+
     return resolved
   })
 }

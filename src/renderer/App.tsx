@@ -19,6 +19,7 @@ import type { LiveTVAPI } from './components/LiveTV/LiveTV'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
 import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
+import { usePlayerStore } from './store/playerStore'
 import { forceRefreshWatchData } from './utils/refreshWatchData'
 
 // Heavy screens are code-split so the shell (Browser) paints instantly and
@@ -151,6 +152,15 @@ export default function App() {
         setUpdateError(null)
       }
     })
+  }, [])
+
+  // Periodic update checker (every 4 hours, in addition to startup check)
+  useEffect(() => {
+    window.api.checkForUpdates()
+    const updateInterval = setInterval(() => {
+      window.api.checkForUpdates()
+    }, 4 * 60 * 60 * 1000)
+    return () => clearInterval(updateInterval)
   }, [])
 
   const accentColor = useSettingsStore((s) => s.accentColor)
@@ -1158,6 +1168,19 @@ export default function App() {
       episode = 1
     }
 
+    // Prime the Up Next popup: find the next episode in the current season.
+    if (selected.mediaType === 'tv' && episode !== null) {
+      const episodes = useMediaStore.getState().seasonEpisodes
+      const nextEp = episodes.find((e) => e.episodeNumber === episode + 1)
+      usePlayerStore.getState().setCurrentEpisode(
+        episodes.find((e) => e.episodeNumber === episode) || null
+      )
+      usePlayerStore.getState().setNextEpisode(nextEp || null)
+    } else {
+      usePlayerStore.getState().setNextEpisode(null)
+      usePlayerStore.getState().setCurrentEpisode(null)
+    }
+
     // Always clear stale auto-play state before any new play
     autoPlayResultsRef.current = []
     autoPlayIndexRef.current = 0
@@ -1356,6 +1379,8 @@ export default function App() {
     videoPlayerRef.current?.saveCurrentProgress()
     window.api.player.stop().catch(() => {})
     autoPlayResultsRef.current = []
+    usePlayerStore.getState().setNextEpisode(null)
+    usePlayerStore.getState().setCurrentEpisode(null)
 
     const isCompleted = videoPlayerRef.current?.wasPlaybackCompleted() ?? false
 
@@ -1499,9 +1524,14 @@ export default function App() {
   }, [runTorrentSearch])
 
   const handleDropShow = useCallback(async (target: ContextTarget) => {
+    window.api.log('[MDBList] Drop show clicked: ' + target.title + ' (' + target.tmdbId + ')')
     try {
       await window.api.mdblist.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
-    } catch { /* ignore */ }
+      useMediaStore.getState().markDroppedFromPlayback(target.tmdbId)
+      window.api.log('[MDBList] Drop show success (marked dropped locally)')
+    } catch (e: any) {
+      window.api.log('[MDBList] dropShow FAILED: ' + (e?.message || e))
+    }
     await forceRefreshWatchData()
   }, [])
 
@@ -1628,19 +1658,7 @@ export default function App() {
     setVirtualKeyboardOpen(true)
   }
       
-      // 'c' key - context menus (skip in EPG view; EPG handles its own)
-      if ((e.key === 'c' || e.code === 'KeyC' || e.code === 'ContextMenu') && !isTyping && !contextTarget && view !== 'epg') {
-        e.preventDefault()
-        savedFocusRef.current = e.target as HTMLElement
-        const media = useMediaStore.getState().selectedMedia
-        if (media) {
-          setContextTarget({
-            type: media.mediaType || 'movie',
-            tmdbId: media.id,
-            title: media.title,
-          })
-        }
-      }
+      // 'c' key for context menus — delegated to Browser component
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)

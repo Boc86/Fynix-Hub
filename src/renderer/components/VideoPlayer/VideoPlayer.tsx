@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useMediaStore } from '../../store/mediaStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { usePlayerStore } from '../../store/playerStore'
 import { forceRefreshWatchData } from '../../utils/refreshWatchData'
 import type { IntroSegment } from '../../types.d'
 import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
 import { VideoJsPlayer, type VideoJsPlayerHandle } from './VideoJsPlayer'
+import UpNext from '../UpNext/UpNext'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 /** Imperative handle exposed by VideoPlayer via ref. */
@@ -130,6 +132,9 @@ function VideoPlayerInner({
   const autoRetriesRef = useRef(0)
   const playbackCompletedRef = useRef(false)
   const [displayError, setDisplayError] = useState<string | null>(null)
+  // Up Next countdown (seconds remaining before auto-advance window shows)
+  const [upNextCountdown, setUpNextCountdown] = useState<number | null>(null)
+  const upNextCancelledRef = useRef(false)
   // True from src change until the video's first `playing` event (frames
   // actually rendering) — covers the reconnect gap where App's playerLoading
   // splash disappears as soon as the IPC call resolves, not when playback
@@ -457,19 +462,63 @@ function VideoPlayerInner({
     }
 
     // ── Up Next popup (~30s before end of TV episode) ─────────────────
+    // Driven by playerStore.nextEpisode (set by App when an episode starts).
+    const nextEp = usePlayerStore.getState().nextEpisode
     if (
       mediaInfo &&
       mediaInfo.mediaType === 'tv' &&
-      hasNextEpisode &&
+      nextEp &&
       d > 0 &&
       time > 0 &&
       d - time <= 30 &&
       time >= 60
     ) {
-      // Up-next is handled by the React overlay — just trigger it once.
-      // The state is managed by the parent (App.tsx) via hasNextEpisode.
+      if (upNextCountdown === null && !upNextCancelledRef.current) {
+        setUpNextCountdown(Math.max(1, Math.ceil(d - time)))
+      }
+    } else if (upNextCountdown !== null && (d - time > 30 || d <= 0)) {
+      // Left the window (seeked back) — reset so it can re-trigger later.
+      setUpNextCountdown(null)
+      upNextCancelledRef.current = false
     }
   }, [mediaInfo, hasNextEpisode, segments, saveProgress, scrobble, finishPlayback])
+
+  // Countdown ticker for the Up Next popup
+  useEffect(() => {
+    if (upNextCountdown === null) return
+    if (upNextCountdown <= 0) {
+      if (!autoPlayNextRef.current) {
+        // Autoplay off — keep the popup static and wait for user decision
+        setUpNextCountdown(-1)
+        return
+      }
+      upNextCancelledRef.current = false
+      setUpNextCountdown(null)
+      exitedRef.current = true
+      onNextEpisode()
+      return
+    }
+    const t = setTimeout(() => setUpNextCountdown((c) => (c === null ? null : c - 1)), 1000)
+    return () => clearTimeout(t)
+  }, [upNextCountdown, onNextEpisode])
+
+  // Reset Up Next state on stream change
+  useEffect(() => {
+    setUpNextCountdown(null)
+    upNextCancelledRef.current = false
+  }, [streamUrl])
+
+  const handleUpNextCancel = useCallback(() => {
+    upNextCancelledRef.current = true
+    setUpNextCountdown(null)
+  }, [])
+
+  const handleUpNextPlayNow = useCallback(() => {
+    upNextCancelledRef.current = false
+    setUpNextCountdown(null)
+    exitedRef.current = true
+    onNextEpisode()
+  }, [onNextEpisode])
 
   const handlePlay = useCallback(() => {
     isPlayingRef.current = true
@@ -685,29 +734,15 @@ function VideoPlayerInner({
         </div>
       )}
 
-      {/* Up Next overlay — appears 30s before end of TV episodes */}
-      {mediaInfo?.mediaType === 'tv' && hasNextEpisode && durationRef.current > 0 && currentTimeRef.current > 0 && durationRef.current - currentTimeRef.current <= 30 && currentTimeRef.current >= 60 && (
-        <div className={styles.skipOverlay}>
-          <button
-            tabIndex={0}
-            className={styles.skipBtn}
-            onClick={() => {
-              exitedRef.current = true
-              onNextEpisode()
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                // Same as the skip button: consume so the OSD handler doesn't fire.
-                e.preventDefault()
-                e.stopPropagation()
-                exitedRef.current = true
-                onNextEpisode()
-              }
-            }}
-          >
-            Up Next: {nextEpisodeTitle || 'Next Episode'}
-          </button>
-        </div>
+      {/* Up Next popup — countdown card with Play Now / Cancel */}
+      {upNextCountdown !== null && usePlayerStore.getState().nextEpisode && mediaInfo && (
+        <UpNext
+          episode={usePlayerStore.getState().nextEpisode!}
+          showTitle={title || ''}
+          countdown={upNextCountdown}
+          onCancel={handleUpNextCancel}
+          onPlayNow={handleUpNextPlayNow}
+        />
       )}
 
       {/* Subtitle not found overlay */}
