@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import type { SportsLeague, SportsEvent, SportsTeam, SportarrSport, SportsSeason } from '../types.d'
 
+export interface ReplayEvent {
+  id: string
+  title: string
+  date: string
+  thumbnail?: string
+  sources: { label: string; type: string; url: string }[]
+}
+
 export interface ScheduleMatch {
   id: string; title: string; category: string; date: number; poster?: string
   teams?: { home?: { name: string; badge: string }; away?: { name: string; badge: string } }
@@ -18,6 +26,7 @@ interface SportsState {
   selectedSeason: SportsSeason | null
   upcomingEvents: SportsEvent[]
   pastEvents: SportsEvent[]
+  replayEvents: ReplayEvent[]  // fallback when Sportarr has no events (e.g., motorsport)
   selectedEvent: SportsEvent | null
   homeTeam: SportsTeam | null
   awayTeam: SportsTeam | null
@@ -38,6 +47,7 @@ interface SportsState {
   setSelectedSeason: (season: SportsSeason | null) => void
   setUpcomingEvents: (events: SportsEvent[]) => void
   setPastEvents: (events: SportsEvent[]) => void
+  setReplayEvents: (events: ReplayEvent[]) => void
   setSelectedEvent: (event: SportsEvent | null) => void
   setHomeTeam: (team: SportsTeam | null) => void
   setAwayTeam: (team: SportsTeam | null) => void
@@ -58,6 +68,7 @@ const initialState = {
   selectedSeason: null as SportsSeason | null,
   upcomingEvents: [] as SportsEvent[],
   pastEvents: [] as SportsEvent[],
+  replayEvents: [] as ReplayEvent[],
   selectedEvent: null as SportsEvent | null,
   homeTeam: null as SportsTeam | null,
   awayTeam: null as SportsTeam | null,
@@ -79,6 +90,7 @@ export const useSportsStore = create<SportsState>((set) => ({
   setSelectedSeason: (season) => set({ selectedSeason: season }),
   setUpcomingEvents: (events) => set({ upcomingEvents: events }),
   setPastEvents: (events) => set({ pastEvents: events }),
+  setReplayEvents: (events) => set({ replayEvents: events }),
   setSelectedEvent: (event) => set({ selectedEvent: event }),
   setHomeTeam: (team) => set({ homeTeam: team }),
   setAwayTeam: (team) => set({ awayTeam: team }),

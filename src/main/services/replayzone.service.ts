@@ -114,3 +114,19 @@ export async function searchReplays(query: string): Promise<ReplayResult[]> {
     return []
   }
 }
+
+export async function searchByCategory(category: string): Promise<ReplayResult[]> {
+  try {
+    const all = await fetchAllReplays()
+    const normalizedCategory = category.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const scored = all
+      .filter(r => r.category?.toLowerCase().includes(category.toLowerCase()) ||
+                   r.sport?.toLowerCase().includes(category.toLowerCase()) ||
+                   normalize(r.title).includes(normalizedCategory))
+      .map(r => ({ result: r, score: 1 }))
+    return scored.map(s => s.result)
+  } catch (err: any) {
+    console.error('[ReplayZone] Category search failed:', err.message)
+    return []
+  }
+}
