@@ -709,6 +709,11 @@ export async function registerIpcHandlers(): Promise<void> {
     return ReplayZoneService.searchReplays(query)
   })
 
+  handle('replayzone:search-by-sport', async (_event, category: string) => {
+    const results = await ReplayZoneService.searchByCategory(category)
+    return results
+  })
+
   handle('streamedpk:get-matches-for-sports', async (_event, sports: string[]) => {
     return StreamedPkService.getMatchesForSports(sports)
   })

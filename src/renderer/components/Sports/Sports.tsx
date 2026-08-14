@@ -57,6 +57,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
   const [replaySearching, setReplaySearching] = useState(false)
   const [replayFocused, setReplayFocused] = useState(0)
   const [showSchedule, setShowSchedule] = useState(false)
+  const [fallbackReplayResults, setFallbackReplayResults] = useState<ReplayResult[]>([])
+  const [fallbackReplaySearch, setFallbackReplaySearch] = useState(false)
   const scheduleMatches = store.scheduleMatches
   const scheduleLastUpdated = store.scheduleLastUpdated
   const [scheduleLoading, setScheduleLoading] = useState(false)
@@ -178,7 +180,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
   const loadEvents = useCallback(async (season: any) => {
     store.setLoading(true)
-    useSportsStore.setState({ selectedSeason: season, view: 'events', upcomingEvents: [], pastEvents: [] })
+    useSportsStore.setState({ selectedSeason: season, view: 'events', upcomingEvents: [], pastEvents: [], replayEvents: [] })
     try {
       const leagueId = useSportsStore.getState().selectedLeague!.id
       const today = new Date()
@@ -192,6 +194,35 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         return tb - ta
       })
       window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
+
+      if (sortedPast.length === 0) {
+        // Fallback: Search ReplayZone for motorsport/replay data
+        const leagueName = season.name || ''
+        const year = season.year || today.getFullYear()
+        const searchTerms: string[] = []
+        if (leagueName.includes('MotoGP') || leagueName.includes('Moto')) searchTerms.push(`MotoGP ${year}`)
+        if (leagueName.includes('Formula') || leagueName.includes('F1')) searchTerms.push(`Formula 1 ${year}`)
+        if (leagueName.includes('NASCAR')) searchTerms.push(`NASCAR ${year}`)
+        if (leagueName.includes('IndyCar')) searchTerms.push(`IndyCar ${year}`)
+
+        if (searchTerms.length > 0) {
+          const allResults: ReplayResult[] = []
+          for (const term of searchTerms) {
+            const results = await window.api.sports.searchReplays(term)
+            allResults.push(...results)
+          }
+          // Deduplicate by title
+          const seen = new Set<string>()
+          const deduped = allResults.filter(r => {
+            if (seen.has(r.title)) return false
+            seen.add(r.title)
+            return true
+          })
+          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} results`)
+          setFallbackReplayResults(deduped)
+        }
+      }
+
       store.setPastEvents(sortedPast)
     } catch { store.setError('Failed to load events') }
     store.setLoading(false)
@@ -360,6 +391,12 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       setSourcePlayError(err?.message ? `Playback failed: ${err.message}` : 'This source could not be played. Try another.')
     }
   }, [onPlayUrl])
+
+  const handleFallbackReplaySelect = useCallback(async (result: ReplayResult) => {
+    if (result.sources.length === 0) return
+    const firstSource = result.sources[0].url
+    await handlePlaySource(firstSource)
+  }, [handlePlaySource])
 
   const goBack = useCallback(() => {
     if (showSchedule) {
@@ -911,7 +948,90 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </>
             )}
             {store.pastEvents.length === 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>No events found for this season</div>
+              <div>
+                {fallbackReplaySearch ? (
+                  <>
+                    <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>
+                      Replays for {store.selectedSeason?.name}
+                    </h2>
+                    {fallbackReplayResults.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {fallbackReplayResults.map((result: ReplayResult, i: number) => (
+                          <div
+                            key={i}
+                            data-focus-index={i}
+                            tabIndex={0}
+                            style={cardStyle(isFocused(i + store.pastEvents.length, focusedIndex))}
+                            onClick={() => handleFallbackReplaySelect(result)}
+                            onMouseEnter={() => setFocusedIndex(i + store.pastEvents.length)}
+                          >
+                            <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
+                              {result.thumbnail && (
+                                <img src={result.thumbnail} alt=""
+                                  style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                                  loading="lazy"
+                                />
+                              )}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{result.title}</div>
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
+                                  {result.category} · {result.date} · {result.sources.length} sources
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>
+                        No replays found for this season
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: 40 }}>
+                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>No events found in schedule service</div>
+                    <button
+                      onClick={() => {
+                        setFallbackReplaySearch(true)
+                        setFallbackReplayResults([])
+                        const leagueName = store.selectedSeason?.name || ''
+                        const year = store.selectedSeason?.year || new Date().getFullYear()
+                        const terms: string[] = []
+                        if (leagueName.includes('MotoGP') || leagueName.includes('Moto')) terms.push(`MotoGP ${year}`)
+                        if (leagueName.includes('Formula') || leagueName.includes('F1')) terms.push(`Formula 1 ${year}`)
+                        if (leagueName.includes('NASCAR')) terms.push(`NASCAR ${year}`)
+                        if (leagueName.includes('IndyCar')) terms.push(`IndyCar ${year}`)
+                        terms.push(`${leagueName} ${year}`)
+                        setFallbackReplaySearch(true)
+                        Promise.all(terms.map(t => window.api.sports.searchReplays(t)))
+                          .then(results => {
+                            const all = results.flat()
+                            const seen = new Set<string>()
+                            const deduped = all.filter(r => {
+                              if (seen.has(r.title)) return false
+                              seen.add(r.title)
+                              return true
+                            })
+                            setFallbackReplayResults(deduped)
+                          })
+                          .catch(() => setFallbackReplayResults([]))
+                      }}
+                      style={{
+                        background: 'rgba(255,255,255,0.08)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#fff',
+                        padding: '10px 24px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        fontSize: 14,
+                      }}
+                    >
+                      Search Replay Archive
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )
