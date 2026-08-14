@@ -1111,9 +1111,10 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 </div>
               </>
             )}
-            {store.pastEvents.length > 0 && (
+            {/* Only show Sportarr results if no fallback was triggered */}
+            {!fallbackSearchActive && store.pastEvents.length > 0 && (
               <>
-                <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: `${fallbackSearchActive ? '32px 0 16px' : '0'} 0 16px 0` }}>
+                <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>
                   {store.selectedSeason?.isCurrent ? 'Results' : 'Past Results'}
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
