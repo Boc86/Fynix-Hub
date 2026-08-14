@@ -204,35 +204,43 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       const isStale = sortedPast.length > 0 && mostRecentDate < staleCutoff
 
       if (sortedPast.length === 0 || isStale) {
-        // Fallback: Search ReplayZone for motorsport/replay data
+        // Fallback: Search ReplayZone for all sports/leagues
         const selectedLeague = useSportsStore.getState().selectedLeague
         const leagueName = selectedLeague?.name || season.name || ''
+        const sportName = selectedLeague?.sportName || ''
         const year = season.year || today.getFullYear()
 
-        // Determine the primary search term and allowed categories based on league name
-        let primaryTerm = ''
-        let allowedCategories: string[] = []
-        const lowerLeague = leagueName.toLowerCase()
-
-        if (lowerLeague.includes('moto')) {
-          primaryTerm = `MotoGP ${year}`
-          allowedCategories = ['MotoGP', 'Other Motorsport']
-        } else if (lowerLeague.includes('formula') || lowerLeague.includes('f1')) {
-          primaryTerm = `Formula 1 ${year}`
-          allowedCategories = ['Formula 1', 'Formula 2', 'Formula 3']
-        } else if (lowerLeague.includes('nascar')) {
-          primaryTerm = `NASCAR ${year}`
-          allowedCategories = ['NASCAR']
-        } else if (lowerLeague.includes('indycar')) {
-          primaryTerm = `IndyCar ${year}`
-          allowedCategories = ['IndyCar']
-        }
-
+        // Build comprehensive search terms
         const searchTerms: string[] = []
-        if (primaryTerm) searchTerms.push(primaryTerm)
-        if (!searchTerms.some(t => t === `${leagueName} ${year}`) && leagueName.trim()) {
-          searchTerms.push(`${leagueName} ${year}`)
+
+        // Primary: League name + year
+        searchTerms.push(`${leagueName} ${year}`)
+
+        // Secondary: Sport name + year (if different from league)
+        if (sportName && sportName.toLowerCase() !== leagueName.toLowerCase()) {
+          searchTerms.push(`${sportName} ${year}`)
         }
+
+        // Tertiary: Extract key terms from league name
+        const keyTerms = leagueName
+          .split(/[\s\-&]+/)
+          .filter((t: string) => t.length > 2 && !['championship', 'champions', 'league', 'season'].includes(t.toLowerCase()))
+        if (keyTerms.length > 0) {
+          searchTerms.push(`${keyTerms[0]} ${year}`)
+        }
+
+        // Build filter keywords from league and sport names
+        const filterKeywords = new Set<string>()
+        // Add individual words from league name
+        leagueName.split(/[\s\-&]+/).forEach((w: string) => {
+          if (w.length > 2) filterKeywords.add(w.toLowerCase())
+        })
+        // Add individual words from sport name
+        sportName.split(/[\s\-&]+/).forEach((w: string) => {
+          if (w.length > 2) filterKeywords.add(w.toLowerCase())
+        })
+          if (w.length > 2) filterKeywords.add(w.toLowerCase())
+        })
 
         if (searchTerms.length > 0) {
           const allResults: ReplayResult[] = []
@@ -240,6 +248,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             const results = await window.api.sports.searchReplays(term)
             allResults.push(...results)
           }
+
           // Deduplicate by title
           const seen = new Set<string>()
           const deduped = allResults.filter(r => {
@@ -247,18 +256,43 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             seen.add(r.title)
             return true
           })
-          // Filter: only keep results matching the specific series for current year
+
+          // Filter: score each result by relevance
           const filtered = deduped.filter(r => {
             const yearMatch = r.date.startsWith(year.toString())
-            const categoryMatch = allowedCategories.some(
-              mc => r.category?.toLowerCase().includes(mc.toLowerCase())
-            )
-            const titleMatch = primaryTerm
-              ? r.title.toLowerCase().includes(primaryTerm.split(' ')[0].toLowerCase())
-              : true
-            return yearMatch && categoryMatch && titleMatch
+            if (!yearMatch) return false
+
+            const lowerTitle = r.title.toLowerCase()
+            const lowerCategory = (r.category || '').toLowerCase()
+            const lowerSport = (r.sport || '').toLowerCase()
+
+            // Score matching
+            let score = 0
+
+            // Sport name match (high priority)
+            if (sportName) {
+              if (lowerSport.includes(sportName.toLowerCase())) score += 50
+              else if (lowerSport.includes(r.category?.toLowerCase() || '')) score += 30
+            }
+
+            // Category match
+            filterKeywords.forEach(kw => {
+              if (lowerCategory.includes(kw)) score += 20
+            })
+
+            // Title match with league keywords
+            filterKeywords.forEach(kw => {
+              if (lowerTitle.includes(kw)) score += 10
+            })
+
+            // Exact league name in title
+            if (lowerTitle.includes(leagueName.toLowerCase())) score += 30
+
+            // Minimum score threshold
+            return score >= 20
           })
-          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} raw, ${filtered.length} ${primaryTerm ? 'series-specific' : 'filtered'}`)
+
+          window.api.log(`[Sports] Fallback replay search for "${leagueName}" (${sportName}): ${deduped.length} raw, ${filtered.length} matched`)
           setFallbackReplayResults(filtered)
           setFallbackSearchActive(true)
         }
