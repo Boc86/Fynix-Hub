@@ -208,17 +208,27 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         const selectedLeague = useSportsStore.getState().selectedLeague
         const leagueName = selectedLeague?.name || season.name || ''
         const sportName = selectedLeague?.sportName || ''
-        const year = season.year || today.getFullYear()
+        // Use actual season dates instead of just year
+        const startDate = season.startDate || '2020-01-01'
+        const endDate = season.endDate || todayStr
+        const startYear = new Date(startDate).getFullYear()
+        const endYear = new Date(endDate).getFullYear()
 
-        // Build comprehensive search terms
+        // Build comprehensive search terms using actual season info
         const searchTerms: string[] = []
 
-        // Primary: League name + year
-        searchTerms.push(`${leagueName} ${year}`)
+        // Primary: League name + year range
+        searchTerms.push(`${leagueName} ${startYear}`)
+        if (startYear !== endYear) {
+          searchTerms.push(`${leagueName} ${endYear}`)
+        }
 
         // Secondary: Sport name + year (if different from league)
         if (sportName && sportName.toLowerCase() !== leagueName.toLowerCase()) {
-          searchTerms.push(`${sportName} ${year}`)
+          searchTerms.push(`${sportName} ${startYear}`)
+          if (startYear !== endYear) {
+            searchTerms.push(`${sportName} ${endYear}`)
+          }
         }
 
         // Tertiary: Extract key terms from league name
@@ -226,7 +236,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
           .split(/[\s\-&]+/)
           .filter((t: string) => t.length > 2 && !['championship', 'champions', 'league', 'season'].includes(t.toLowerCase()))
         if (keyTerms.length > 0) {
-          searchTerms.push(`${keyTerms[0]} ${year}`)
+          searchTerms.push(`${keyTerms[0]} ${startYear}`)
         }
 
         // Build filter keywords from league and sport names
@@ -239,8 +249,10 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         sportName.split(/[\s\-&]+/).forEach((w: string) => {
           if (w.length > 2) filterKeywords.add(w.toLowerCase())
         })
-          if (w.length > 2) filterKeywords.add(w.toLowerCase())
-        })
+
+        // Parse date range for filtering
+        const rangeStart = new Date(startDate).getTime()
+        const rangeEnd = new Date(endDate).getTime()
 
         if (searchTerms.length > 0) {
           const allResults: ReplayResult[] = []
@@ -259,8 +271,10 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
           // Filter: score each result by relevance
           const filtered = deduped.filter(r => {
-            const yearMatch = r.date.startsWith(year.toString())
-            if (!yearMatch) return false
+            // Check if date falls within season range
+            const resultDate = new Date(r.date).getTime()
+            const inRange = resultDate >= rangeStart && resultDate <= rangeEnd
+            if (!inRange) return false
 
             const lowerTitle = r.title.toLowerCase()
             const lowerCategory = (r.category || '').toLowerCase()
