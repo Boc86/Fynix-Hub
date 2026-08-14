@@ -207,12 +207,28 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         // Fallback: Search ReplayZone for motorsport/replay data
         const leagueName = season.name || ''
         const year = season.year || today.getFullYear()
+
+        // Determine the primary search term and allowed categories based on league name
+        let primaryTerm = ''
+        let allowedCategories: string[] = []
+        const lowerLeague = leagueName.toLowerCase()
+
+        if (lowerLeague.includes('moto')) {
+          primaryTerm = `MotoGP ${year}`
+          allowedCategories = ['MotoGP', 'Other Motorsport']
+        } else if (lowerLeague.includes('formula') || lowerLeague.includes('f1')) {
+          primaryTerm = `Formula 1 ${year}`
+          allowedCategories = ['Formula 1', 'Formula 2', 'Formula 3']
+        } else if (lowerLeague.includes('nascar')) {
+          primaryTerm = `NASCAR ${year}`
+          allowedCategories = ['NASCAR']
+        } else if (lowerLeague.includes('indycar')) {
+          primaryTerm = `IndyCar ${year}`
+          allowedCategories = ['IndyCar']
+        }
+
         const searchTerms: string[] = []
-        if (leagueName.includes('MotoGP') || leagueName.includes('Moto')) searchTerms.push(`MotoGP ${year}`)
-        if (leagueName.includes('Formula') || leagueName.includes('F1')) searchTerms.push(`Formula 1 ${year}`)
-        if (leagueName.includes('NASCAR')) searchTerms.push(`NASCAR ${year}`)
-        if (leagueName.includes('IndyCar')) searchTerms.push(`IndyCar ${year}`)
-        // Always also search with the league name
+        if (primaryTerm) searchTerms.push(primaryTerm)
         if (!searchTerms.some(t => t === `${leagueName} ${year}`) && leagueName.trim()) {
           searchTerms.push(`${leagueName} ${year}`)
         }
@@ -230,20 +246,18 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             seen.add(r.title)
             return true
           })
-          // Filter: only keep motorsport-relevant results for the current year
-          const motorSports = ['Motor Sport', 'Motorsport', 'Other Motorsport', 'Formula 1', 'NASCAR', 'IndyCar', 'MotoGP']
-          const motorCategories = ['MotoGP', 'Formula 1', 'NASCAR', 'IndyCar', 'Rally']
+          // Filter: only keep results matching the specific series for current year
           const filtered = deduped.filter(r => {
             const yearMatch = r.date.startsWith(year.toString())
-            const sportMatch = motorSports.some(ms => r.sport?.toLowerCase().includes(ms.toLowerCase()))
-            const catMatch = motorCategories.some(mc => r.category?.toLowerCase().includes(mc.toLowerCase()))
-            const titleMatch = r.title.toLowerCase().includes('moto') ||
-                              r.title.toLowerCase().includes('formula') ||
-                              r.title.toLowerCase().includes('nascar') ||
-                              r.title.toLowerCase().includes('indycar')
-            return yearMatch && (sportMatch || catMatch || titleMatch)
+            const categoryMatch = allowedCategories.some(
+              mc => r.category?.toLowerCase().includes(mc.toLowerCase())
+            )
+            const titleMatch = primaryTerm
+              ? r.title.toLowerCase().includes(primaryTerm.split(' ')[0].toLowerCase())
+              : true
+            return yearMatch && categoryMatch && titleMatch
           })
-          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} raw, ${filtered.length} motorsport-only`)
+          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} raw, ${filtered.length} ${primaryTerm ? 'series-specific' : 'filtered'}`)
           setFallbackReplayResults(filtered)
           setFallbackSearchActive(true)
         }
