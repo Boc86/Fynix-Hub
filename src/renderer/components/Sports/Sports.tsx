@@ -230,8 +230,21 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             seen.add(r.title)
             return true
           })
-          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} results`)
-          setFallbackReplayResults(deduped)
+          // Filter: only keep motorsport-relevant results for the current year
+          const motorSports = ['Motor Sport', 'Motorsport', 'Other Motorsport', 'Formula 1', 'NASCAR', 'IndyCar', 'MotoGP']
+          const motorCategories = ['MotoGP', 'Formula 1', 'NASCAR', 'IndyCar', 'Rally']
+          const filtered = deduped.filter(r => {
+            const yearMatch = r.date.startsWith(year.toString())
+            const sportMatch = motorSports.some(ms => r.sport?.toLowerCase().includes(ms.toLowerCase()))
+            const catMatch = motorCategories.some(mc => r.category?.toLowerCase().includes(mc.toLowerCase()))
+            const titleMatch = r.title.toLowerCase().includes('moto') ||
+                              r.title.toLowerCase().includes('formula') ||
+                              r.title.toLowerCase().includes('nascar') ||
+                              r.title.toLowerCase().includes('indycar')
+            return yearMatch && (sportMatch || catMatch || titleMatch)
+          })
+          window.api.log(`[Sports] Fallback replay search for "${leagueName}" returned ${deduped.length} raw, ${filtered.length} motorsport-only`)
+          setFallbackReplayResults(filtered)
           setFallbackSearchActive(true)
         }
       }
@@ -1059,7 +1072,20 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                               seen.add(r.title)
                               return true
                             })
-                            setFallbackReplayResults(deduped)
+                            // Filter: only keep motorsport-relevant results for the current year
+                            const motorSports = ['Motor Sport', 'Motorsport', 'Other Motorsport', 'Formula 1', 'NASCAR', 'IndyCar', 'MotoGP']
+                            const motorCategories = ['MotoGP', 'Formula 1', 'NASCAR', 'IndyCar', 'Rally']
+                            const filtered = deduped.filter(r => {
+                              const yearMatch = r.date.startsWith(year.toString())
+                              const sportMatch = motorSports.some(ms => r.sport?.toLowerCase().includes(ms.toLowerCase()))
+                              const catMatch = motorCategories.some(mc => r.category?.toLowerCase().includes(mc.toLowerCase()))
+                              const titleMatch = r.title.toLowerCase().includes('moto') ||
+                                                r.title.toLowerCase().includes('formula') ||
+                                                r.title.toLowerCase().includes('nascar') ||
+                                                r.title.toLowerCase().includes('indycar')
+                              return yearMatch && (sportMatch || catMatch || titleMatch)
+                            })
+                            setFallbackReplayResults(filtered)
                           })
                           .catch(() => setFallbackReplayResults([]))
                       }}
