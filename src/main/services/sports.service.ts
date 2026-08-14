@@ -307,7 +307,8 @@ export async function getEventsInRange(leagueId: string, seasonId: string, from:
   if (cached) return JSON.parse(cached) as SportarrEvent[]
 
   try {
-    const path = `/events?league=${encodeURIComponent(leagueId)}&season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    // Use season parameter (not leagueId) for MotoGP - it returns actual races
+    const path = `/events?season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page_size=100`
     const items = await fetchAll<SportarrEvent>(path)
     const events = items.filter(e => e.isActive)
     CacheService.setCache(cacheKey, JSON.stringify(events), CACHE_TTL)
