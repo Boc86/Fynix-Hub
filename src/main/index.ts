@@ -119,6 +119,7 @@ function createWindow(): void {
     minHeight: 720,
     fullscreen: true,
     backgroundColor: '#141414',
+    show: false,
     icon: path.join(__dirname, '../../assets/FLB-512.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
@@ -138,6 +139,13 @@ function createWindow(): void {
       path.resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
     );
   }
+
+  // Show the window only when the renderer has finished loading.
+  // The splash screen renders as part of the initial HTML, so the user
+  // sees the splash immediately with no black/blank gap.
+  mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow?.show();
+  });
   setupRemoteControl(mainWindow.webContents, mainWindow);
   setupCursorHide(mainWindow);
 
