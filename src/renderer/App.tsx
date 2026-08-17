@@ -116,6 +116,7 @@ export default function App() {
   const playerInfoRef = useRef<PlayerInfo | undefined>(undefined)
   const [appReady, setAppReady] = useState(false)
   const [appStatus, setAppStatus] = useState('Initializing…')
+  const splashStartRef = useRef<number>(Date.now())
 
   // Listen for main process status updates during preload
   useEffect(() => {
@@ -125,10 +126,17 @@ export default function App() {
     return removeStatus
   }, [])
 
-  // Dismiss splash once profiles are loaded (ProfilePicker can display)
+  // Dismiss splash once profiles are loaded AND minimum display time elapsed
   useEffect(() => {
     if (profiles.length > 0) {
-      setAppReady(true)
+      const elapsed = Date.now() - splashStartRef.current
+      const minSplashMs = 1500
+      const remaining = minSplashMs - elapsed
+      if (remaining > 0) {
+        setTimeout(() => setAppReady(true), remaining)
+      } else {
+        setAppReady(true)
+      }
     }
   }, [profiles])
 

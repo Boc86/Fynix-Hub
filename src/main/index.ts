@@ -306,7 +306,19 @@ function destroyYouTubeView() {
 }
 
 app.whenReady().then(async () => {
+  createWindow();
+
+  // Send initial status to renderer (splash shows immediately)
+  mainWindow?.webContents.send('app:status', { status: 'Starting services…' });
+
+  // Register IPC handlers (this includes WebTorrent, Network API, etc.)
   await registerIpcHandlers();
+
+  mainWindow?.webContents.send('app:status', { status: 'Loading data…' });
+
+  UpdaterService.setMainWindow(mainWindow);
+  UpdaterService.init();
+  UpdaterService.checkForUpdates();
 
   // Initialize TizenTube (downloads scripts if not present)
   TizenTubeService.init().catch((err: any) =>

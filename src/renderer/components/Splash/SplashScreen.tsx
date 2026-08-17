@@ -19,8 +19,8 @@ export default function SplashScreen({ status = 'Initializing…', progress }: P
       fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
     }}>
       <div style={{
-        width: 128,
-        height: 128,
+        width: 96,
+        height: 96,
         borderRadius: 24,
         background: 'linear-gradient(135deg, #FF6B00 0%, #FF8E00 100%)',
         display: 'flex',
@@ -29,7 +29,7 @@ export default function SplashScreen({ status = 'Initializing…', progress }: P
         marginBottom: 24,
         boxShadow: '0 8px 32px rgba(255,107,0,0.3)',
       }}>
-        <span style={{ fontSize: 56, fontWeight: 800, color: '#fff' }}>FL</span>
+        <span style={{ fontSize: 36, fontWeight: 800, color: '#fff' }}>FL</span>
       </div>
       <div style={{
         fontSize: 16,
