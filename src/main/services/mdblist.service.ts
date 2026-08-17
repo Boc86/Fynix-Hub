@@ -285,17 +285,34 @@ export async function getWatchedShows() {
     const data = await fetchMdbList('/sync/watched?limit=1000')
     const shows = data?.shows || []
 
-    // Build showTmdb -> season -> Set(episode numbers) from the flat arrays
+    // Build showTmdb -> season -> Set(episode numbers).
+    // MDBList returns episode-level watched detail in TWO places:
+    //   1. The top-level `episodes` flat array (episode.show.ids.tmdb)
+    //   2. Inside each `shows[]` entry's `seasons[].episodes[]` arrays
+    // We must read BOTH — some accounts/responses only populate (2), and
+    // if we miss it the epMap comes back empty, which makes the renderer
+    // fall back to its /upnext inference and over-mark every aired episode.
     const epMap = new Map<number, Map<number, Set<number>>>()
-    for (const e of data?.episodes || []) {
-      const showId = e?.episode?.show?.ids?.tmdb
-      const season = e?.episode?.season
-      const num = e?.episode?.number
-      if (showId == null || season == null || num == null) continue
+    const addEp = (showId: number, season: number, num: number) => {
+      if (showId == null || season == null || num == null) return
       if (!epMap.has(showId)) epMap.set(showId, new Map())
       const seasons = epMap.get(showId)!
       if (!seasons.has(season)) seasons.set(season, new Set())
       seasons.get(season)!.add(num)
+    }
+    for (const e of data?.episodes || []) {
+      addEp(e?.episode?.show?.ids?.tmdb, e?.episode?.season, e?.episode?.number)
+    }
+    for (const s of shows) {
+      const showId = s?.show?.ids?.tmdb
+      if (showId == null) continue
+      for (const season of (s?.seasons || [])) {
+        const seasonNum = season?.number
+        if (seasonNum == null || seasonNum === 0) continue
+        for (const ep of (season?.episodes || [])) {
+          if (ep?.number && ep.number > 0) addEp(showId, seasonNum, ep.number)
+        }
+      }
     }
 
     const enriched = shows.map((s: any) => {

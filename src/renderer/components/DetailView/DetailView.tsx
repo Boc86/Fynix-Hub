@@ -112,11 +112,15 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
           const store = useMediaStore.getState();
           const seasonWatched = store.episodeWatched.get(tv.id)?.get(seasonNum);
           const watchedNums: Set<number> = seasonWatched ? new Set(seasonWatched) : new Set<number>();
+          // Only infer from /upnext progress if the WHOLE show has no explicit
+          // per-episode watched data. Otherwise we trust the explicit data and
+          // never fabricate watched episodes for seasons that lack it.
+          const showHasExplicitData = store.episodeWatched.has(tv.id) && store.episodeWatched.get(tv.id)!.size > 0;
           let hasWatchData = watchedNums.size > 0;
 
-          // If no explicit episode-level data from /sync/watched, infer from
+          // If no explicit episode-level data from /sync/watched for this show, infer from
           // /upnext progress: shows with watched_episode_count + next_episode.
-      if (!hasWatchData) {
+          if (!showHasExplicitData) {
             try {
               const upNextData = await window.api.mdblist.getWatchedProgress()
               if (Array.isArray(upNextData)) {
