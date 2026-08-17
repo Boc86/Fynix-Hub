@@ -50,11 +50,15 @@ autoUpdater.on('download-progress', (progress) => {
 autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
   updateDownloaded = true
   updateVersion = info.version
-  updateReleaseNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : info.releaseNotes?.join?.('\n') ?? ''
+  updateReleaseNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : info.releaseNotes?.join?.('\\n') ?? ''
   sendStatus({ status: 'downloaded', version: updateVersion, releaseNotes: updateReleaseNotes, percent: 100 })
-  // Auto-install now that the download is complete (matches previous behaviour
-  // where the Sidebar awaited downloadUpdate() then called installUpdate()).
-  installUpdate()
+  // Don't auto-install for AppImage — let the user click "Restart" in the UI.
+  // For other platforms, auto-install on app quit.
+  if (isAppImage()) {
+    console.log('[Updater] Update downloaded — awaiting user-initiated restart (AppImage)')
+  } else {
+    installUpdate()
+  }
 })
 
 autoUpdater.on('error', (err: Error) => {

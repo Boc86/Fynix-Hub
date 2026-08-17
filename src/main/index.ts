@@ -327,6 +327,12 @@ app.whenReady().then(async () => {
   UpdaterService.init();
   UpdaterService.checkForUpdates();
 
+  // Send readiness signal to renderer after window is created and loaded
+  mainWindow?.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.send('app:ready', true);
+    mainWindow?.webContents.send('app:status', { status: 'Ready' });
+  });
+
   // IPTV M3U: fetch on startup (async, non-blocking), cache for 24h
   import('./services/iptv-m3u.service').then(async ({ getAllSources, scheduleAutoScrape, runAutoScrapeIfStale }) => {
     // Daily 01:00 auto-scrape scheduler (Reddit Xtream portals)

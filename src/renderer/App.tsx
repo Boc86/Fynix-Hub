@@ -13,6 +13,7 @@ import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
+import SplashScreen from './components/Splash/SplashScreen'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
 import type { LiveTVAPI } from './components/LiveTV/LiveTV'
@@ -113,6 +114,17 @@ export default function App() {
   const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
   const playerInfoRef = useRef<PlayerInfo | undefined>(undefined)
+  const [appReady, setAppReady] = useState(false)
+  const [appStatus, setAppStatus] = useState('Initializing…')
+
+  // Listen for main process readiness signal
+  useEffect(() => {
+    const removeReady = window.api.app.onReady((ready: boolean) => setAppReady(ready))
+    const removeStatus = window.api.app.onStatus((data: { status: string; progress?: number }) => {
+      setAppStatus(data.status)
+    })
+    return () => { removeReady(); removeStatus() }
+  }, [])
 
   // Listen for Escape key from YouTube BrowserView to return focus
   useEffect(() => {
@@ -1716,6 +1728,8 @@ export default function App() {
   }
 
   const isEpisode = selectedMedia?.mediaType === 'tv' && storeEpisode !== null
+
+  if (!appReady) return <SplashScreen status={appStatus} />
 
   return (
     <Layout>
