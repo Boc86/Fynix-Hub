@@ -31,15 +31,15 @@ export default function SplashScreen({ status = 'Initializing…', progress }: P
         pointerEvents: 'none',
       }} />
 
-      {/* Logo */}
+      {/* Logo - actual PNG from public/assets */}
       <div style={{
         position: 'relative',
         marginBottom: 32,
       }}>
         {/* Outer ring with pulse animation */}
         <div style={{
-          width: 120,
-          height: 120,
+          width: 128,
+          height: 128,
           borderRadius: '50%',
           border: '2px solid rgba(255,107,0,0.3)',
           display: 'flex',
@@ -47,25 +47,17 @@ export default function SplashScreen({ status = 'Initializing…', progress }: P
           justifyContent: 'center',
           animation: 'pulse 2s ease-in-out infinite',
         }}>
-          {/* Inner gradient square with FL */}
-          <div style={{
-            width: 80,
-            height: 80,
-            borderRadius: 18,
-            background: 'linear-gradient(135deg, #FF6B00 0%, #FF8E00 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 0 30px rgba(255,107,0,0.5)',
-          }}>
-            <span style={{ 
-              fontSize: 28, 
-              fontWeight: 800, 
-              color: '#fff',
-              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-              letterSpacing: '1px',
-            }}>FL</span>
-          </div>
+          {/* App logo */}
+          <img 
+            src="/assets/FLB-512.png" 
+            alt="Fynix Hub"
+            style={{
+              width: 96,
+              height: 96,
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 0 20px rgba(255,107,0,0.4))',
+            }}
+          />
         </div>
       </div>
 
