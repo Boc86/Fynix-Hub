@@ -44,11 +44,6 @@ const api = {
   app: {
     minimize: () => ipcRenderer.invoke('app:minimize'),
     quit: () => ipcRenderer.invoke('app:quit'),
-    onReady: (callback: (ready: boolean) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, ready: boolean) => callback(ready)
-      ipcRenderer.on('app:ready', handler)
-      return () => { ipcRenderer.removeListener('app:ready', handler) }
-    },
     onStatus: (callback: (data: { status: string; progress?: number }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
       ipcRenderer.on('app:status', handler)

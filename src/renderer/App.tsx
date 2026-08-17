@@ -117,14 +117,20 @@ export default function App() {
   const [appReady, setAppReady] = useState(false)
   const [appStatus, setAppStatus] = useState('Initializing…')
 
-  // Listen for main process readiness signal
+  // Listen for main process status updates during preload
   useEffect(() => {
-    const removeReady = window.api.app.onReady((ready: boolean) => setAppReady(ready))
     const removeStatus = window.api.app.onStatus((data: { status: string; progress?: number }) => {
       setAppStatus(data.status)
     })
-    return () => { removeReady(); removeStatus() }
+    return removeStatus
   }, [])
+
+  // Dismiss splash once profiles are loaded (ProfilePicker can display)
+  useEffect(() => {
+    if (profiles.length > 0) {
+      setAppReady(true)
+    }
+  }, [profiles])
 
   // Listen for Escape key from YouTube BrowserView to return focus
   useEffect(() => {
