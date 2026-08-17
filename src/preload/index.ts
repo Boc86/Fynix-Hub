@@ -44,6 +44,11 @@ const api = {
   app: {
     minimize: () => ipcRenderer.invoke('app:minimize'),
     quit: () => ipcRenderer.invoke('app:quit'),
+    onStatus: (callback: (data: { status: string; progress?: number }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+      ipcRenderer.on('app:status', handler)
+      return () => { ipcRenderer.removeListener('app:status', handler) }
+    },
   },
   tmdb: {
     getTrending: (type: string, timeWindow: string) =>

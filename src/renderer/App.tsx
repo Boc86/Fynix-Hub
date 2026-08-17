@@ -13,6 +13,7 @@ import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
+import SplashScreen from './components/Splash/SplashScreen'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import type { NavView } from './components/Sidebar/Sidebar'
 import type { LiveTVAPI } from './components/LiveTV/LiveTV'
@@ -113,6 +114,31 @@ export default function App() {
   const { loadFromDisk, tmdbApiKey, profiles, activeProfileId, setActiveProfile, addProfile } = useSettingsStore()
   const goBackRef = useRef<() => void>(() => {})
   const playerInfoRef = useRef<PlayerInfo | undefined>(undefined)
+  const [appReady, setAppReady] = useState(false)
+  const [appStatus, setAppStatus] = useState('Initializing…')
+  const splashStartRef = useRef<number>(Date.now())
+
+  // Listen for main process status updates during preload
+  useEffect(() => {
+    const removeStatus = window.api.app.onStatus((data: { status: string; progress?: number }) => {
+      setAppStatus(data.status)
+    })
+    return removeStatus
+  }, [])
+
+  // Dismiss splash once profiles are loaded AND minimum display time elapsed
+  useEffect(() => {
+    if (profiles.length > 0) {
+      const elapsed = Date.now() - splashStartRef.current
+      const minSplashMs = 1500
+      const remaining = minSplashMs - elapsed
+      if (remaining > 0) {
+        setTimeout(() => setAppReady(true), remaining)
+      } else {
+        setAppReady(true)
+      }
+    }
+  }, [profiles])
 
   // Listen for Escape key from YouTube BrowserView to return focus
   useEffect(() => {
@@ -1687,6 +1713,11 @@ export default function App() {
 
   const showProfileSplash = !activeProfileId || profiles.length === 0
   // --- /Profile Logic ---
+
+  // Show splash screen until main process signals ready (preloader complete)
+  if (!appReady) {
+    return <SplashScreen status={appStatus} />
+  }
 
   if (showProfileSplash) {
     return (

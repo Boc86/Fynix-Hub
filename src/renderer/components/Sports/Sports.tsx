@@ -193,8 +193,6 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
       })
       window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
 
-      window.api.log(`[Sports] Season "${season.name}" (${season.id}): ${past?.length || 0} past events (${fromDate}→${todayStr})`)
-
       store.setPastEvents(sortedPast)
     } catch { store.setError('Failed to load events') }
     store.setLoading(false)
