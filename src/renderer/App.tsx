@@ -1714,6 +1714,11 @@ export default function App() {
   const showProfileSplash = !activeProfileId || profiles.length === 0
   // --- /Profile Logic ---
 
+  // Show splash screen until main process signals ready (preloader complete)
+  if (!appReady) {
+    return <SplashScreen status={appStatus} />
+  }
+
   if (showProfileSplash) {
     return (
       <>
@@ -1742,8 +1747,6 @@ export default function App() {
   }
 
   const isEpisode = selectedMedia?.mediaType === 'tv' && storeEpisode !== null
-
-  if (!appReady) return <SplashScreen status={appStatus} />
 
   return (
     <Layout>

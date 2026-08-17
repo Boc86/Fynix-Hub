@@ -308,10 +308,11 @@ function destroyYouTubeView() {
 app.whenReady().then(async () => {
   createWindow();
 
-  // Send initial status to renderer (splash shows immediately)
-  mainWindow?.webContents.send('app:status', { status: 'Starting services…' });
+  // Send status to renderer after it finishes loading
+  mainWindow?.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.send('app:status', { status: 'Starting services…' });
+  });
 
-  // Register IPC handlers (this includes WebTorrent, Network API, etc.)
   await registerIpcHandlers();
 
   mainWindow?.webContents.send('app:status', { status: 'Loading data…' });
@@ -333,11 +334,6 @@ app.whenReady().then(async () => {
   if (TorrentSearchService.shouldRefreshTrackers()) {
     TorrentSearchService.refreshTrackers().catch(() => {});
   }
-
-  createWindow();
-  UpdaterService.setMainWindow(mainWindow);
-  UpdaterService.init();
-  UpdaterService.checkForUpdates();
 
   // IPTV M3U: fetch on startup (async, non-blocking), cache for 24h
   import('./services/iptv-m3u.service').then(async ({ getAllSources, scheduleAutoScrape, runAutoScrapeIfStale }) => {
