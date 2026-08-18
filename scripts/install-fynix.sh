@@ -417,7 +417,38 @@ StartupWMClass=fynix-hub
 Comment=Media Hub with Netflix-like experience
 X-Fynix-Version=$RELEASE_VER
 EOF
+  cleanup_stale_desktop
   if command -v update-desktop-database &>/dev/null; then update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true; fi
+}
+
+# ── Remove stale desktop entries from legacy installs ────────────────────────────
+# Removes any .desktop file referring to Fynix Hub that ISN'T the canonical
+# "$DESKTOP_DIR/fynix-hub.desktop", catching case variants like
+# "Fynix Hub.desktop" or "fynix-hub.desktop" in other dirs.
+cleanup_stale_desktop() {
+  # Gather candidate dirs (user + system-wide)
+  local -a dirs=("$DESKTOP_DIR" "$HOME/.local/share/applications" \
+                 "/usr/share/applications" "/usr/local/share/applications")
+  local d f base
+  for d in "${dirs[@]}"; do
+    [[ -d "$d" ]] || continue
+    shopt -s nocaseglob nullglob
+    local stale=()
+    for f in "$d"/*fynix*.desktop "$d"Fynix*.desktop "$d"*Fynix*Hub*.desktop; do
+      # Normalize paths for comparison (case-insensitive on basename)
+      local canname; canname=$(basename "$DESKTOP_FILE")
+      local fname; fname=$(basename "$f")
+      if [[ "${fname,,}" != "${canname,,}" ]]; then
+        stale+=("$f")
+      fi
+    done
+    shopt -u nocaseglob nullglob
+    for f in "${stale[@]}"; do
+      if grep -qai 'fynix' "$f" 2>/dev/null; then
+        warn "Removing stale desktop entry: $f"; rm -f "$f" 2>/dev/null
+      fi
+    done
+  done
 }
 
 # ── Package-type selection ────────────────────────────────────────────────────
@@ -545,6 +576,7 @@ do_uninstall() {
       ;;
   esac
   rm -f "$DESKTOP_FILE"
+  cleanup_stale_desktop
   rm -f "$ICON_DIR/fynix-hub.png"
   rm -f "$STATE_FILE"
   ok "Uninstalled $APP"
@@ -569,6 +601,9 @@ main() {
     err "Could not reach GitHub. Check your connection."
     exit 1
   fi
+  # Clean up legacy desktop entries from pre-TUI installs so the launcher
+  # doesn't show duplicate Fynix Hub entries.
+  if $INSTALLED; then cleanup_stale_desktop; fi
   info_screen
   if $INSTALLED; then
     if ver_gt "$RELEASE_VER" "$INSTALLED_VERSION"; then
