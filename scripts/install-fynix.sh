@@ -141,9 +141,10 @@ hr_size() {
   printf "%d B" "$b"
 }
 
-# Seconds -> Hh Mm Ss
+# Seconds -> Hh Mm Ss (non-numeric / '--' -> "--")
 fmt_dur() {
   local s=$1
+  [[ "$s" =~ ^[0-9]+$ ]] || { printf '%s' "$s"; return; }
   (( s < 0 )) && s=0
   local h=$(( s/3600 )); local m=$(( (s%3600)/60 )); local ss=$(( s%60 ))
   if (( h > 0 )); then printf "%dh%02dm" $h $m
