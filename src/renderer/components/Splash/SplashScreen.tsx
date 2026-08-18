@@ -31,7 +31,7 @@ export default function SplashScreen({ status = 'Initializing…', progress }: P
         pointerEvents: 'none',
       }} />
 
-      {/* Logo - actual PNG from public/assets */}
+      {/* Logo */}
       <div style={{
         position: 'relative',
         marginBottom: 32,
@@ -47,17 +47,23 @@ export default function SplashScreen({ status = 'Initializing…', progress }: P
           justifyContent: 'center',
           animation: 'pulse 2s ease-in-out infinite',
         }}>
-          {/* App logo */}
-          <img 
-            src="/assets/FLB-512.png" 
-            alt="Fynix Hub"
-            style={{
-              width: 96,
-              height: 96,
-              objectFit: 'contain',
-              filter: 'drop-shadow(0 0 20px rgba(255,107,0,0.4))',
-            }}
-          />
+          {/* App logo — orange square with FH initials (no external PNG dependency) */}
+          <div style={{
+            width: 96,
+            height: 96,
+            backgroundColor: '#FF6B00',
+            borderRadius: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 48,
+            fontWeight: 800,
+            color: '#ffffff',
+            letterSpacing: -2,
+            filter: 'drop-shadow(0 0 24px rgba(255,107,0,0.5))',
+          }}>
+            FH
+          </div>
         </div>
       </div>
 

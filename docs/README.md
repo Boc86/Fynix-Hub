@@ -17,7 +17,7 @@ GitHub Pages is configured to serve from the `/docs` folder of the `master` bran
 ## Sections
 
 1. Hero — fullscreen brand intro with animated background
-2. Products — Fynix Player (Available), Fynix Hub (Private Beta), Fynix Nav (Planned)
+2. Products — Fynix Player (Available), Fynix Hub (Available), Fynix Nav (In Development), Fynix Companion (In Development)
 3. Why Fynix — core principles (Fast, Privacy, Open Source)
 4. Gallery — app screenshots with lightbox
 5. Roadmap — animated project timeline
