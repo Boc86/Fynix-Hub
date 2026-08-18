@@ -473,8 +473,8 @@ choose_pkgtype() {
 
 # ── Install routines ───────────────────────────────────────────────────────────
 do_install() {
-  [[ -z "$PKG_TYPE" ]] && choose_pkgtype
-  [[ -z "$PKG_TYPE" ]] && { err "No package selected."; return 1; }
+  [[ -z "${PKG_TYPE:-}" ]] && choose_pkgtype
+  [[ -z "${PKG_TYPE:-}" ]] && { err "No package selected."; return 1; }
   local tmpd; tmpd=$(mktemp -d)
   local icon; icon=$(install_icon)
   case "$PKG_TYPE" in
@@ -548,7 +548,7 @@ do_update() {
     deb|rpm)
       # Re-run native install (re-installs over the top)
       local tmpd; tmpd=$(mktemp -d)
-      local url="$ASSET_DEB"; [[ "$INSTALLED_TYPE" == "rpm" ]] && url="$ASSET_RPM"
+      local url="${PKG_URL:-}"; [[ -z "$url" ]] && { url="$ASSET_DEB"; [[ "$INSTALLED_TYPE" == "rpm" ]] && url="$ASSET_RPM"; }
       local pkg="$tmpd/fynix.${INSTALLED_TYPE}"
       download "$url" "$pkg" || { err "Download failed."; rm -rf "$tmpd"; return 1; }
       info "Installing with $PKG_MANAGER…"
@@ -562,7 +562,8 @@ do_update() {
       ;;
     appimage|zip)
       # Just fetch the matching asset again
-      local url="$ASSET_APPIMAGE"; [[ "$INSTALLED_TYPE" == "zip" ]] && url="$ASSET_ZIP"
+      local url="${PKG_URL:-}"
+      [[ -z "$url" ]] && { url="$ASSET_APPIMAGE"; [[ "$INSTALLED_TYPE" == "zip" ]] && url="$ASSET_ZIP"; }
       local out="$INSTALLED_PATH"
       [[ "$INSTALLED_TYPE" == "zip" ]] && out="$INSTALLED_PATH/fynix.zip"
       download "$url" "$out" || { err "Download failed."; return 1; }
