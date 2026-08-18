@@ -473,7 +473,7 @@ choose_pkgtype() {
 
 # ── Install routines ───────────────────────────────────────────────────────────
 do_install() {
-  choose_pkgtype
+  [[ -z "$PKG_TYPE" ]] && choose_pkgtype
   [[ -z "$PKG_TYPE" ]] && { err "No package selected."; return 1; }
   local tmpd; tmpd=$(mktemp -d)
   local icon; icon=$(install_icon)
