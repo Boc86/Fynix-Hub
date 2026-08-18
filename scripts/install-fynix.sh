@@ -439,14 +439,6 @@ choose_pkgtype() {
   PKG_URL="${U[idx-1]}"
 }
 
-# ── Download helper ────────────────────────────────────────────────────────────
-download() {
-  local url="$1"; local out="$2"
-  curl -sL --max-time 600 "$url" -o "$out" &
-  spinner $! "Downloading $(basename "$url")"
-  [[ -s "$out" ]]
-}
-
 # ── Install routines ───────────────────────────────────────────────────────────
 do_install() {
   choose_pkgtype
