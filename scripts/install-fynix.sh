@@ -351,6 +351,31 @@ detect_install() {
   if $INSTALLED && [[ -z "$INSTALLED_VERSION" ]]; then INSTALLED_VERSION=""; fi
 }
 
+# ── Summary screen: show detected info before the user acts ────────────────────
+show_summary() {
+  printf "${CLEAR}"
+  banner
+  echo
+  printf "  ${BOLD}${WHITE}Installation Summary${RESET}\n"
+  printf "  ${GREY}$(printf '%*s' $((term_width-2)) '' | tr ' ' '─')${RESET}\n"
+  printf "  ${DIM}Linux Distribution${RESET}  ${WHITE}$DISTRO_NAME${RESET}\n"
+  printf "  ${DIM}Package family${RESET}      ${WHITE}$DISTRO_FAMILY${RESET} ($PKG_MANAGER)\n"
+  echo
+  if $INSTALLED; then
+    local vlabel="${INSTALLED_VERSION:-unknown}"
+    printf "  ${DIM}Current install${RESET}     ${WHITE}Found${RESET}\n"
+    printf "  ${DIM}Install type${RESET}      ${WHITE}$INSTALLED_TYPE${RESET}\n"
+    printf "  ${DIM}Version${RESET}           ${WHITE}v$vlabel${RESET}\n"
+    printf "  ${DIM}Location${RESET}          ${WHITE}$INSTALLED_PATH${RESET}\n"
+  else
+    printf "  ${DIM}Current install${RESET}     ${GREY}No installation detected${RESET}\n"
+  fi
+  echo
+  printf "  ${DIM}Latest release${RESET}    ${BOLD}${ORANGE}v$RELEASE_VER${RESET}\n"
+  printf "  ${GREY}$(printf '%*s' $((term_width-2)) '' | tr ' ' '─')${RESET}\n"
+  echo
+}
+
 write_state() {
   mkdir -p "$STATE_DIR"
   python3 - "$STATE_FILE" "$1" "$2" "$3" <<'PY'
@@ -537,16 +562,15 @@ main() {
   fi
 
   detect_distro
-  banner
-  info "Detected: ${BOLD}$DISTRO_NAME${RESET} (${DIM}$DISTRO_FAMILY family${RESET})"
-  sleep 0.6
-
   detect_install
-  if ! fetch_release; then err "Could not reach GitHub. Check your connection."; exit 1; fi
-
+  if ! fetch_release; then
+    # Show summary even on failure so the user sees their distro info
+    show_summary
+    err "Could not reach GitHub. Check your connection."
+    exit 1
+  fi
+  show_summary
   if $INSTALLED; then
-    local vlabel="${INSTALLED_VERSION:-unknown}"
-    printf "\n"; log "Existing install found: ${BOLD}${WHITE}v$vlabel${RESET} (${GREY}$INSTALLED_TYPE${RESET})"
     if ver_gt "$RELEASE_VER" "$INSTALLED_VERSION"; then
       warn "A newer version is available: ${BOLD}${ORANGE}v$RELEASE_VER${RESET}"
       menu "What would you like to do?" "Update to v$RELEASE_VER|Reinstall v$RELEASE_VER|Uninstall|Exit"
