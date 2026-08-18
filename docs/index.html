@@ -128,19 +128,22 @@
 
         <!-- Fynix Hub -->
         <div class="product-card reveal reveal-delay-2">
-          <span class="product-badge available">Public Beta</span>
+          <span class="product-badge available">Available Now</span>
           <div class="product-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
           <h3>Fynix Hub</h3>
-          <p>An all-in-one Linux entertainment hub providing access to movies, TV shows, YouTube, sports replays and other user-configured media sources through a beautiful unified interface.</p>
+          <p>An all-in-one Linux media hub providing access to movies, TV shows, YouTube, sports replays and other user-configured media sources through a beautiful unified interface.</p>
           <ul class="product-features">
             <li>Movies</li>
             <li>TV Shows</li>
             <li>YouTube</li>
             <li>Sports Replays</li>
             <li>Usenet Support</li>
+            <li>Debrid Integration</li>
             <li>Unified Library</li>
+            <li>Built-in TUI Installer/Updater</li>
+            <li>Android TV Companion</li>
             <li>Beautiful TV Interface</li>
             <li>Plugin Architecture</li>
             <li>Linux First</li>
@@ -148,7 +151,7 @@
             <li>Open Source</li>
             <li>Auto-Updater</li>
           </ul>
-          <p class="product-status-note">Public beta — download the latest release for Linux below.</p>
+          <p class="product-status-note">Public beta — download the latest release for Linux below, or use the interactive TUI installer.</p>
           <div class="product-actions">
             <a href="https://github.com/Boc86/Fynix-Hub/releases" target="_blank" rel="noopener" class="btn btn-primary" id="hub-latest-release-btn">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -157,6 +160,32 @@
             <a href="https://github.com/Boc86/Fynix-Hub" target="_blank" rel="noopener" class="btn btn-secondary">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
               GitHub
+            </a>
+          </div>
+        </div>
+
+        <!-- Fynix Companion -->
+        <div class="product-card reveal reveal-delay-2">
+          <span class="product-badge in-progress">In Development</span>
+          <div class="product-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </div>
+          <h3>Fynix Companion</h3>
+          <p>A lightweight Android TV companion app that connects to your Fynix Hub desktop instance, letting you browse your library, control playback with a DPad-optimized UI, and sync watch history from your phone or tablet.</p>
+          <ul class="product-features">
+            <li>Android TV</li>
+            <li>DPad Navigation</li>
+            <li>Remote Control</li>
+            <li>Watch History Sync</li>
+            <li>TMDB Proxy</li>
+            <li>Kotlin + Jetpack Compose</li>
+            <li>Open Source</li>
+          </ul>
+          <p class="product-status-note" style="color: var(--accent)">Companion app in active development</p>
+          <div class="product-actions">
+            <a href="https://github.com/Boc86/Fynix-Hub-Android" target="_blank" rel="noopener" class="btn btn-secondary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+              View on GitHub
             </a>
           </div>
         </div>
@@ -314,7 +343,7 @@
           </div>
         </div>
         <div class="roadmap-item">
-          <div class="roadmap-dot in-progress"></div>
+          <div class="roadmap-dot completed"></div>
           <div class="roadmap-content">
             <h4>Hub Public Beta</h4>
             <p>Public beta launched. Native Linux packages (deb, rpm, AppImage, zip) with auto-updater.</p>
@@ -323,8 +352,22 @@
         <div class="roadmap-item">
           <div class="roadmap-dot completed"></div>
           <div class="roadmap-content">
+            <h4>Hub v2.2.4 Release</h4>
+            <p>Fynix Hub v2.2.4 released as a complete Linux media hub with TUI installer, live sports, Sports ReplayZone integration, and Android TV companion.</p>
+          </div>
+        </div>
+        <div class="roadmap-item">
+          <div class="roadmap-dot completed"></div>
+          <div class="roadmap-content">
             <h4>Usenet &amp; Debrid Deep Integration</h4>
             <p>Tighter integration with Usenet providers and debrid services for faster, more reliable streaming.</p>
+          </div>
+        </div>
+        <div class="roadmap-item">
+          <div class="roadmap-dot in-progress"></div>
+          <div class="roadmap-content">
+            <h4>Fynix Companion</h4>
+            <p>Android TV companion app (Kotlin/Compose) with DPad navigation, remote control, watch history sync, and TMDB proxy.</p>
           </div>
         </div>
         <div class="roadmap-item">
@@ -359,7 +402,7 @@
           <div class="roadmap-dot planned"></div>
           <div class="roadmap-content">
             <h4>Mobile Companion</h4>
-            <p>Companion apps for iOS and Android to complement the desktop experience.</p>
+            <p>iOS and Android companion apps to complement the desktop experience.</p>
           </div>
         </div>
       </div>
