@@ -61,14 +61,25 @@ banner() {
   # Logo block
   printf "${CLEAR}"
   for ((i=0;i<top;i++)); do echo; done
-  local pad=$(( (term_width - 40) / 2 )); [[ $pad -lt 0 ]] && pad=0
+  local pad=$(( (term_width - 44) / 2 )); [[ $pad -lt 0 ]] && pad=0
   local sp=$(printf "%*s" "$pad" "")
-  printf "${sp}${ORANGE}${BOLD}██╗${RESET} ${ORANGE}${BOLD}███████╗${RESET} ${ORANGE}${BOLD}██╗${RESET}   ${ORANGE}${BOLD}██╗${RESET} ${ORANGE}${BOLD}██╗${RESET} ${ORANGE}${BOLD}███████╗${RESET} ${ORANGE}${BOLD}██╗${RESET}  ${ORANGE}${BOLD}██╗${RESET}\n"
-  printf "${sp}${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██╔════╝${RESET} ${ORANGE}${BOLD}██║${RESET}   ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██╔════╝${RESET} ${ORANGE}${BOLD}╚██╗${RESET} ${ORANGE}${BOLD}██╔╝${RESET}\n"
-  printf "${sp}${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}█████╗${RESET}   ${ORANGE}${BOLD}██║${RESET}   ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}█████╗${RESET}   ${ORANGE}${BOLD}╚██╗${RESET} ${ORANGE}${BOLD}██╔╝${RESET}\n"
-  printf "${sp}${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██╔══╝${RESET}   ${ORANGE}${BOLD}██║${RESET}   ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██╔══╝${RESET}   ${ORANGE}${BOLD}██╗${RESET} ${ORANGE}${BOLD}██║${RESET}\n"
-  printf "${sp}${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}██║${RESET}      ${ORANGE}${BOLD}╚██████╔╝${RESET} ${ORANGE}${BOLD}██║${RESET} ${ORANGE}${BOLD}███████╗${RESET} ${ORANGE}${BOLD}██╔╝${RESET} ${ORANGE}${BOLD}██║${RESET}\n"
-  printf "${sp}${ORANGE}╚═╝${RESET} ${ORANGE}╚═╝${RESET}       ${ORANGE}╚═════╝${RESET}  ${ORANGE}╚═╝${RESET} ${ORANGE}╚══════╝${RESET} ${ORANGE}╚═╝${RESET}  ${ORANGE}╚═╝${RESET}\n"
+  # Logo block — exact FYNIX HUB wordmark (provided by user).
+  # █  = bright orange block, ▒ = dimmer orange shading.
+  local L1='███████████ █████ █████ ██████   █████ █████ █████ █████'
+  local L2='▒▒███▒▒▒▒▒▒█▒▒███ ▒▒███ ▒▒██████ ▒▒███ ▒▒███ ▒▒███ ▒▒███ '
+  local L3=' ▒███   █ ▒  ▒▒███ ███   ▒███▒███ ▒███  ▒███  ▒▒███ ███  '
+  local L4=' ▒███████     ▒▒█████    ▒███▒▒███▒███  ▒███   ▒▒█████   '
+  local L5=' ▒███▒▒▒█      ▒▒███     ▒███ ▒▒██████  ▒███    ███▒███  '
+  local L6=' ▒███  ▒        ▒███     ▒███  ▒▒█████  ▒███   ███ ▒▒███ '
+  local L7=' █████          █████    █████  ▒▒█████ █████ █████ █████'
+  local L8='▒▒▒▒▒          ▒▒▒▒▒    ▒▒▒▒▒    ▒▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒▒'
+  local art
+  for line in "$L1" "$L2" "$L3" "$L4" "$L5" "$L6" "$L7" "$L8"; do
+    # Replace full blocks with bright orange, shade blocks with dim orange
+    art="${line//█/${ORANGE}${BOLD}█${RESET}}"
+    art="${art//▒/${ORANGE}▒${RESET}}"
+    printf "${sp}%s\n" "$art"
+  done
   echo
   printf "${sp}${GREY}${BOLD}Media Hub with a Netflix-like experience${RESET}\n"
   echo
@@ -76,7 +87,71 @@ banner() {
   echo
 }
 
-# ── Spinner (background curl) ─────────────────────────────────────────────────
+# ── Download with live speed / percentage / ETA ──────────────────────────────────
+download() {
+  local url="$1"; local out="$2"
+  local name; name=$(basename "$url")
+  # Get total size (best-effort)
+  local total
+  total=$(curl -sIL --max-time 20 "$url" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="content-length"{s=$2} END{print s+0}')
+  [[ "$total" =~ ^[0-9]+$ ]] || total=0
+
+  # Start download in background
+  curl -sL --max-time 600 "$url" -o "$out" &
+  local pid=$!
+  local start=$SECONDS
+  local prev=0 prevt=$start
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; local si=0
+
+  while kill -0 "$pid" 2>/dev/null; do
+    local now=$SECONDS
+    local cur=0; [[ -f "$out" ]] && cur=$(stat -c%s "$out" 2>/dev/null || echo 0)
+    local pct=0; (( total > 0 )) && pct=$(( cur * 100 / total ))
+    # Speed over the last second
+    local dt=$(( now - prevt )); (( dt < 1 )) && dt=1
+    local rate=$(( (cur - prev) / dt ))
+    prev=$cur; prevt=$now
+    # ETA
+    local eta="--"; local rem=$(( total - cur ))
+    if (( rate > 0 )) && (( total > 0 )); then
+      eta=$(( rem / rate ))
+    fi
+    printf "\r  ${ORANGE}%s${RESET} ${WHITE}%-28s${RESET} ${BOLD}%3d%%${RESET} ${GREY}%s/s  ETA %s${RESET}" \
+      "${spin:si++%10:1}" "$name" "$pct" "$(hr_size $rate)" "$(fmt_dur $eta)"
+    sleep 1
+  done
+  # Ensure curl finished
+  wait "$pid"
+  local rc=$?
+  if [[ $rc -eq 0 && -s "$out" ]]; then
+    printf "\r  ${GREEN}✓${RESET} ${WHITE}%-28s${RESET} ${BOLD}100%%${RESET} ${GREY}complete${RESET}\n" "$name"
+    return 0
+  else
+    printf "\r  ${RED}✗${RESET} ${WHITE}%-28s${RESET} ${RED}download failed${RESET}\n" "$name"
+    return 1
+  fi
+}
+
+# Human-readable byte size
+hr_size() {
+  local b=$1
+  (( b >= 1073741824 )) && { printf "%.1f GB" "$(echo "scale=1;$b/1073741824"|bc 2>/dev/null || echo $((b/1073741824)))"; return; }
+  (( b >= 1048576 ))    && { printf "%.1f MB" "$((b/1048576))"; return; }
+  (( b >= 1024 ))       && { printf "%.0f KB" "$((b/1024))"; return; }
+  printf "%d B" "$b"
+}
+
+# Seconds -> Hh Mm Ss
+fmt_dur() {
+  local s=$1
+  (( s < 0 )) && s=0
+  local h=$(( s/3600 )); local m=$(( (s%3600)/60 )); local ss=$(( s%60 ))
+  if (( h > 0 )); then printf "%dh%02dm" $h $m
+  elif (( m > 0 )); then printf "%dm%02ds" $m $ss
+  else printf "%ds" $ss; fi
+}
+
+# ── Spinner (generic, for non-download waits) ─────────────────────────────────────
 spinner() {
   local pid=$1; local msg="$2"; local frames="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
   local i=0
@@ -177,12 +252,18 @@ detect_distro() {
 
 # ── Version comparison (semver-lite) ───────────────────────────────────────────
 ver_gt() { # ver_gt A B -> true if A > B
-  [[ "$1" == "$2" ]] && return 1
+  local A="${1//v/}"; local B="${2//v/}"
+  # Treat anything non-numeric / "unknown" as 0 so comparisons never crash
+  [[ "$A" =~ ^[0-9] ]] || A="0"
+  [[ "$B" =~ ^[0-9] ]] || B="0"
+  [[ "$A" == "$B" ]] && return 1
   local IFS=.
-  local a=(${1//v/}); local b=(${2//v/})
+  local a=($A); local b=($B)
   local i
   for ((i=0;i<${#a[@]}||i<${#b[@]};i++)); do
     local an=${a[i]:-0}; local bn=${b[i]:-0}
+    an="${an//[^0-9]/}"; bn="${bn//[^0-9]/}"
+    an="${an:-0}"; bn="${bn:-0}"
     (( an > bn )) && return 0
     (( an < bn )) && return 1
   done
@@ -235,14 +316,25 @@ detect_install() {
       if [[ -n "$INSTALLED_PATH" && -e "$INSTALLED_PATH" ]]; then INSTALLED=true; fi
     fi
   fi
-  # 2) AppImage heuristics
+  # 2) AppImage heuristics — search common locations, case-insensitive on name
   if ! $INSTALLED; then
-    local cand=("$INSTALL_DIR/fynix-hub" "$INSTALL_DIR/FynixHub.AppImage" "/opt/fynix-hub/fynix-hub.AppImage")
+    shopt -s nocaseglob nullglob
+    local cand=()
+    for d in "$INSTALL_DIR" "/opt/fynix-hub" "/opt" "$HOME/.local/bin" "$HOME/bin"; do
+      [[ -d "$d" ]] || continue
+      for f in "$d"/*fynix*.appimage "$d"/*Fynix*.AppImage "$d"/Fynix*Hub* "$d"/fynix-hub; do
+        [[ -x "$f" ]] && cand+=("$f")
+      done
+    done
+    shopt -u nocaseglob nullglob
     for c in "${cand[@]}"; do
       if [[ -x "$c" ]]; then
         INSTALLED=true; INSTALLED_TYPE="appimage"; INSTALLED_PATH="$c"
-        # Try to read version from the AppImage
+        # Try to read version from the AppImage binary, then the desktop entry
         INSTALLED_VERSION=$(grep -ao 'Fynix Hub v[0-9][0-9.]*' "$c" 2>/dev/null | head -1 | sed 's/.*v//')
+        if [[ -z "$INSTALLED_VERSION" && -r "$DESKTOP_FILE" ]]; then
+          INSTALLED_VERSION=$(grep -ao 'X-Fynix-Version=[0-9][0-9.]*' "$DESKTOP_FILE" 2>/dev/null | head -1 | cut -d= -f2)
+        fi
         break
       fi
     done
@@ -256,7 +348,7 @@ detect_install() {
       INSTALLED=true; INSTALLED_TYPE="rpm"; INSTALLED_VERSION=$(rpm -q --qf '%{V}' fynix-hub 2>/dev/null)
     fi
   fi
-  if $INSTALLED && [[ -z "$INSTALLED_VERSION" ]]; then INSTALLED_VERSION="unknown"; fi
+  if $INSTALLED && [[ -z "$INSTALLED_VERSION" ]]; then INSTALLED_VERSION=""; fi
 }
 
 write_state() {
@@ -453,7 +545,8 @@ main() {
   if ! fetch_release; then err "Could not reach GitHub. Check your connection."; exit 1; fi
 
   if $INSTALLED; then
-    printf "\n"; log "Existing install found: ${BOLD}${WHITE}v$INSTALLED_VERSION${RESET} (${GREY}$INSTALLED_TYPE${RESET})"
+    local vlabel="${INSTALLED_VERSION:-unknown}"
+    printf "\n"; log "Existing install found: ${BOLD}${WHITE}v$vlabel${RESET} (${GREY}$INSTALLED_TYPE${RESET})"
     if ver_gt "$RELEASE_VER" "$INSTALLED_VERSION"; then
       warn "A newer version is available: ${BOLD}${ORANGE}v$RELEASE_VER${RESET}"
       menu "What would you like to do?" "Update to v$RELEASE_VER|Reinstall v$RELEASE_VER|Uninstall|Exit"
