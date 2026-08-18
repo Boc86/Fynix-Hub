@@ -531,6 +531,18 @@ do_install() {
 
 # ── Update routine ────────────────────────────────────────────────────────────
 do_update() {
+  local new_type="$1"; local new_url="$2"
+
+  # Type change: remove the old install first, then fresh-install the new type.
+  if [[ -n "$new_type" && "$new_type" != "$INSTALLED_TYPE" ]]; then
+    warn "Switching package type: $INSTALLED_TYPE -> $new_type"
+    warn "Removing old $INSTALLED_TYPE install first…"
+    PKG_TYPE="$new_type"; PKG_URL="$new_url"
+    do_uninstall 2>/dev/null
+    do_install
+    return $?
+  fi
+
   info "Updating $INSTALLED_TYPE install from v$INSTALLED_VERSION to v$RELEASE_VER…"
   case "$INSTALLED_TYPE" in
     deb|rpm)
@@ -562,7 +574,6 @@ do_update() {
   ok "Updated to v$RELEASE_VER"
 }
 
-# ── Uninstall routine ─────────────────────────────────────────────────────────
 do_uninstall() {
   info "Removing $APP ($INSTALLED_TYPE)…"
   case "$INSTALLED_TYPE" in
@@ -608,20 +619,22 @@ main() {
   if $INSTALLED; then
     if ver_gt "$RELEASE_VER" "$INSTALLED_VERSION"; then
       warn "A newer version is available: ${BOLD}${ORANGE}v$RELEASE_VER${RESET}"
-      menu "What would you like to do?" "Update to v$RELEASE_VER|Reinstall v$RELEASE_VER|Uninstall|Exit"
+      menu "What would you like to do?" "Update to v$RELEASE_VER|Change package type|Reinstall v$RELEASE_VER|Uninstall|Exit"
       case $MENU_SEL in
-        1) do_update ;;
-        2) do_install ;;
-        3) if confirm "Uninstall $APP v$INSTALLED_VERSION?"; then do_uninstall; fi ;;
-        4|0) log "Bye."; exit 0 ;;
+        1) do_update "$INSTALLED_TYPE" "" ;;
+        2) choose_pkgtype; do_update "$PKG_TYPE" "$PKG_URL" ;;
+        3) do_install ;;
+        4) if confirm "Uninstall $APP v$INSTALLED_VERSION?"; then do_uninstall; fi ;;
+        5|0) log "Bye."; exit 0 ;;
       esac
     else
       ok "You already have the latest version (v$RELEASE_VER)."
-      menu "What would you like to do?" "Reinstall v$RELEASE_VER|Uninstall|Exit"
+      menu "What would you like to do?" "Change package type|Reinstall v$RELEASE_VER|Uninstall|Exit"
       case $MENU_SEL in
-        1) do_install ;;
-        2) if confirm "Uninstall $APP v$INSTALLED_VERSION?"; then do_uninstall; fi ;;
-        3|0) log "Bye."; exit 0 ;;
+        1) choose_pkgtype; do_update "$PKG_TYPE" "$PKG_URL" ;;
+        2) do_install ;;
+        3) if confirm "Uninstall $APP v$INSTALLED_VERSION?"; then do_uninstall; fi ;;
+        4|0) log "Bye."; exit 0 ;;
       esac
     fi
   else
