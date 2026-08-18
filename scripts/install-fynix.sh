@@ -181,6 +181,8 @@ menu() {
   while true; do
     printf "${CLEAR}"
     banner
+    # Static info bar: always visible above the choices
+    info_bar
     if [[ -n $title ]]; then printf "  ${BOLD}${WHITE}%s${RESET}\n" "$title"; echo; fi
     for i in "${!opts[@]}"; do
       if (( i == sel )); then
@@ -209,6 +211,7 @@ confirm() {
   while true; do
     printf "${CLEAR}"
     banner
+    info_bar
     printf "  ${BOLD}${WHITE}%s${RESET}\n" "$prompt"; echo
     if (( sel == 0 )); then
       printf "  ${ORANGE}▸ ${BOLD}${WHITE}[ Yes ]${RESET}    ${GREY}[ No ]${RESET}\n"
@@ -351,10 +354,8 @@ detect_install() {
   if $INSTALLED && [[ -z "$INSTALLED_VERSION" ]]; then INSTALLED_VERSION=""; fi
 }
 
-# ── Summary screen: show detected info before the user acts ────────────────────
-show_summary() {
-  printf "${CLEAR}"
-  banner
+# ── Static info box (always shown above the choices) ────────────────────────────
+info_bar() {
   echo
   printf "  ${BOLD}${WHITE}Installation Summary${RESET}\n"
   printf "  ${GREY}$(printf '%*s' $((term_width-2)) '' | tr ' ' '─')${RESET}\n"
@@ -373,7 +374,13 @@ show_summary() {
   echo
   printf "  ${DIM}Latest release${RESET}    ${BOLD}${ORANGE}v$RELEASE_VER${RESET}\n"
   printf "  ${GREY}$(printf '%*s' $((term_width-2)) '' | tr ' ' '─')${RESET}\n"
-  echo
+}
+
+# ── Full-screen summary (used in main flow) ─────────────────────────────────
+info_screen() {
+  printf "${CLEAR}"
+  banner
+  info_bar
 }
 
 write_state() {
@@ -565,11 +572,11 @@ main() {
   detect_install
   if ! fetch_release; then
     # Show summary even on failure so the user sees their distro info
-    show_summary
+    info_screen
     err "Could not reach GitHub. Check your connection."
     exit 1
   fi
-  show_summary
+  info_screen
   if $INSTALLED; then
     if ver_gt "$RELEASE_VER" "$INSTALLED_VERSION"; then
       warn "A newer version is available: ${BOLD}${ORANGE}v$RELEASE_VER${RESET}"
