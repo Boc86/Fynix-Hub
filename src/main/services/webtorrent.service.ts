@@ -100,12 +100,12 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
       debug(`Torrent ready: ${torrent.infoHash}`)
     })
 
-    // Timeout after 60 seconds
+    // Timeout after 120 seconds (increased for slow peer discovery)
     setTimeout(() => {
       if (infoHash && !torrentMap.has(infoHash)) {
-        reject(new Error('Torrent add timeout after 60s'))
+        reject(new Error('Torrent add timeout after 120s'))
       }
-    }, 60000)
+    }, 120000)
   })
 }
 

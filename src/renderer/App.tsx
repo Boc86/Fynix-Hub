@@ -1408,10 +1408,14 @@ export default function App() {
     usePlayerStore.getState().setNextEpisode(null)
     usePlayerStore.getState().setCurrentEpisode(null)
 
-    const isCompleted = videoPlayerRef.current?.wasPlaybackCompleted() ?? false
+    const player = videoPlayerRef.current
+    const isCompleted = player?.wasPlaybackCompleted() ?? false
+    // Also check progress-based completion (user stopped/watched past 90%)
+    const isProgressCompleted = player?.getCurrentProgress() ?? 0
+    const shouldAutoDelete = isCompleted || isProgressCompleted >= 0.90
 
     if (currentInfoHashRef.current) {
-      if (isCompleted) {
+      if (shouldAutoDelete) {
         // Fully watched — auto-delete
         window.api.torrent.removeTorrent(currentInfoHashRef.current).catch(() => {})
         currentInfoHashRef.current = null
@@ -1431,7 +1435,7 @@ export default function App() {
     }
 
     if (currentUsenetPathRef.current && currentUsenetPathRef.current.startsWith('file://')) {
-      if (isCompleted) {
+      if (shouldAutoDelete) {
         window.api.usenet.deleteByPath(currentUsenetPathRef.current).catch(() => {})
         currentUsenetPathRef.current = null
       } else {
@@ -1448,7 +1452,7 @@ export default function App() {
     }
 
     if (currentUsenetIdRef.current) {
-      if (isCompleted) {
+      if (shouldAutoDelete) {
         window.api.usenet.removeDownload(currentUsenetIdRef.current).catch(() => {})
         currentUsenetIdRef.current = null
       } else {

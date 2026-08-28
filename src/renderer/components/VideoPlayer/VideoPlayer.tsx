@@ -16,6 +16,8 @@ export interface VideoPlayerHandle {
   saveCurrentProgress: () => void
   /** Returns true if playback was completed (video ended naturally). */
   wasPlaybackCompleted: () => boolean
+  /** Returns current playback progress (0-1). */
+  getCurrentProgress: () => number
 }
 
 interface MediaInfo {
@@ -218,7 +220,8 @@ function VideoPlayerInner({
     const t = lastGoodPosRef.current
     let progress = 0
     if (isFinite(d) && d > 0 && isFinite(t)) progress = Math.min(Math.max(t / d, 0), 1)
-    if (progress < 0.90 && progress < 0.92) return
+    // Threshold: 90% — user has watched enough to count as "watched"
+    if (progress < 0.90) return
     try {
       const payload = buildHistoryPayload(
         mediaInfo.tmdbId, mediaInfo.mediaType,
@@ -238,6 +241,12 @@ function VideoPlayerInner({
       scrobble('stop').catch(() => {})
     },
     wasPlaybackCompleted: () => playbackCompletedRef.current,
+    getCurrentProgress: () => {
+      const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
+      const t = lastGoodPosRef.current
+      if (!isFinite(d) || d <= 0 || !isFinite(t)) return 0
+      return Math.min(Math.max(t / d, 0), 1)
+    },
   }), [saveProgress, scrobble, playbackCompletedRef])
 
   // ── Subtitle load: sidecar first, OpenSubtitles fallback ──────────────────

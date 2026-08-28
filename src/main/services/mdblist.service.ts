@@ -231,14 +231,10 @@ function isNetworkError(err: any): boolean {
 // ── Payload converters (MDBList API uses Trakt-style consumer payloads) ──
 
 export function convertScrobblePayload(media: any): any {
-  if (media && media.show && media.episode) {
-    const { episode, show, ...rest } = media
-    return {
-      ...rest,
-      show,
-      season: { number: episode.season, episode: { number: episode.number } },
-    }
-  }
+  // MDBList scrobble API accepts the standard Trakt-style payload directly:
+  //   { show: { ids: { tmdb } }, episode: { season, number }, progress }
+  //   { movie: { ids: { tmdb } }, progress }
+  // No transformation needed — pass through unchanged.
   return media
 }
 
@@ -395,6 +391,33 @@ export async function getSettings() {
 export async function getPlayback() {
   return withCache('mdblist:v2:playback', TTL.MDBLIST_PROGRESS, () =>
     fetchMdbList('/sync/playback'))
+}
+
+/**
+ * Recent watch history for the companion's "Watch History" row.
+ * Returns flat items with tmdb_id / media_type / season / episode / progress / watched_at.
+ */
+export async function getWatchHistory() {
+  return withCache('mdblist:v2:watch-history', TTL.MDBLIST_PROGRESS, async () => {
+    const data = await fetchMdbList('/sync/history?limit=100')
+    const arr = Array.isArray(data) ? data : (data?.history || [])
+    return arr.map((h: any) => ({
+      tmdb_id: h?.ids?.tmdb || h?.tmdb_id || 0,
+      media_type: h?.media_type || h?.type || 'movie',
+      season: h?.season || null,
+      episode: h?.episode || null,
+      progress: h?.progress || 0,
+      watched_at: h?.watched_at || h?.last_watched_at || null,
+    }))
+  })
+}
+
+/**
+ * In-progress shows for the companion's "Up Next" row.
+ * Returns the mapped /upnext items (show + next_episode).
+ */
+export async function getWatchedProgress() {
+  return getWatchedShowsWithProgress()
 }
 
 export async function getPlaybackMovies() {
