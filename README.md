@@ -63,7 +63,7 @@ If you find this project useful, consider supporting development on Ko-fi. Every
 ## Quick Install (Linux)
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Boc86/Fynix-Hub/dev/scripts/install-fynix.sh | bash
+curl -sL https://raw.githubusercontent.com/Boc86/Fynix-Hub/master/scripts/install-fynix.sh | bash
 ```
 
 Downloads the latest AppImage to `~/Applications/`, creates a desktop entry under **Multimedia**, and adds an app icon.
