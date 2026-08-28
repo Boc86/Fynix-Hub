@@ -697,6 +697,8 @@ choose_default() {
 }
 
 # Only run when executed directly (not when sourced for testing)
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# When piped via `curl | bash`, BASH_SOURCE[0] may be empty/unset — use a
+# safe default and also check $0 to distinguish direct execution from sourcing.
+if [[ "${BASH_SOURCE[0]:-}" == "$0" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
   main "$@"
 fi
