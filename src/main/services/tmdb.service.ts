@@ -54,6 +54,11 @@ async function fetchTmdb(path: string, params: Record<string, string> = {}) {
   return res.json()
 }
 
+/** Exported for the network API proxy (returns raw TMDB JSON, snake_case). */
+export async function fetchTmdbRaw(path: string, params: Record<string, string> = {}) {
+  return fetchTmdb(path, params)
+}
+
 export function getImageUrl(path: string, size: string = 'original'): string {
   return `${IMAGE_BASE}/${size}${path}`
 }

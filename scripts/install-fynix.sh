@@ -596,11 +596,49 @@ do_uninstall() {
 
 # ── Main flow ──────────────────────────────────────────────────────────────────
 main() {
+  # Handle --update flag: download a fresh copy of this script alongside the
+  # binary, then run the update logic non-interactively.
+  if [[ "${1:-}" == "--update" ]]; then
+    detect_distro
+    detect_install
+    if ! fetch_release; then
+      err "Could not reach GitHub. Check your connection."
+      exit 1
+    fi
+    # Download a fresh copy of the install script next to the binary so
+    # future --update invocations run the latest version of this script.
+    if [[ -n "$INSTALLED_PATH" && -e "$INSTALLED_PATH" ]]; then
+      local install_dir
+      install_dir="$(dirname "$INSTALLED_PATH")"
+      local script_dest="$install_dir/install-fynix.sh"
+      if curl -sL --max-time 30 "https://raw.githubusercontent.com/$REPO/master/scripts/install-fynix.sh" \
+        -o "$script_dest" 2>/dev/null; then
+        chmod +x "$script_dest" 2>/dev/null || true
+        ok "Updated installer script → $script_dest"
+      fi
+    fi
+    # Already on the latest version?
+    if $INSTALLED && [[ "$INSTALLED_VERSION" == "$RELEASE_VER" ]]; then
+      warn "You are already on the latest version (v$RELEASE_VER). No update needed."
+      exit 0
+    fi
+    # No existing install — just install fresh.
+    if ! $INSTALLED; then
+      PKG_TYPE="${INSTALLED_TYPE:-}"
+      PKG_URL="${PKG_URL:-}"
+      if [[ -z "$PKG_TYPE" ]]; then choose_default; fi
+      do_install
+      exit $?
+    fi
+    # Existing install — run the update.
+    do_update "$INSTALLED_TYPE" ""
+    exit $?
+  fi
+
   # Non-interactive override: if called with args, do a quick install
   if [[ $# -gt 0 ]]; then
     detect_distro
     fetch_release || exit 1
-    if ! fetch_release; then exit 1; fi
     do_install
     exit $?
   fi

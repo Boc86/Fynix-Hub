@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, BrowserView } from 'electron'
+import { app, BrowserWindow, ipcMain, BrowserView, shell } from 'electron'
 import path from 'path'
+import { spawn } from 'child_process'
 import { registerIpcHandlers } from './ipc/handlers'
 import * as ChannelMergeService from './services/channel-merge.service'
 import * as TorrentSearchService from './services/torrent-search.service'
@@ -313,8 +314,30 @@ function destroyYouTubeView() {
   }
 }
 
+// Handle --update flag: if the user runs `fynix-hub --update`, spawn the
+// bundled install script instead of starting the GUI.
+const isUpdateFlag = process.argv.includes('--update')
+if (isUpdateFlag) {
+  const exeDir = path.dirname(process.execPath)
+  const script = path.join(exeDir, 'install-fynix.sh')
+  try {
+    spawn(script, ['--update'], { stdio: 'inherit', detached: true })
+  } catch {
+    // Fall back to launching via bash in case the script isn't executable
+    spawn('bash', [script, '--update'], { stdio: 'inherit', detached: true })
+  }
+  app.quit()
+  process.exit(0)
+}
+
 app.whenReady().then(async () => {
-  createWindow();
+  try {
+    createWindow();
+  } catch (err: any) {
+    // Window creation may fail in headless environments — the network API
+    // server and IPC handlers should still start.
+    console.error('[App] createWindow failed:', err?.message || err);
+  }
 
   // Send status to renderer after it finishes loading
   mainWindow?.webContents.on('did-finish-load', () => {

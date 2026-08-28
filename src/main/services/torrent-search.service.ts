@@ -1009,7 +1009,8 @@ export async function searchTorrents(
   query: TorrentQuery,
   enabledIndexerIds?: string[],
   customIndexers?: CustomIndexer[],
-  onResult?: (result: TorrentResult) => void
+  onResult?: (result: TorrentResult) => void,
+  skipCache: boolean = false
 ): Promise<TorrentResult[]> {
   const searchTerm = query.query || `${query.title || ''} ${query.year || ''}`.trim()
   // Resolve an IMDB ID so indexers that require it (e.g. EZTV, 1337x) can be used
@@ -1022,87 +1023,108 @@ export async function searchTorrents(
   }
   const cacheKey = `torrent:search:v2:${JSON.stringify({ q: query, e: enabledIndexerIds, c: (customIndexers || []).map(x => x.id).sort() })}`
 
-  return withCache(cacheKey, TTL.TORRENT_SEARCH, async () => {
-    const results: TorrentResult[] = []
-    const enabled = new Set(enabledIndexerIds && enabledIndexerIds.length > 0 ? enabledIndexerIds : getDefaultEnabledIndexers())
-    const customs = (customIndexers || []).filter(c => c.enabled)
-
-    const promises: Promise<TorrentResult[]>[] = []
-
-    for (const indexer of BUILT_IN_INDEXERS) {
-      if (!enabled.has(indexer.id)) continue
-      if (!isIndexerApplicable(indexer, query)) continue
-      promises.push(withTimeout(indexer.search(query), INDEXER_TIMEOUT))
-    }
-
-    for (const indexer of customs) {
-      if (!searchTerm) continue
-      promises.push(withTimeout(searchTorznab(indexer, searchTerm), INDEXER_TIMEOUT))
-    }
-
-    console.log(`[TorrentSearch] Searching with ${promises.length} indexers, enabled: ${[...enabled].join(',')}`)
-
-    const settled = await Promise.allSettled(promises)
-    let fulfilledCount = 0
-    let rejectedCount = 0
-    for (const s of settled) {
-      if (s.status === 'fulfilled') {
-        fulfilledCount++
-        if (s.value.length > 0) {
-          console.log(`[TorrentSearch] Got ${s.value.length} results (indexer: ${s.value[0].indexer})`)
-        }
-        if (onResult) {
-          for (const r of s.value) onResult(r)
-        }
-        results.push(...s.value)
-      } else {
-        rejectedCount++
-      }
-    }
-    if (rejectedCount > 0) console.log(`[TorrentSearch] ${rejectedCount}/${promises.length} indexers timed out or failed`)
-
-    // Post-query filtering: remove results clearly irrelevant to the search
-    let filtered = results
-    if (query.type === 'movie') {
-      // For movie searches, drop TV episodes (SxxExx patterns)
-      const episodeRe = /\bS\d{1,3}E\d{1,4}\b/i
-      filtered = filtered.filter(r => !episodeRe.test(r.title))
-      // If we have a year, require it in the title
-      if (query.year) {
-        const yearStr = String(query.year)
-        const yearFiltered = filtered.filter(r => r.title.includes(yearStr))
-        if (yearFiltered.length > 0) filtered = yearFiltered
-        // else fall through — no year-matched results at all, keep everything
-      }
-    } else if (query.type === 'episode' && query.season !== undefined && query.episode !== undefined) {
-      // For episode searches, only keep results matching the specific episode
-      const epStr = `S${String(query.season).padStart(2, '0')}E${String(query.episode).padStart(2, '0')}`
-      const episodeRe = new RegExp(epStr, 'i')
-      const epFiltered = filtered.filter(r => episodeRe.test(r.title))
-      if (epFiltered.length > 0) filtered = epFiltered
-    }
-
-    // Deduplicate by infoHash
-    const seen = new Set<string>()
-    const deduped = filtered.filter((r) => {
-      if (!r.infoHash || seen.has(r.infoHash)) return false
-      seen.add(r.infoHash)
-      return true
+  if (!skipCache) {
+    const cached = await withCache(cacheKey, TTL.TORRENT_SEARCH, async () => {
+      // fetcher returns empty - we handle caching below
+      return [] as TorrentResult[]
     })
-
-    const filteredOut = results.length - filtered.length
-    console.log(`[TorrentSearch] ${deduped.length} unique results for "${searchTerm}" (${results.length} raw, ${filteredOut} filtered out)`)
-    if (filteredOut > 0) {
-      console.log(`[TorrentSearch] Filtered out ${filteredOut} results (type=${query.type}, year=${query.year})`)
+    // Only use cached results if no callback (non-streaming mode)
+    if (!onResult && cached.length > 0) {
+      console.log(`[TorrentSearch] Cache hit: ${cached.length} results`)
+      return cached
     }
-    const qualityOrder: Record<string, number> = { '4K': 0, '1080p': 1, '720p': 2, '480p': 3 }
-    deduped.sort((a, b) => {
-      const aQ = qualityOrder[a.quality] ?? 99
-      const bQ = qualityOrder[b.quality] ?? 99
-      if (aQ !== bQ) return aQ - bQ
-      return b.seeders - a.seeders
-    })
+    // Fall through to re-search with callback for streaming
+  }
 
-    return deduped
+  const results: TorrentResult[] = []
+  const enabled = new Set(enabledIndexerIds && enabledIndexerIds.length > 0 ? enabledIndexerIds : getDefaultEnabledIndexers())
+  const customs = (customIndexers || []).filter(c => c.enabled)
+
+  const promises: Promise<TorrentResult[]>[] = []
+
+  for (const indexer of BUILT_IN_INDEXERS) {
+    if (!enabled.has(indexer.id)) continue
+    if (!isIndexerApplicable(indexer, query)) continue
+    promises.push(withTimeout(indexer.search(query), INDEXER_TIMEOUT))
+  }
+
+  for (const indexer of customs) {
+    if (!searchTerm) continue
+    promises.push(withTimeout(searchTorznab(indexer, searchTerm), INDEXER_TIMEOUT))
+  }
+
+  console.log(`[TorrentSearch] Searching with ${promises.length} indexers, enabled: ${[...enabled].join(',')}`)
+
+  const settled = await Promise.allSettled(promises)
+  let fulfilledCount = 0
+  let rejectedCount = 0
+  for (const s of settled) {
+    if (s.status === 'fulfilled') {
+      fulfilledCount++
+      if (s.value.length > 0) {
+        console.log(`[TorrentSearch] Got ${s.value.length} results (indexer: ${s.value[0].indexer})`)
+      }
+      if (onResult) {
+        for (const r of s.value) onResult(r)
+      }
+      results.push(...s.value)
+    } else {
+      rejectedCount++
+    }
+  }
+  if (rejectedCount > 0) console.log(`[TorrentSearch] ${rejectedCount}/${promises.length} indexers timed out or failed`)
+
+  // Post-query filtering: remove results clearly irrelevant to the search
+  let filtered = results
+  if (query.type === 'movie') {
+    // For movie searches, drop TV episodes (SxxExx patterns)
+    const episodeRe = /\bS\d{1,3}E\d{1,4}\b/i
+    filtered = filtered.filter(r => !episodeRe.test(r.title))
+    // If we have a year, require it in the title
+    if (query.year) {
+      const yearStr = String(query.year)
+      const yearFiltered = filtered.filter(r => r.title.includes(yearStr))
+      if (yearFiltered.length > 0) filtered = yearFiltered
+      // else fall through — no year-matched results at all, keep everything
+    }
+  } else if (query.type === 'episode' && query.season !== undefined && query.episode !== undefined) {
+    // For episode searches, only keep results matching the specific episode
+    const epStr = `S${String(query.season).padStart(2, '0')}E${String(query.episode).padStart(2, '0')}`
+    const episodeRe = new RegExp(epStr, 'i')
+    const epFiltered = filtered.filter(r => episodeRe.test(r.title))
+    if (epFiltered.length > 0) filtered = epFiltered
+  }
+
+  // Deduplicate by infoHash
+  const seen = new Set<string>()
+  const deduped = filtered.filter((r) => {
+    if (!r.infoHash || seen.has(r.infoHash)) return false
+    seen.add(r.infoHash)
+    return true
   })
+
+  const filteredOut = results.length - filtered.length
+  console.log(`[TorrentSearch] ${deduped.length} unique results for "${searchTerm}" (${results.length} raw, ${filteredOut} filtered out)`)
+  if (filteredOut > 0) {
+    console.log(`[TorrentSearch] Filtered out ${filteredOut} results (type=${query.type}, year=${query.year})`)
+  }
+  const qualityOrder: Record<string, number> = { '4K': 0, '1080p': 1, '720p': 2, '480p': 3 }
+  deduped.sort((a, b) => {
+    const aQ = qualityOrder[a.quality] ?? 99
+    const bQ = qualityOrder[b.quality] ?? 99
+    if (aQ !== bQ) return aQ - bQ
+    return b.seeders - a.seeders
+  })
+
+  // Call onResult for deduped results if provided
+  if (onResult) {
+    for (const r of deduped) onResult(r)
+  }
+
+  // Cache results for non-streaming mode
+  if (!onResult && deduped.length > 0) {
+    await withCache(cacheKey, TTL.TORRENT_SEARCH, async () => deduped)
+  }
+
+  return deduped
 }
