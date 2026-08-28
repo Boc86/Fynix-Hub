@@ -38,6 +38,18 @@ DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 DESKTOP_FILE="$DESKTOP_DIR/fynix-hub.desktop"
 
+# Pre-declare release variables so they're bound under `set -u` even if
+# fetch_release() fails before setting them.
+RELEASE_TAG=""
+RELEASE_VER=""
+PKG_TYPE=""
+PKG_URL=""
+ASSET_DEB=""
+ASSET_RPM=""
+ASSET_APPIMAGE=""
+ASSET_ZIP=""
+PKG_MANAGER=""
+
 # ── Detect terminal size ──────────────────────────────────────────────────────
 term_width=80
 term_height=24
