@@ -25,10 +25,10 @@ interface BrowserProps {
 export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter, genreFilter }: BrowserProps) {
   const {
     trending, popularMovies, popularTvShows, topRatedMovies,
-    continueWatching, upNext, isLoading, error, watchedIds,
+    continueWatching, watchlist, upNext, isLoading, error, watchedIds,
     watchProviders, selectedProvider,
     setTrending, setPopularMovies, setPopularTvShows,
-    setTopRatedMovies, setContinueWatching, setUpNext,
+    setTopRatedMovies, setContinueWatching, setWatchlist, setUpNext,
     setWatchedIds, setPlayback,
     setWatchProviders, setSelectedProvider,
     setLoading, setError, refreshVersion, setEpisodeWatched,
@@ -54,14 +54,13 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   const mdblistConnected = useSettingsStore((s) => s.mdblistConnected)
 
   const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !watchedIds.has(item.id))
-  const continueTv = continueWatching.filter(item => item.mediaType === 'tv')
   const upNextItems = upNext.map(u => u.item)
 
   const rowConfig = mediaTypeFilter
     ? [
         ...(mediaTypeFilter === 'movie'
           ? [{ items: continueMovies, label: 'continueMovies' }]
-          : [{ items: upNextItems, label: 'upNext' }, { items: continueTv, label: 'continueTv' }]),
+          : [{ items: upNextItems, label: 'upNext' }, { items: watchlist, label: 'watchlist' }]),
         // Trending can't be provider-filtered (no with_watch_providers on /trending),
         // so hide it while a provider filter is active — Popular becomes the curated row.
         ...(selectedProvider ? [] : [{ items: trending, label: 'trending' }]),
@@ -70,7 +69,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
     : [
         { items: upNextItems, label: 'upNext' },
         { items: continueMovies, label: 'continueMovies' },
-        { items: continueTv, label: 'continueTv' },
+        { items: watchlist, label: 'watchlist' },
         { items: trending, label: 'trending' },
         { items: popularMovies, label: 'popularMovies' },
         { items: popularTvShows, label: 'popularTv' },
@@ -79,7 +78,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
 
   const getVisibleRows = useCallback(() => {
           return rowConfig.filter((r) => r.items.length > 0);
-      }, [trending, continueWatching, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, selectedProvider]);
+      }, [trending, continueWatching, watchlist, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, selectedProvider]);
   const getRowItemCount = useCallback((rowIdx: number) => {
     const rows = getVisibleRows()
     return rows[rowIdx]?.items.length ?? 0
@@ -199,6 +198,40 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
       const cwItems = (await Promise.all(cwPromises)).filter((x): x is MediaItem => x !== null)
       if (cwItems.length > 0) {
         setContinueWatching(cwItems)
+      }
+
+      // Fetch Watchlist from MDBList
+      try {
+        const watchlistItems = await window.api.mdblist.getWatchlist().catch((err: any) => { console.log('[Browser] getWatchlist failed:', err?.message); return null })
+        if (watchlistItems && Array.isArray(watchlistItems) && watchlistItems.length > 0) {
+          const wlPromises = watchlistItems.map(async (w: any) => {
+            const tmdbId = w.tmdb_id
+            const mediaType = w.media_type === 'movie' ? 'movie' : 'tv'
+            try {
+              const detail = await window.api.tmdb.getDetails(mediaType, tmdbId)
+              if (!detail) return null
+              return {
+                id: detail.id,
+                title: detail.title || detail.name || '',
+                overview: detail.overview || '',
+                posterPath: detail.posterPath || null,
+                backdropPath: detail.backdropPath || null,
+                releaseDate: detail.releaseDate || '',
+                voteAverage: detail.voteAverage || 0,
+                voteCount: detail.voteCount || 0,
+                mediaType: mediaType as 'movie' | 'tv',
+                genreIds: (detail.genres || []).map((g: any) => g.id),
+              } as MediaItem
+            } catch { return null }
+          })
+          const wlResolved = (await Promise.all(wlPromises)).filter((x): x is MediaItem => x !== null)
+          if (wlResolved.length > 0) {
+            setWatchlist(wlResolved)
+            console.log('[Browser] Watchlist items:', wlResolved.length)
+          }
+        }
+      } catch (err: any) {
+        console.log('[Browser] getWatchlist error:', err?.message)
       }
 
       // Fetch Up Next (shows with next episode to watch)
@@ -374,22 +407,22 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   useEffect(() => {
     setFocusedRow(0)
     setFocusedCard(0)
-  }, [continueWatching.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length, discoveryRows.length])
+  }, [continueWatching.length, watchlist.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length, discoveryRows.length])
 
   useEffect(() => {
     if (browserRef.current) {
       browserRef.current.focus()
     }
-  }, [continueWatching.length, trending.length])
+  }, [continueWatching.length, watchlist.length, trending.length])
 
   useEffect(() => {
     console.log('[Browser] Continue Watching rows:', {
       total: continueWatching.length,
       movies: continueMovies.length,
-      tv: continueTv.length,
       watchedIds: watchedIds.size,
+      watchlist: watchlist.length,
     })
-  }, [continueWatching.length, continueMovies.length, continueTv.length, watchedIds.size])
+  }, [continueWatching.length, continueMovies.length, watchedIds.size, watchlist.length])
 
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()
@@ -622,7 +655,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
                   row.label === 'upNext' ? 'Up Next' :
                   row.label === 'trending' ? (mediaTypeFilter === 'movie' ? 'Trending Movies' : mediaTypeFilter === 'tv' ? 'Trending TV Shows' : 'Trending Now') :
                   row.label === 'continueMovies' ? 'Continue Watching Movies' :
-                  row.label === 'continueTv' ? 'Continue Watching TV Shows' :
+                  row.label === 'watchlist' ? 'Watchlist' :
                   row.label === 'popularMovies' ? 'Popular Movies' :
                   row.label === 'popularTv' ? 'Popular TV Shows' :
                   row.label === 'topRated' ? 'Top Rated Movies' :

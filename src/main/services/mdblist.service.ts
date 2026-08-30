@@ -413,6 +413,24 @@ export async function getWatchHistory() {
 }
 
 /**
+ * Watchlist items from MDBList (/watchlist/items).
+ * Returns flat items with tmdb_id / media_type for the Browser's Watchlist row.
+ */
+export async function getWatchlist() {
+  return withCache('mdblist:v2:watchlist', TTL.MDBLIST_PROGRESS, async () => {
+    const data = await fetchMdbList('/watchlist/items?limit=1000')
+    // MDBList /watchlist/items returns { movies: [...], shows: [...], pagination: {...} }
+    const movies = Array.isArray(data?.movies) ? data.movies : []
+    const shows = Array.isArray(data?.shows) ? data.shows : []
+    const arr = [...movies, ...shows]
+    return arr.map((w: any) => ({
+      tmdb_id: w?.ids?.tmdb || w?.tmdb_id || 0,
+      media_type: w?.mediatype === 'show' ? 'tv' : w?.media_type || w?.type || 'movie',
+    })).filter((w: any) => w.tmdb_id)
+  })
+}
+
+/**
  * In-progress shows for the companion's "Up Next" row.
  * Returns the mapped /upnext items (show + next_episode).
  */
