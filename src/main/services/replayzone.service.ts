@@ -79,14 +79,14 @@ async function fetchAllReplays(): Promise<ReplayResult[]> {
 }
 
 /** Normalize a string for comparison: lowercase, strip punctuation, collapse
- *  spaces. e.g. "MotoGP - Aragon" → "motogp  aragon" */
+ *  spaces. e.g. "MotoGP - Aragon" -> "motogp  aragon" */
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
 }
 
 /** Compact normalize: same as normalize() but spaces stripped — useful for
  *  token-level substring checks where formatting may differ.
- *  e.g. "Other Motorsport" → "othermotorsport", "MotoGP" → "motogp" */
+ *  e.g. "Other Motorsport" -> "othermotorsport", "MotoGP" -> "motogp" */
 function compact(s: string): string {
   return normalize(s).replace(/\s+/g, '')
 }
@@ -97,6 +97,15 @@ function compact(s: string): string {
 const OTHER_MOTORSPORT_LEAGUES = new Set([
   'motogp', 'moto2', 'moto3', 'motoe', 'dtm', 'wrc', 'wsbk', 'nascar',
   'indycar', 'f1academy',
+])
+
+/** Generic words that appear in many race replay titles and should NOT be
+ *  required as hard-filter tokens during multi-word search. The remaining
+ *  "specific" words (e.g. "Aragon", "Dutch", "British") act as the key
+ *  disambiguator. */
+const GENERIC_REPLAY_WORDS = new Set([
+  'sprint', 'race', 'full', 'replay', 'grand', 'prix', 'qualifying',
+  'the', 'gp', 'cup', 'final', 'race', 'moto', 'f1', 'moto gp',
 ])
 
 export async function searchReplays(
@@ -113,30 +122,46 @@ export async function searchReplays(
     const sportCompact = sport ? compact(sport) : ''
     const leagueCompact = league ? compact(league) : ''
 
+    // Specific query words (non-generic) that MUST appear in the result title
+    // for the result to be considered a match. This prevents "Sprint" from
+    // matching every F1 sprint race when the user is looking for a specific
+    // MotoGP event like "Aragon Sprint".
+    const specificWords = queryWords.filter(w => !GENERIC_REPLAY_WORDS.has(w))
+
     const scored = all
       .map(r => {
         const normalizedTitle = normalize(r.title)
         const rSport = normalize(r.sport || '')
         const rCategory = normalize(r.category || '')
+        const titleCompact = compact(normalizedTitle)
+        const matchedWords = queryWords.filter(w => normalizedTitle.includes(w))
         let score = 0
 
         if (normalizedTitle === normalizedQuery) score = 100
         else if (normalizedTitle.includes(normalizedQuery)) score = 80
         else {
-          let matchedWords = 0
-          for (const word of queryWords) {
-            if (normalizedTitle.includes(word)) matchedWords++
+          // Require ALL specific (non-generic) query words to be present.
+          // If the query is "Aragon Sprint", "Aragon" is specific and must
+          // be in the title; "Sprint" is generic and optional.
+          if (specificWords.length > 0) {
+            const allSpecificMatch = specificWords.every(w => titleCompact.includes(w))
+            if (!allSpecificMatch) {
+              // This result doesn't contain the key disambiguator word(s) —
+              // hard-reject it.
+              score = 0
+            } else {
+              // Non-linear reward: prefer more total word matches.
+              score = matchedWords.length * matchedWords.length * 10
+            }
+          } else {
+            score = matchedWords.length * matchedWords.length * 10
           }
-          // Reward entries that match MORE query words non-linearly so that
-          // multi-word queries like "Aragon Sprint" prefer titles containing
-          // BOTH words over titles matching only one ("Sprint - F1 - Dutch GP").
-          score = matchedWords * matchedWords * 10
         }
 
         // Sport + league filtering: demote results that don't match the
         // requested sport AND league. This prevents cross-sport/cross-series
         // leakage (e.g. selecting MotoGP → Aragon but getting F1 sprint races).
-        if (sportCompact) {
+        if (score > 0 && sportCompact) {
           const sportMatches =
             compact(rSport).includes(sportCompact) ||
             compact(rCategory).includes(sportCompact)
@@ -150,7 +175,7 @@ export async function searchReplays(
               // base score — can't distinguish sub-series, title must
               // disambiguate. But boost if the league abbreviation (e.g.
               // "MotoGP") appears in the title.
-              if (rSport.includes('motorsport') && compact(normalizedTitle).includes(leagueCompact)) {
+              if (rSport.includes('motorsport') && titleCompact.includes(leagueCompact)) {
                 score += 20 // "MotoGP" in title + right sport = strong match
               }
             } else if (!categoryMatchesLeague) {
