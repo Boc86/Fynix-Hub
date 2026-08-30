@@ -426,6 +426,8 @@ export async function getWatchlist() {
     return arr.map((w: any) => ({
       tmdb_id: w?.ids?.tmdb || w?.tmdb_id || 0,
       media_type: w?.mediatype === 'show' ? 'tv' : w?.media_type || w?.type || 'movie',
+      title: w?.title || w?.name || '',
+      year: w?.release_year || w?.year || null,
     })).filter((w: any) => w.tmdb_id)
   })
 }

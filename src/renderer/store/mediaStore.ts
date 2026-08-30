@@ -12,6 +12,7 @@ interface MediaState {
   selectedEpisode: number | null
   seasonEpisodes: Episode[]
   continueWatching: MediaItem[]
+  watchlist: MediaItem[]
   upNext: Array<{ item: MediaItem; season: number; episode: number; episodeTitle?: string }>
   resumeProgress: number | null
   watchedIds: Set<number>
@@ -33,6 +34,7 @@ interface MediaState {
   setSelectedEpisode: (episode: number | null) => void
   setSeasonEpisodes: (episodes: Episode[]) => void
   setContinueWatching: (items: MediaItem[]) => void
+  setWatchlist: (items: MediaItem[]) => void
   setUpNext: (items: Array<{ item: MediaItem; season: number; episode: number; episodeTitle?: string }>) => void
   setResumeProgress: (progress: number | null) => void
   setWatchedIds: (ids: Set<number>) => void
@@ -58,6 +60,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   selectedEpisode: null,
   seasonEpisodes: [],
   continueWatching: [],
+  watchlist: [],
   upNext: [],
   resumeProgress: null,
   watchedIds: new Set<number>(),
@@ -86,6 +89,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   setSelectedEpisode: (episode) => set({ selectedEpisode: episode }),
   setSeasonEpisodes: (episodes) => set({ seasonEpisodes: episodes }),
   setContinueWatching: (items) => set({ continueWatching: items }),
+  setWatchlist: (items) => set({ watchlist: items }),
   setUpNext: (items) => set({ upNext: items }),
   setResumeProgress: (progress) => set({ resumeProgress: progress }),
   setWatchedIds: (ids) => set({ watchedIds: ids }),
@@ -102,6 +106,7 @@ export const useMediaStore = create<MediaState>((set) => ({
   setError: (error) => set({ error }),
   clearWatchData: () => set({
     continueWatching: [],
+    watchlist: [],
     upNext: [],
     watchedIds: new Set<number>(),
     playback: [],
