@@ -346,7 +346,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     setReplayResults([])
     setReplayFocused(0)
     try {
-      const results = await window.api.sports.searchReplays(title)
+      const results = await window.api.sports.searchReplays(title, store.selectedSport?.name, store.selectedLeague?.name)
       if (results.length > 0) setReplayResults(results)
       else onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined)
     } catch { onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined) }
@@ -1005,7 +1005,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               </div>
             )}
             {replayResults.length > 0 && !selectedReplay && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12, marginTop: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12, marginTop: 16, maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
                 <h3 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 12px 0' }}>Replays Found</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {replayResults.map((r, i) => (

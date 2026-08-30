@@ -78,28 +78,120 @@ async function fetchAllReplays(): Promise<ReplayResult[]> {
   return cachedReplays
 }
 
+/** Normalize a string for comparison: lowercase, strip diacritics, strip
+ *  punctuation, collapse spaces. e.g. "MotoGP - Aragón" -> "motogp  aragon"
+ *  (diacritics removed so "Aragón" matches "Aragon"). */
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents (á→a)
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-export async function searchReplays(query: string): Promise<ReplayResult[]> {
+/** Compact normalize: same as normalize() but spaces stripped — useful for
+ *  token-level substring checks where formatting may differ.
+ *  e.g. "Other Motorsport" -> "othermotorsport", "MotoGP" -> "motogp" */
+function compact(s: string): string {
+  return normalize(s).replace(/\s+/g, '')
+}
+
+/** Sports under which ReplayZone groups multiple sub-series into a shared
+ *  "Other Motorsport" category. These leagues need title-level disambiguation
+ *  rather than category matching. */
+const OTHER_MOTORSPORT_LEAGUES = new Set([
+  'motogp', 'moto2', 'moto3', 'motoe', 'dtm', 'wrc', 'wsbk', 'nascar',
+  'indycar', 'f1academy',
+])
+
+/** Generic filler words that appear in many race replay titles and should NOT
+ *  be required as hard-filter tokens during multi-word search. The remaining
+ *  "specific" words (e.g. "Aragon", "Dutch", "British", "Sprint", "Race")
+ *  act as the key disambiguator.
+ *
+ *  Note: "Sprint" and "Race" are NOT generic here — they are significant
+ *  event-type qualifiers that must match. If the user searches "Aragon
+ *  Sprint", results without "Sprint" (e.g. just the full race) are excluded. */
+const GENERIC_REPLAY_WORDS = new Set([
+  'the', 'full', 'replay', 'gp', 'cup', 'final', 'moto', 'f1',
+])
+
+export async function searchReplays(
+  query: string,
+  sport?: string,
+  league?: string,
+): Promise<ReplayResult[]> {
   try {
     const all = await fetchAllReplays()
     const normalizedQuery = normalize(query)
     if (!normalizedQuery) return []
 
     const queryWords = normalizedQuery.split(' ').filter(w => w.length > 2)
+    const sportCompact = sport ? compact(sport) : ''
+    const leagueCompact = league ? compact(league) : ''
+
+    // Specific query words (non-generic) that MUST appear in the result title
+    // for the result to be considered a match. This prevents "Sprint" from
+    // matching every F1 sprint race when the user is looking for a specific
+    // MotoGP event like "Aragon Sprint".
+    const specificWords = queryWords.filter(w => !GENERIC_REPLAY_WORDS.has(w))
 
     const scored = all
       .map(r => {
         const normalizedTitle = normalize(r.title)
+        const rSport = normalize(r.sport || '')
+        const rCategory = normalize(r.category || '')
+        const titleCompact = compact(normalizedTitle)
+        const matchedWords = queryWords.filter(w => normalizedTitle.includes(w))
         let score = 0
 
         if (normalizedTitle === normalizedQuery) score = 100
         else if (normalizedTitle.includes(normalizedQuery)) score = 80
         else {
-          for (const word of queryWords) {
-            if (normalizedTitle.includes(word)) score += 10
+          // Require ALL specific (non-generic) query words to be present.
+          // If the query is "Aragon Sprint", "Aragon" is specific and must
+          // be in the title; "Sprint" is generic and optional.
+          if (specificWords.length > 0) {
+            const allSpecificMatch = specificWords.every(w => titleCompact.includes(w))
+            if (!allSpecificMatch) {
+              // This result doesn't contain the key disambiguator word(s) —
+              // hard-reject it.
+              score = 0
+            } else {
+              // Non-linear reward: prefer more total word matches.
+              score = matchedWords.length * matchedWords.length * 10
+            }
+          } else {
+            score = matchedWords.length * matchedWords.length * 10
+          }
+        }
+
+        // Sport + league filtering: demote results that don't match the
+        // requested sport AND league. This prevents cross-sport/cross-series
+        // leakage (e.g. selecting MotoGP → Aragon but getting F1 sprint races).
+        if (score > 0 && sportCompact) {
+          const sportMatches =
+            compact(rSport).includes(sportCompact) ||
+            compact(rCategory).includes(sportCompact)
+          if (!sportMatches) {
+            score = score / 100 // e.g. 100 → 1, 80 → 0.8
+          } else if (leagueCompact) {
+            const isOtherMotorsportLeague = OTHER_MOTORSPORT_LEAGUES.has(leagueCompact)
+            const categoryMatchesLeague = compact(rCategory).includes(leagueCompact)
+            if (isOtherMotorsportLeague && rCategory.includes('other motorsport')) {
+              // e.g. MotoGP league → "Other Motorsport" category. Keep at
+              // base score — can't distinguish sub-series, title must
+              // disambiguate. But boost if the league abbreviation (e.g.
+              // "MotoGP") appears in the title.
+              if (rSport.includes('motorsport') && titleCompact.includes(leagueCompact)) {
+                score += 20 // "MotoGP" in title + right sport = strong match
+              }
+            } else if (!categoryMatchesLeague) {
+              score = score / 100
+            } else {
+              score += 5 // exact league-category match is a strong signal
+            }
           }
         }
 

@@ -689,8 +689,36 @@ export async function searchDownloadCache(query: string, opts?: { title?: string
       if (!dir) continue
       const fs = await import('fs/promises')
       const pathMod = await import('path')
-      const entries = await fs.readdir(dir).catch(() => [])
-      const videoFile = entries.find(e => /\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(e))
+      // nzbget typically nests the video under DestDir/<NZBFilename>/. We must
+      // look there, not in the (possibly shared) DestDir root which contains
+      // files from many downloads. Using readdir(DirRoot).find(…) picked
+      // whichever file the filesystem happened to list first — usually an
+      // unrelated download.
+      const nzbFileBase = name.replace(/\.nzb$/i, '')
+      const subDir = pathMod.join(dir, nzbFileBase)
+      let searchDir: string = dir
+      let inSubDir = false
+      try { await fs.access(subDir); searchDir = subDir; inSubDir = true } catch {}
+      const entries = await fs.readdir(searchDir).catch(() => []) as string[]
+      let videoFile: string | undefined
+      if (inSubDir) {
+        // In a per-download subdir — any video file here belongs to this NZB.
+        videoFile = entries.find(e => /\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(e))
+      } else {
+        // Shared DestDir root — filter by name tokens so we pick THIS download's
+        // video, not the first arbitrary file the filesystem lists.
+        const nameTokens = nameWords(name)
+        videoFile = entries.find(e => {
+          if (!/\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(e)) return false
+          const eNorm = normalizeName(e)
+          return nameTokens.every(w => eNorm.includes(w))
+        })
+        // Fallback: looser match using pathMatchesTokens helper
+        if (!videoFile) {
+          const matched = entries.filter(e => /\.(mkv|mp4|avi|mov|wmv|flv|webm)(\.nzbget\.tmp)?$/i.test(e))
+          if (matched.length === 1) videoFile = matched[0]
+        }
+      }
       if (videoFile) {
         let episodeMatch = -1
         if (wantSeason != null && wantEpisode != null) {

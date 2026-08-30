@@ -302,13 +302,17 @@ export async function getEventDetails(eventId: string): Promise<SportarrEvent | 
 }
 
 export async function getEventsInRange(leagueId: string, seasonId: string, from: string, to: string): Promise<SportarrEvent[]> {
-  const cacheKey = `sports:events:range:${leagueId}:${seasonId}:${from}:${to}`
+  const cacheKey = `sports:events:range:v2:${leagueId}:${seasonId}:${from}:${to}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrEvent[]
 
   try {
-    // Use season parameter (not leagueId) for MotoGP - it returns actual races
-    const path = `/events?season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page_size=100`
+    // Include BOTH leagueId and seasonId so the Sportarr API returns events
+    // scoped to the correct league+season. Previously only seasonId was sent
+    // (per a MotoGP workaround), which caused cross-league leakage: e.g.
+    // selecting MotoGP returned F1 results, selecting DTM returned MotoGP
+    // results, because the seasonId alone wasn't enough to disambiguate.
+    const path = `/events?league=${encodeURIComponent(leagueId)}&season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page_size=100`
     const items = await fetchAll<SportarrEvent>(path)
     const events = items.filter(e => e.isActive)
     CacheService.setCache(cacheKey, JSON.stringify(events), CACHE_TTL)
