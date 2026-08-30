@@ -346,7 +346,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     setReplayResults([])
     setReplayFocused(0)
     try {
-      const results = await window.api.sports.searchReplays(title)
+      const results = await window.api.sports.searchReplays(title, store.selectedSport?.name)
       if (results.length > 0) setReplayResults(results)
       else onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined)
     } catch { onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined) }

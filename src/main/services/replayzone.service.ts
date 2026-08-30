@@ -82,13 +82,14 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
 }
 
-export async function searchReplays(query: string): Promise<ReplayResult[]> {
+export async function searchReplays(query: string, sport?: string): Promise<ReplayResult[]> {
   try {
     const all = await fetchAllReplays()
     const normalizedQuery = normalize(query)
     if (!normalizedQuery) return []
 
     const queryWords = normalizedQuery.split(' ').filter(w => w.length > 2)
+    const sportNorm = sport ? normalize(sport) : ''
 
     const scored = all
       .map(r => {
@@ -100,6 +101,19 @@ export async function searchReplays(query: string): Promise<ReplayResult[]> {
         else {
           for (const word of queryWords) {
             if (normalizedTitle.includes(word)) score += 10
+          }
+        }
+
+        // Sport penalty: if a sport filter is active and the result's sport
+        // doesn't match, demote it heavily so cross-sport leakage (e.g.
+        // searching "Aragon Sprint" returning F1 sprint races when viewing
+        // MotoGP) is avoided.
+        if (sportNorm) {
+          const rSport = normalize(r.sport || '')
+          const rCategory = normalize(r.category || '')
+          if (!rSport.includes(sportNorm) && !rCategory.includes(sportNorm)) {
+            score = score / 100  // e.g. 100 → 1, 80 → 0.8 — still above 0 but
+                                  // well below any matching-sport result
           }
         }
 
