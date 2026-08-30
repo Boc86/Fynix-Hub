@@ -553,6 +553,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       const watchedShows = await MdblistService.getWatchedShows().catch(() => [])
       json(res, 200, watchedShows)
     } catch (err: any) {
+      json(res, 502, { ok: false, error: err?.message || 'MDBList error' } )
+    }
+    return
+  }
+
+  // GET /api/mdblist/watchlist — watchlist items for the Watchlist row
+  // Returns [{ tmdb_id, media_type, title, year, ... }]
+  if (path === '/api/mdblist/watchlist' && req.method === 'GET') {
+    try {
+      const result = await MdblistService.getWatchlist()
+      json(res, 200, result)
+    } catch (err: any) {
       json(res, 502, { ok: false, error: err?.message || 'MDBList error' })
     }
     return
