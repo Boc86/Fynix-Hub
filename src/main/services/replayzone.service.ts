@@ -78,42 +78,86 @@ async function fetchAllReplays(): Promise<ReplayResult[]> {
   return cachedReplays
 }
 
+/** Normalize a string for comparison: lowercase, strip punctuation, collapse
+ *  spaces. e.g. "MotoGP - Aragon" → "motogp  aragon" */
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
 }
 
-export async function searchReplays(query: string, sport?: string): Promise<ReplayResult[]> {
+/** Compact normalize: same as normalize() but spaces stripped — useful for
+ *  token-level substring checks where formatting may differ.
+ *  e.g. "Other Motorsport" → "othermotorsport", "MotoGP" → "motogp" */
+function compact(s: string): string {
+  return normalize(s).replace(/\s+/g, '')
+}
+
+/** Sports under which ReplayZone groups multiple sub-series into a shared
+ *  "Other Motorsport" category. These leagues need title-level disambiguation
+ *  rather than category matching. */
+const OTHER_MOTORSPORT_LEAGUES = new Set([
+  'motogp', 'moto2', 'moto3', 'motoe', 'dtm', 'wrc', 'wsbk', 'nascar',
+  'indycar', 'f1academy',
+])
+
+export async function searchReplays(
+  query: string,
+  sport?: string,
+  league?: string,
+): Promise<ReplayResult[]> {
   try {
     const all = await fetchAllReplays()
     const normalizedQuery = normalize(query)
     if (!normalizedQuery) return []
 
     const queryWords = normalizedQuery.split(' ').filter(w => w.length > 2)
-    const sportNorm = sport ? normalize(sport) : ''
+    const sportCompact = sport ? compact(sport) : ''
+    const leagueCompact = league ? compact(league) : ''
 
     const scored = all
       .map(r => {
         const normalizedTitle = normalize(r.title)
+        const rSport = normalize(r.sport || '')
+        const rCategory = normalize(r.category || '')
         let score = 0
 
         if (normalizedTitle === normalizedQuery) score = 100
         else if (normalizedTitle.includes(normalizedQuery)) score = 80
         else {
+          let matchedWords = 0
           for (const word of queryWords) {
-            if (normalizedTitle.includes(word)) score += 10
+            if (normalizedTitle.includes(word)) matchedWords++
           }
+          // Reward entries that match MORE query words non-linearly so that
+          // multi-word queries like "Aragon Sprint" prefer titles containing
+          // BOTH words over titles matching only one ("Sprint - F1 - Dutch GP").
+          score = matchedWords * matchedWords * 10
         }
 
-        // Sport penalty: if a sport filter is active and the result's sport
-        // doesn't match, demote it heavily so cross-sport leakage (e.g.
-        // searching "Aragon Sprint" returning F1 sprint races when viewing
-        // MotoGP) is avoided.
-        if (sportNorm) {
-          const rSport = normalize(r.sport || '')
-          const rCategory = normalize(r.category || '')
-          if (!rSport.includes(sportNorm) && !rCategory.includes(sportNorm)) {
-            score = score / 100  // e.g. 100 → 1, 80 → 0.8 — still above 0 but
-                                  // well below any matching-sport result
+        // Sport + league filtering: demote results that don't match the
+        // requested sport AND league. This prevents cross-sport/cross-series
+        // leakage (e.g. selecting MotoGP → Aragon but getting F1 sprint races).
+        if (sportCompact) {
+          const sportMatches =
+            compact(rSport).includes(sportCompact) ||
+            compact(rCategory).includes(sportCompact)
+          if (!sportMatches) {
+            score = score / 100 // e.g. 100 → 1, 80 → 0.8
+          } else if (leagueCompact) {
+            const isOtherMotorsportLeague = OTHER_MOTORSPORT_LEAGUES.has(leagueCompact)
+            const categoryMatchesLeague = compact(rCategory).includes(leagueCompact)
+            if (isOtherMotorsportLeague && rCategory.includes('other motorsport')) {
+              // e.g. MotoGP league → "Other Motorsport" category. Keep at
+              // base score — can't distinguish sub-series, title must
+              // disambiguate. But boost if the league abbreviation (e.g.
+              // "MotoGP") appears in the title.
+              if (rSport.includes('motorsport') && compact(normalizedTitle).includes(leagueCompact)) {
+                score += 20 // "MotoGP" in title + right sport = strong match
+              }
+            } else if (!categoryMatchesLeague) {
+              score = score / 100
+            } else {
+              score += 5 // exact league-category match is a strong signal
+            }
           }
         }
 

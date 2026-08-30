@@ -705,8 +705,8 @@ export async function registerIpcHandlers(): Promise<void> {
     return team
   })
 
-  handle('replayzone:search', async (_event, query: string, sport?: string) => {
-    return ReplayZoneService.searchReplays(query, sport)
+  handle('replayzone:search', async (_event, query: string, sport?: string, league?: string) => {
+    return ReplayZoneService.searchReplays(query, sport, league)
   })
 
   handle('replayzone:search-by-sport', async (_event, category: string) => {
