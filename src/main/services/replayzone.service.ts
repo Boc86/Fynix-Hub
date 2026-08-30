@@ -105,13 +105,16 @@ const OTHER_MOTORSPORT_LEAGUES = new Set([
   'indycar', 'f1academy',
 ])
 
-/** Generic words that appear in many race replay titles and should NOT be
- *  required as hard-filter tokens during multi-word search. The remaining
- *  "specific" words (e.g. "Aragon", "Dutch", "British") act as the key
- *  disambiguator. */
+/** Generic filler words that appear in many race replay titles and should NOT
+ *  be required as hard-filter tokens during multi-word search. The remaining
+ *  "specific" words (e.g. "Aragon", "Dutch", "British", "Sprint", "Race")
+ *  act as the key disambiguator.
+ *
+ *  Note: "Sprint" and "Race" are NOT generic here — they are significant
+ *  event-type qualifiers that must match. If the user searches "Aragon
+ *  Sprint", results without "Sprint" (e.g. just the full race) are excluded. */
 const GENERIC_REPLAY_WORDS = new Set([
-  'sprint', 'race', 'full', 'replay', 'grand', 'prix', 'qualifying',
-  'the', 'gp', 'cup', 'final', 'race', 'moto', 'f1', 'moto gp',
+  'the', 'full', 'replay', 'gp', 'cup', 'final', 'moto', 'f1',
 ])
 
 export async function searchReplays(
