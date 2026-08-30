@@ -1,7 +1,7 @@
 {
   "name": "fynix-hub",
   "productName": "Fynix Hub",
-  "version": "2.2.8",
+  "version": "2.2.9",
   "description": "Media Hub with Netflix-like experience",
   "main": ".vite/build/index.js",
   "scripts": {

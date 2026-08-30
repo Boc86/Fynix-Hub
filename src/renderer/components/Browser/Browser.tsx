@@ -427,7 +427,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()
     const inProviderBar = focusedProvider >= -1 && focusedProvider !== -2 && hasProviderBar
-    const providerCount = watchProviders.length + 1 // +1 for "All" button
+    const providerCount = (watchProviders ?? []).length + 1 // +1 for "All" button
 
     switch (e.key) {
       case 'ArrowRight': {
@@ -603,7 +603,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
         className={styles.scrollArea}
         onScroll={() => setScrolled((scrollRef.current?.scrollTop ?? 0) > 12)}
       >
-        {mediaTypeFilter && watchProviders.length > 0 && (
+        {mediaTypeFilter && (watchProviders ?? []).length > 0 && (
           <div className={styles.providerBar}>
             <div
               ref={providerTrackRef}
@@ -620,7 +620,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
               >
                 All
               </button>
-              {watchProviders.slice(0, 30).map((p, pi) => (
+              {(watchProviders ?? []).slice(0, 30).map((p, pi) => (
                 <button
                   tabIndex={-1}
                   key={p.providerId}
@@ -644,7 +644,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
           </div>
         )}
 
-        <div className={styles.rows} style={mediaTypeFilter && watchProviders.length > 0 ? { marginTop: '-8px' } : undefined}>
+        <div className={styles.rows} style={mediaTypeFilter && (watchProviders ?? []).length > 0 ? { marginTop: '-8px' } : undefined}>
           {error && <div className={styles.error}>{error}</div>}
 
           {visibleRows.map((row, idx) => {
