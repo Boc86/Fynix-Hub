@@ -43,7 +43,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   const [focusedCard, setFocusedCard] = useState(0)
   const [scrolled, setScrolled] = useState(false)
   const [focusedProvider, setFocusedProvider] = useState(-2) // -2=not in provider bar, -1="All", 0+=provider index
-  const hasProviderBar = !!mediaTypeFilter && watchProviders.length > 0
+  const hasProviderBar = !!mediaTypeFilter && ((watchProviders ?? [])).length > 0
   const [discoveryRows, setDiscoveryRows] = useState<Array<{ label: string; items: MediaItem[] }>>([])
   const [continueInfo, setContinueInfo] = useState<Map<number, ContinueInfo>>(new Map())
   const [heroDetails, setHeroDetails] = useState<HeroDetails | null>(null)
@@ -53,8 +53,8 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
 
   const mdblistConnected = useSettingsStore((s) => s.mdblistConnected)
 
-  const continueMovies = continueWatching.filter(item => item.mediaType === 'movie' && !watchedIds.has(item.id))
-  const upNextItems = upNext.map(u => u.item)
+  const continueMovies = (continueWatching ?? []).filter(item => item.mediaType === 'movie' && !(watchedIds ?? new Set()).has(item.id))
+  const upNextItems = (upNext ?? []).map(u => u.item)
 
   const rowConfig = mediaTypeFilter
     ? [
@@ -77,7 +77,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
       ]
 
   const getVisibleRows = useCallback(() => {
-          return rowConfig.filter((r) => r.items.length > 0);
+          return (rowConfig ?? []).filter((r) => (r.items ?? []).length > 0);
       }, [trending, continueWatching, watchlist, upNext, popularMovies, popularTvShows, topRatedMovies, discoveryRows, selectedProvider]);
   const getRowItemCount = useCallback((rowIdx: number) => {
     const rows = getVisibleRows()
@@ -398,31 +398,31 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
 
   // Scroll to top when data loads (e.g. navigating back to Browser)
   useEffect(() => {
-    if (trending.length > 0 && scrollRef.current) {
+    if ((trending ?? []).length > 0 && scrollRef.current) {
       scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
       setScrolled(false)
     }
-  }, [trending.length])
+  }, [(trending ?? []).length])
 
   useEffect(() => {
     setFocusedRow(0)
     setFocusedCard(0)
-  }, [continueWatching.length, watchlist.length, upNext.length, trending.length, popularMovies.length, popularTvShows.length, topRatedMovies.length, discoveryRows.length])
+  }, [(continueWatching ?? []).length, (watchlist ?? []).length, (upNext ?? []).length, (trending ?? []).length, (popularMovies ?? []).length, (popularTvShows ?? []).length, (topRatedMovies ?? []).length, (discoveryRows ?? []).length])
 
   useEffect(() => {
     if (browserRef.current) {
       browserRef.current.focus()
     }
-  }, [continueWatching.length, watchlist.length, trending.length])
+  }, [(continueWatching ?? []).length, (watchlist ?? []).length, (trending ?? []).length])
 
   useEffect(() => {
     console.log('[Browser] Continue Watching rows:', {
-      total: continueWatching.length,
-      movies: continueMovies.length,
-      watchedIds: watchedIds.size,
-      watchlist: watchlist.length,
+      total: (continueWatching ?? []).length,
+      movies: (continueMovies ?? []).length,
+      watchedIds: (watchedIds ?? new Set()).size,
+      watchlist: (watchlist ?? []).length,
     })
-  }, [continueWatching.length, continueMovies.length, watchedIds.size, watchlist.length])
+  }, [(continueWatching ?? []).length, (continueMovies ?? []).length, (watchedIds ?? new Set()).size, (watchlist ?? []).length])
 
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     const rows = getVisibleRows()

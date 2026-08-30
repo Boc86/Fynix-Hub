@@ -2,9 +2,10 @@
  * LAN-facing HTTP API server for Android TV companion.
  *
  * Only binds when enabled in settings (networkEnabled, networkUsername,
- * networkPassword, networkPort). Every request (except GET /api/health)
- * requires Basic auth (constant-time compare). Per-IP auth failure throttle
- * returns 429 after 10 failures / 5 min window.
+ * networkPassword, networkPort). Every request requires Basic auth except:
+ * - GET /api/health (public health check)
+ * - GET /api/img (image proxy from external CDN)
+ * - GET /api/torrent-stream/* (stream proxy; magnet endpoint already authenticated)
  *
  * Playback routing resolves a merged-channel id to an internal HLS URL via
  * the existing provider pipeline, then proxies bytes back to the Android
@@ -126,9 +127,14 @@ function checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
     return false
   }
 
-  // Health and image proxy are always allowed (no auth required)
+  // Health, image proxy, and torrent stream are always allowed (no auth required)
+  // - /api/health: public health check
+  // - /api/img: image proxy (external CDN)
+  // - /api/torrent-stream/*: stream proxy (magnet endpoint already authenticated)
   const urlObj = new URL(req.url!, 'http://x')
-  if (urlObj.pathname === '/api/health' || urlObj.pathname === '/api/img') return true
+  if (urlObj.pathname === '/api/health' ||
+      urlObj.pathname === '/api/img' ||
+      urlObj.pathname.startsWith('/api/torrent-stream/')) return true
 
   // Authorized?
   if (isAuthorized(req)) {
