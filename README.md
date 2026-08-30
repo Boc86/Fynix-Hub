@@ -66,7 +66,7 @@ If you find this project useful, consider supporting development on Ko-fi. Every
 curl -sL https://raw.githubusercontent.com/Boc86/Fynix-Hub/master/scripts/install-fynix.sh | bash
 ```
 
-Downloads the latest AppImage to `~/Applications/`, creates a desktop entry under **Multimedia**, and adds an app icon.
+Checks for current installations and allows for updating or allows the user to select a package type and install
 
 ## Download
 
