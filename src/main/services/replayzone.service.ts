@@ -78,10 +78,16 @@ async function fetchAllReplays(): Promise<ReplayResult[]> {
   return cachedReplays
 }
 
-/** Normalize a string for comparison: lowercase, strip punctuation, collapse
- *  spaces. e.g. "MotoGP - Aragon" -> "motogp  aragon" */
+/** Normalize a string for comparison: lowercase, strip diacritics, strip
+ *  punctuation, collapse spaces. e.g. "MotoGP - Aragón" -> "motogp  aragon"
+ *  (diacritics removed so "Aragón" matches "Aragon"). */
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents (á→a)
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /** Compact normalize: same as normalize() but spaces stripped — useful for
