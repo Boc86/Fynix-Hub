@@ -11,6 +11,8 @@ import { setupCursorHide } from "./utils/cursorUtils"
 import { setupRemoteControl } from "./utils/remoteControl"
 import * as UpdaterService from './services/updater.service'
 import * as fs from 'fs'
+import { startVyla, stopVyla, getVylaBaseUrl } from './services/vyla-service'
+import * as CacheService from './services/cache.service'
 
 const AD_DOMAINS = [
   '*://*.doubleclick.net/*',
@@ -378,7 +380,7 @@ app.whenReady().then(async () => {
     }).catch(err => {
       console.error(`[IPTV-M3U] Startup fetch failed: ${err.message}`);
     });
-  });
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -398,6 +400,7 @@ app.on('before-quit', async () => {
   try { FfmpegRemux.shutdown() } catch (e: any) { console.error('[App] ffmpeg-remux shutdown error:', e?.message) }
   try { await WebTorrentService.removeAllTorrents() } catch (e: any) { console.error('[App] torrent cleanup error:', e?.message) }
   destroyYouTubeView();
+  try { stopVyla() } catch (e: any) { console.error('[Vyla] shutdown error:', e?.message) }
   console.log('[App] before-quit cleanup complete');
 });
 
