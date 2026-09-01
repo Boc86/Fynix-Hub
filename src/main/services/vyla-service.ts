@@ -2,7 +2,6 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { spawn, execSync } from 'child_process'
-import { fileURLToPath } from 'url'
 import { getEncryptedSetting, setEncryptedSetting } from './cache.service'
 
 // --- Paths ---
@@ -12,12 +11,10 @@ function getVylaSourceDir(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'vyla-api-source')
   }
-  // Development: relative to the main process source dir
+  // Development: Vite compiles to .vite/build/index.js, so __dirname = .vite/build/
+  // project root is 2 levels up: .vite/build → .vite → fynix-hub/
   // from vyla-service.ts → src/main/services → go up 3 levels to project root
-  const sourceFile = import.meta.url
-  const srcMainServicesDir = path.dirname(fileURLToPath(sourceFile))
-  const projectRoot = path.resolve(srcMainServicesDir, '..', '..', '..')
-  return path.join(projectRoot, 'vyla-api-source')
+  return path.resolve(__dirname, '..', '..', 'vyla-api-source')
 }
 
 const VYLA_DIR = path.join(app.getPath('userData'), 'vyla-api')
@@ -49,8 +46,12 @@ function ensureVylaFiles(): void {
   const files = fs.readdirSync(sourceDir)
   for (const file of files) {
     const src = path.join(sourceDir, file)
-    if (fs.statSync(src).isFile()) {
-      fs.copyFileSync(src, path.join(VYLA_DIR, file))
+    const dest = path.join(VYLA_DIR, file)
+    const stat = fs.statSync(src)
+    if (stat.isDirectory()) {
+      fs.cpSync(src, dest, { recursive: true })
+    } else {
+      fs.copyFileSync(src, dest)
     }
   }
 
@@ -96,6 +97,16 @@ export async function startVyla(tmdbApiKey: string): Promise<boolean> {
     setEncryptedSetting('vylaTokenSecret', tokenSecret)
   }
 
+  // Provision the standard API key into the DB BEFORE starting the server,
+  // so Vyla's initAuth() loads it from the database on startup.
+  const apiKey = await provisionStandardKey()
+  if (!apiKey) {
+    console.error('[Vyla] Failed to provision API key before server start')
+    return false
+  }
+  setEncryptedSetting('vylaApiKey', apiKey)
+  console.log('[Vyla] Standard API key provisioned')
+
   vylaPort = findAvailablePort(7860)
   console.log(`[Vyla] Starting server on port ${vylaPort}`)
   vylaBaseUrl = `http://127.0.0.1:${vylaPort}`
@@ -140,14 +151,6 @@ export async function startVyla(tmdbApiKey: string): Promise<boolean> {
   }
   console.log('[Vyla] Server is healthy')
 
-  const apiKey = await provisionStandardKey()
-  if (!apiKey) {
-    console.error('[Vyla] Failed to provision API key')
-    return false
-  }
-
-  setEncryptedSetting('vylaApiKey', apiKey)
-  console.log('[Vyla] Standard API key provisioned')
   return true
 }
 
@@ -162,25 +165,28 @@ export function stopVyla(): void {
 // --- Helpers ---
 
 function findAvailablePort(startPort: number): number {
+  const net = require('net')
   for (let port = startPort; port < startPort + 100; port++) {
     try {
-      const s = require('net').createServer()
-      s.bind({ port, host: '127.0.0.1' })
-      s.close()
+      const server = net.createServer()
+      server.unref()
+      server.listen(port, '127.0.0.1')
+      server.close()
       return port
     } catch {
       // port in use, try next
     }
   }
-  throw new Error('No available port found for Vyla server')
+  throw new Error('[Vyla] No available port found in range 7860-7959')
 }
 
-async function waitForHealth(baseUrl: string, timeoutMs: number): Promise<boolean> {
+async function waitForHealth(baseUrl: string, timeoutMs: number, apiKey?: string): Promise<boolean> {
   const start = Date.now()
+  const authKey = apiKey || 'public_api_key'
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(`${baseUrl}/health`, {
-        headers: { 'Authorization': 'Bearer public_api_key' },
+        headers: { 'Authorization': `Bearer ${authKey}` },
       })
       if (res.ok) return true
     } catch {
@@ -192,10 +198,48 @@ async function waitForHealth(baseUrl: string, timeoutMs: number): Promise<boolea
 }
 
 async function provisionStandardKey(): Promise<string | null> {
+  const { DatabaseSync } = require('node:sqlite')
   const dbPath = path.join(DATA_DIR, 'api_keys.db')
-  const ready = await waitForFile(dbPath, 10_000)
-  if (!ready) {
-    console.error('[Vyla] api_keys.db not created within 10s')
+  const dbDir = path.dirname(dbPath)
+  if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true })
+
+  // Check if a valid key already exists (persisted from a previous session)
+  const existingKey = getEncryptedSetting('vylaApiKey')
+  if (existingKey) {
+    try {
+      const db = new DatabaseSync(dbPath)
+      const row = db.prepare('SELECT key FROM api_keys WHERE key = ? AND active = 1').get(existingKey)
+      db.close()
+      if (row) {
+        console.log('[Vyla] Reusing previously provisioned key')
+        return existingKey
+      }
+    } catch {
+      // DB doesn't exist yet — fall through to create it
+    }
+  }
+
+  // Create the database and api_keys table if not already present.
+  let db: any
+  try {
+    db = new DatabaseSync(dbPath)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS api_keys (
+        key TEXT PRIMARY KEY,
+        type TEXT NOT NULL DEFAULT 'standard',
+        rpm INTEGER NOT NULL DEFAULT 100,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `)
+    const existing = db.prepare(`SELECT key FROM api_keys WHERE key = 'public_api_key'`).get()
+    if (!existing) {
+      db.prepare(`INSERT INTO api_keys (key, type, rpm, active) VALUES ('public_api_key', 'public', 10, 1)`).run()
+    }
+    db.close()
+  } catch (err: any) {
+    console.error('[Vyla] Failed to initialize DB:', err?.message || err)
+    if (db) db.close()
     return null
   }
 
@@ -224,20 +268,6 @@ async function provisionStandardKey(): Promise<string | null> {
   const key = out.split('\n').find(l => l.startsWith('sk_')) || ''
   if (!key.startsWith('sk_')) {
     console.error(`[Vyla] Unexpected key format: ${out}`)
-    return null
-  }
-
-  // Verify the key works against /health
-  try {
-    const res = await fetch(`${vylaBaseUrl}/health`, {
-      headers: { 'Authorization': `Bearer ${key}` },
-    })
-    if (!res.ok) {
-      console.error(`[Vyla] Provisioned key failed health check: ${res.status}`)
-      return null
-    }
-  } catch (err: any) {
-    console.error('[Vyla] Health check with new key failed:', err?.message || err)
     return null
   }
 

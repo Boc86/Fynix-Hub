@@ -382,6 +382,19 @@ app.whenReady().then(async () => {
     });
   })
 
+  // Start Vyla streaming API server (auto-provisioned, zero user config)
+  try {
+    const tmdbApiKey = CacheService.getSetting<string>('tmdbApiKey') || ''
+    const vylaStarted = await startVyla(tmdbApiKey)
+    if (vylaStarted) {
+      console.log(`[Vyla] Streaming API running at ${getVylaBaseUrl()}`)
+    } else {
+      console.warn('[Vyla] Streaming API failed to start — Vyla sources will be unavailable')
+    }
+  } catch (err: any) {
+    console.error('[Vyla] Startup error:', err?.message || err)
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
