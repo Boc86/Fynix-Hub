@@ -1,0 +1,148 @@
+import { USER_AGENT } from '../utils/helpers.js';
+
+const BASE_DOMAIN = 'https://glendale-plumbing.com';
+const REFERER = 'https://cine.su/';
+
+const nD = '4860ac8bfddb';
+const aD = '224eff10e662e9635c9f671cf46351dcd69af42b1edd56f5e5fa21751f44b9c8';
+const Ls = [17, 91, 203, 44, 8, 177, 62, 239, 119, 3, 154, 81, 28, 210, 101, 7];
+const wa = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+function ab(e) {
+    let t = e >>> 0;
+    t ^= t >>> 16;
+    t = Math.imul(t, 2146121005) >>> 0;
+    t ^= t >>> 15;
+    t = Math.imul(t, 2221713035) >>> 0;
+    return (t ^ (t >>> 16)) >>> 0;
+}
+
+function sD(e) {
+    const t = new TextEncoder().encode(aD);
+    const r = Math.max(32, Math.min(128, e + 17));
+    const n = new Uint8Array(r);
+    let a = 2166136261;
+    for (let s = 0; s < r; s += 1) {
+        a ^= t[s % t.length] ?? s;
+        a = ab((a + Ls[s % Ls.length] + ((2654435761 * s) >>> 0)) >>> 0);
+        n[s] = a & 255;
+    }
+    return n;
+}
+
+function iD(e) {
+    let t = '';
+    for (let r = 0; r < e.length; r += 3) {
+        const n = e[r];
+        const a = e[r + 1];
+        const s = e[r + 2];
+        t += wa[n >>> 2];
+        t += wa[((3 & n) << 4) | ((a ?? 0) >>> 4)];
+        if (a === undefined) break;
+        t += wa[((15 & a) << 2) | ((s ?? 0) >>> 6)];
+        if (s === undefined) break;
+        t += wa[63 & s];
+    }
+    return t;
+}
+
+function generateMasterUrl(id, s, e) {
+    const isTv = s != null && e != null;
+    const tmdbId = Math.floor(Number(id));
+    const season = isTv ? Math.floor(Number(s || 1)) : 0;
+    const episode = isTv ? Math.floor(Number(e || 1)) : 0;
+
+    const str = `${nD}:${isTv ? 's' : 'm'}:${tmdbId}:${season}:${episode}`;
+    const a = new TextEncoder().encode(str);
+    const sArr = sD(a.length);
+    const i = new Uint8Array(a.length + 2);
+    i[0] = a.length & 255;
+    i[1] = (a.length >>> 8) & 255;
+    let o = (2654435769 ^ a.length) >>> 0;
+    for (let l = 0; l < a.length; l += 1) {
+        o = ab((o + sArr[l % sArr.length] + Ls[l % Ls.length] + l) >>> 0);
+        i[l + 2] = (a[l] ^ (255 & o)) ^ sArr[(7 * l + 3) % sArr.length];
+    }
+
+    return `${BASE_DOMAIN}/c/v1/${iD(i)}/master.m3u8`;
+}
+
+function parsePlaylist(m3u8Text) {
+    const qualities = [];
+    const subtitles = [];
+
+    const subRegex = /#EXT-X-MEDIA:TYPE=SUBTITLES,[^\n]*NAME="([^"]*)"[^\n]*LANGUAGE="([^"]*)"[^\n]*URI="([^"]*)"/g;
+    let match;
+    while ((match = subRegex.exec(m3u8Text)) !== null) {
+        let uri = match[3];
+        if (uri.startsWith('/')) uri = `${BASE_DOMAIN}${uri}`;
+        subtitles.push({ label: match[1], language: match[2], file: uri, type: 'vtt' });
+    }
+
+    const streamRegex = /#EXT-X-STREAM-INF:[^\n]*RESOLUTION=\d+x(\d+)[^\n]*\r?\n([^\n#][^\n]*)/g;
+    while ((match = streamRegex.exec(m3u8Text)) !== null) {
+        let streamPath = match[2].trim();
+        if (streamPath.startsWith('/')) streamPath = `${BASE_DOMAIN}${streamPath}`;
+        qualities.push({ quality: `${match[1]}p`, url: streamPath });
+    }
+
+    return { qualities, subtitles };
+}
+
+export async function getStream(args) {
+    const { id, s, e, clientIP } = args;
+    const rawMasterUrl = generateMasterUrl(id, s, e);
+
+    const headers = {
+        'User-Agent': USER_AGENT,
+        'Referer': REFERER,
+        'Origin': 'https://cine.su',
+        ...(clientIP && { 'X-Forwarded-For': clientIP })
+    };
+
+    try {
+        const res = await fetch(rawMasterUrl, {
+            headers,
+            signal: AbortSignal.timeout(5000)
+        });
+
+        if (res.ok) {
+            const text = await res.text();
+            const { qualities, subtitles } = parsePlaylist(text);
+
+            if (qualities.length) {
+                const allUrls = [{
+                    url: rawMasterUrl,
+                    server: 'CineSu (Auto)',
+                    quality: 'Auto',
+                    type: 'hls',
+                    headers,
+                    subtitles: subtitles.length ? subtitles : undefined
+                }];
+
+                for (const q of qualities) {
+                    allUrls.push({
+                        url: q.url,
+                        server: `CineSu (${q.quality})`,
+                        quality: q.quality,
+                        type: 'hls',
+                        headers,
+                        subtitles: subtitles.length ? subtitles : undefined
+                    });
+                }
+
+                return { allUrls };
+            }
+        }
+    } catch { }
+
+    return {
+        allUrls: [{
+            url: rawMasterUrl,
+            server: 'CineSu',
+            quality: 'Auto',
+            type: 'hls',
+            headers
+        }]
+    };
+}

@@ -1,0 +1,114 @@
+import { USER_AGENT } from '../utils/helpers.js';
+
+const BASE_URL = "https://vidvault.ru";
+const HEADERS = {
+    "Referer": `${BASE_URL}/`,
+    "Origin": BASE_URL,
+    "User-Agent": USER_AGENT,
+};
+
+async function getToken() {
+    const res = await fetch(`${BASE_URL}/api/get-token`, {
+        method: "GET",
+        headers: HEADERS
+    });
+    const data = await res.json();
+    return data.t;
+}
+
+function getCaptionType(url) {
+    return url.toLowerCase().includes(".vtt") ? "vtt" : "srt";
+}
+
+export async function getStream(args) {
+    const { id, s, e } = args;
+    const type = (s != null && e != null) ? "tv" : "movie";
+
+    try {
+        const token = await getToken();
+
+        const payload = { type, tmdbId: String(id) };
+        if (type === "tv") {
+            payload.season = String(s);
+            payload.episode = String(e);
+        }
+
+        const res = await fetch(`${BASE_URL}/api/download-proxy`, {
+            method: "POST",
+            headers: {
+                ...HEADERS,
+                "Content-Type": "application/json",
+                "x-request-token": token
+            },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        const allUrls = [];
+        const subtitles = [];
+
+        const mp4 = data?.mp4Data;
+        if (mp4) {
+            const country = mp4.country || "";
+            const lanName = mp4.lanName || "";
+            const detailPath = mp4.detailPath || "";
+
+            const downloads = mp4.downloadInfo?.data?.downloads || [];
+            for (const d of downloads) {
+                if (!d?.url) continue;
+                allUrls.push({
+                    quality: `${d.resolution}p ${detailPath} ${country} ${lanName}`.trim(),
+                    url: d.url,
+                    type: "mp4",
+                    headers: HEADERS
+                });
+            }
+
+            const srtCaptions = mp4.downloadInfo?.data?.captions || [];
+            for (const c of srtCaptions) {
+                if (!c?.url) continue;
+                subtitles.push({
+                    label: c.lanName || c.lan || "Unknown",
+                    type: getCaptionType(c.url),
+                    language: c.lan || "",
+                    url: c.url
+                });
+            }
+        }
+
+        const mkvFiles = data?.mkvData?.files || [];
+        for (const f of mkvFiles) {
+            if (!f?.url) continue;
+            allUrls.push({
+                quality: `MKV ${f.size || ""}`.trim(),
+                url: f.url,
+                type: "mp4",
+                headers: HEADERS
+            });
+        }
+
+        const mkvV2 = data?.mkvV2Data;
+        if (mkvV2?.url) {
+            allUrls.push({
+                quality: `${mkvV2.quality || ""} ${mkvV2.language || ""} ${mkvV2.country || ""} (${mkvV2.size || ""})`.trim(),
+                url: mkvV2.url,
+                type: "mp4",
+                headers: HEADERS
+            });
+        }
+
+        const mkvV3 = data?.mkvV3Data;
+        if (mkvV3?.url) {
+            allUrls.push({
+                quality: `${mkvV3.quality || ""} ${mkvV3.language || ""} ${mkvV3.country || ""} (${mkvV3.size || ""})`.trim(),
+                url: mkvV3.url,
+                type: "mp4",
+                headers: HEADERS
+            });
+        }
+
+        return allUrls.length ? { allUrls, subtitles } : null;
+    } catch (err) {
+        return null;
+    }
+}

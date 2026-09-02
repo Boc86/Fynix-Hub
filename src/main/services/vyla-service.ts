@@ -55,15 +55,21 @@ function ensureVylaFiles(): void {
     }
   }
 
-  // Install Vyla's npm deps on first run (only @vyla-entertainment/sdk + dotenv)
+  // Install Vyla's npm deps on first run if not already present
+  // (normally shipped in-repo so npm install is only a fallback)
   if (!fs.existsSync(path.join(VYLA_DIR, 'node_modules'))) {
     console.log('[Vyla] Installing dependencies — first run only, may take a moment…')
-    execSync('npm install', {
-      cwd: VYLA_DIR,
-      stdio: 'inherit',
-      env: { ...process.env, NODE_ENV: 'production' },
-    })
-    console.log('[Vyla] Dependencies installed')
+    try {
+      execSync('npm install', {
+        cwd: VYLA_DIR,
+        stdio: 'inherit',
+        env: { ...process.env, NODE_ENV: 'production' },
+      })
+      console.log('[Vyla] Dependencies installed')
+    } catch (err: any) {
+      console.error('[Vyla] npm install failed — Vyla server may not start correctly:', err.message)
+      throw err
+    }
   }
 }
 
