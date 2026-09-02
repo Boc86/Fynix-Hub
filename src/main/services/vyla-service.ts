@@ -131,7 +131,7 @@ export async function startVyla(tmdbApiKey: string): Promise<boolean> {
     BYPASS_AUTH: '',
   }
 
-  vylaProcess = spawn('node', ['server.js'], {
+  vylaProcess = spawn(process.execPath, ['server.js'], {
     cwd: VYLA_DIR,
     env,
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -250,7 +250,7 @@ async function provisionStandardKey(): Promise<string | null> {
   }
 
   const label = `fynix-${Date.now().toString(36)}`
-  const child = spawn('node', ['add-key.mjs', 'standard', '100', label], {
+  const child = spawn(process.execPath, ['add-key.mjs', 'standard', '100', label], {
     cwd: VYLA_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
