@@ -1,0 +1,141 @@
+import crypto from 'crypto';
+import { getTmdbInfo, getUA } from '../utils/helpers.js';
+
+const BASE_URL = 'https://player.zxcstream.xyz';
+const AES_KEY = '7f4c9e2a81d63b05c4f7a9e8126d3b50e1a8c7f23d9465ab0c6e9f1d4a7b832c';
+const SERVERS = ['berkas', 'orion', 'aquarius', 'resshin'];
+
+function decryptCryptoJS(ciphertextB64, passphrase) {
+    try {
+        const buf = Buffer.from(ciphertextB64, 'base64');
+        if (buf.slice(0, 8).toString('utf8') !== 'Salted__') {
+            const key = crypto.createHash('md5').update(passphrase).digest();
+            const iv = Buffer.alloc(16, 0);
+            const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
+            return Buffer.concat([decipher.update(buf), decipher.final()]).toString('utf8');
+        }
+
+        const salt = buf.slice(8, 16);
+        const cipherBytes = buf.slice(16);
+
+        let hash = Buffer.alloc(0);
+        let keyAndIv = Buffer.alloc(0);
+        while (keyAndIv.length < 48) {
+            hash = crypto.createHash('md5').update(Buffer.concat([hash, Buffer.from(passphrase), salt])).digest();
+            keyAndIv = Buffer.concat([keyAndIv, hash]);
+        }
+
+        const key = keyAndIv.slice(0, 32);
+        const iv = keyAndIv.slice(32, 48);
+
+        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+        return Buffer.concat([decipher.update(cipherBytes), decipher.final()]).toString('utf8');
+    } catch {
+        return null;
+    }
+}
+
+export async function getStream({ id, s, e }) {
+    try {
+        const isTv = Boolean(s && e);
+        const mediaType = isTv ? 'tv' : 'movie';
+
+        let title = 'Media';
+        let year = '2024';
+
+        try {
+            const info = await getTmdbInfo(id, mediaType, s);
+            if (info?.title) title = info.title;
+            if (info?.year) year = String(info.year);
+        } catch { }
+
+        const headers = {
+            'User-Agent': getUA(),
+            Referer: `${BASE_URL}/`,
+            Origin: BASE_URL,
+            Accept: 'application/json, text/plain, */*',
+        };
+
+        const serverResults = await Promise.all(
+            SERVERS.map(async (server) => {
+                try {
+                    const tokenRes = await fetch(`${BASE_URL}/backend/you-are-gay`, {
+                        method: 'POST',
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id,
+                            media_type: mediaType,
+                            path: server,
+                            ...(isTv ? { season: Number(s || 1), episode: Number(e || 1) } : {}),
+                        }),
+                        signal: AbortSignal.timeout(8000),
+                    });
+
+                    if (!tokenRes.ok) return [];
+                    const tokenData = await tokenRes.json();
+                    if (!tokenData?.token) return [];
+
+                    const params = new URLSearchParams({
+                        id,
+                        b: mediaType,
+                        ts: String(tokenData.ts),
+                        token: tokenData.token,
+                        title,
+                        year,
+                        date: year,
+                    });
+
+                    if (isTv) {
+                        params.append('season', String(s || 1));
+                        params.append('episode', String(e || 1));
+                    }
+
+                    const sourcesRes = await fetch(`${BASE_URL}/backend_/sources/${server}?${params.toString()}`, {
+                        headers,
+                        signal: AbortSignal.timeout(8000),
+                    });
+
+                    if (!sourcesRes.ok) return [];
+                    const sourcesData = await sourcesRes.json();
+
+                    const links = [];
+                    if (Array.isArray(sourcesData?.links)) {
+                        for (const item of sourcesData.links) {
+                            if (!item.link) continue;
+                            const decryptedUrl = decryptCryptoJS(item.link, AES_KEY);
+                            if (decryptedUrl && decryptedUrl.startsWith('http')) {
+                                links.push({
+                                    url: decryptedUrl,
+                                    type: decryptedUrl.includes('.m3u8') ? 'hls' : decryptedUrl.includes('.mpd') ? 'dash' : 'mp4',
+                                    quality: item.resolution || 'Auto',
+                                    server: `ZxcStream-${server.toUpperCase()}`,
+                                    headers: {
+                                        Referer: `${BASE_URL}/`,
+                                        Origin: BASE_URL,
+                                    },
+                                    skipProxy: true,
+                                });
+                            }
+                        }
+                    }
+
+                    return links;
+                } catch {
+                    return [];
+                }
+            })
+        );
+
+        const allUrls = serverResults.flat();
+        if (!allUrls.length) return null;
+
+        return { allUrls };
+    } catch {
+        return null;
+    }
+}
+
+export async function getSources(args) {
+    const stream = await getStream(args);
+    return stream?.allUrls ? [...new Set(stream.allUrls.map(u => u.server))] : [];
+}

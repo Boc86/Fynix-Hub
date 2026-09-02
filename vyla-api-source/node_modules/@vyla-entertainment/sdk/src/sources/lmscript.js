@@ -1,0 +1,43 @@
+import { getTmdbInfo } from '../utils/helpers.js';
+
+export async function getStream(args) {
+    const { id, s, e, tmdbApiKey } = args;
+    const type = (s != null && e != null) ? 'tv' : 'movie';
+
+    try {
+        const tmdbInfo = await getTmdbInfo(tmdbApiKey, id, type, s);
+        const name = tmdbInfo.titles[0] || '';
+        if (!name) return null;
+
+        if (type === 'tv') {
+            return null;
+        } else {
+            const url = `https://lmscript.xyz/v1/movies?filters[q]=${encodeURIComponent(name)}&expand=streams`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            const movie = data.items?.find(item => `${item.tmdb_prefix}` === `${id}` || `${item.tmdb_id}` === `${id}`);
+            if (!movie) return null;
+
+            const streams = movie.streams || {};
+            const SOURCE_ORDER = ["1080p", "720p", "480p", "360p"];
+            const sortedStreams = Object.keys(streams).sort((a, b) => SOURCE_ORDER.indexOf(a) - SOURCE_ORDER.indexOf(b));
+
+            if (!sortedStreams.length) return null;
+
+            const allUrls = sortedStreams.map(quality => {
+                const streamUrl = streams[quality];
+                return {
+                    url: streamUrl,
+                    quality,
+                    type: streamUrl.includes('.m3u8') ? 'hls' : 'mp4',
+                    headers: {}
+                };
+            });
+
+            return { allUrls };
+        }
+    } catch (err) {
+        return null;
+    }
+}

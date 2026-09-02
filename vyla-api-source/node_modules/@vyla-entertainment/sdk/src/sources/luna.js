@@ -1,0 +1,125 @@
+import { USER_AGENT, fetchText, getTmdbInfo, tmdbToAnilist } from '../utils/helpers.js';
+
+const ACTION_FETCH_SOURCES = 'afb0491c5516f9fff5fcb464d627638df76062f8';
+const WATCH_URL = 'https://luna-stream.me/anime/watch/21/gogoanime/1';
+
+const PROVIDERS = [
+    { id: 'megaplay', name: 'Helios' },
+    { id: 'anibd', name: 'Nova' },
+    { id: 'pahe', name: 'Polaris' },
+    { id: 'gogoanime', name: 'Quasar' },
+    { id: 'zoro', name: 'Zenith' },
+    { id: 'animepahe', name: 'Vega' },
+    { id: 'animekai', name: 'Cosmos' },
+    { id: 'crysoline', name: 'CrysOline' },
+    { id: 'orion', name: 'Orion' },
+    { id: 'pulsar', name: 'Pulsar' }
+];
+
+function parseRscResponse(text) {
+    for (const line of text.split('\n')) {
+        if (line.startsWith('1:')) {
+            try {
+                return JSON.parse(line.slice(2));
+            } catch { }
+        }
+    }
+    return null;
+}
+
+function cleanUrl(rawUrl) {
+    if (!rawUrl) return '';
+    return rawUrl.replace(/^https:\/\/api\.luna-stream\.mehttps:\/\/api\.luna-stream\.me/, 'https://api.luna-stream.me');
+}
+
+async function fetchProviderStreams(anilistId, epNum, provider, subtype) {
+    try {
+        const text = await fetchText(WATCH_URL, {
+            method: 'POST',
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Next-Action': ACTION_FETCH_SOURCES,
+                'Content-Type': 'text/plain;charset=UTF-8',
+                'Accept': 'text/x-component',
+                'Referer': WATCH_URL,
+                'Origin': 'https://luna-stream.me'
+            },
+            body: JSON.stringify([anilistId, provider.id, String(epNum), epNum, subtype, null]),
+            signal: AbortSignal.timeout(10000)
+        });
+
+        if (!text) return [];
+
+        const parsed = parseRscResponse(text);
+        if (!parsed || !Array.isArray(parsed.sources)) return [];
+
+        const streams = [];
+        for (const s of parsed.sources) {
+            if (!s || !s.url) continue;
+
+            const url = cleanUrl(s.url);
+            const format = String(s.type || '').toLowerCase();
+            const isM3U8 = format === 'hls' || format === 'm3u8' || url.includes('.m3u8') || url.includes('.txt');
+
+            streams.push({
+                url,
+                server: `Luna (${provider.name})`,
+                quality: String(s.quality || 'Auto'),
+                type: isM3U8 ? 'hls' : 'mp4',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Referer': 'https://luna-stream.me/'
+                }
+            });
+        }
+
+        return streams;
+    } catch {
+        return [];
+    }
+}
+
+export async function getStream(args) {
+    const { id, s, e, ep, audio, server, tmdbApiKey } = args;
+    const isTv = s != null && e != null;
+    const mediaType = isTv ? 'tv' : 'movie';
+
+    let anilistId = null;
+    try {
+        const info = await getTmdbInfo(tmdbApiKey, id, mediaType, s);
+        anilistId = await tmdbToAnilist(id, mediaType, s, info?.titles || [], info?.year);
+    } catch { }
+
+    if (!anilistId) {
+        anilistId = Number(id);
+    }
+
+    if (!anilistId || isNaN(anilistId)) return null;
+
+    const epNum = Number(e || ep || 1);
+    const resolvedSubtype = audio === 'dub' ? 'dub' : 'sub';
+
+    let targets = PROVIDERS;
+    if (server && server !== 'all') {
+        const clean = server.toLowerCase().replace('luna (', '').replace(')', '').replace('luna', '').trim();
+        targets = PROVIDERS.filter(p => p.id.toLowerCase() === clean || p.name.toLowerCase().includes(clean));
+        if (!targets.length) targets = PROVIDERS;
+    }
+
+    const settled = await Promise.allSettled(
+        targets.map(p => fetchProviderStreams(anilistId, epNum, p, resolvedSubtype))
+    );
+
+    const allUrls = [];
+    for (const r of settled) {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+            allUrls.push(...r.value);
+        }
+    }
+
+    return allUrls.length ? { allUrls } : null;
+}
+
+export async function getSources() {
+    return PROVIDERS.map(p => `Luna (${p.name})`);
+}

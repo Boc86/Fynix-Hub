@@ -1,0 +1,88 @@
+import { USER_AGENT, fetchJson } from '../utils/helpers.js';
+
+const BASE_URL = 'https://api.peestream.in';
+
+const PROVIDERS = [
+    { id: 'vaplayer', name: 'FRAME Zephyr' },
+    { id: 'castle', name: 'FRAME Atlas' },
+    { id: 'hera', name: 'FRAME Luna' },
+    { id: 'multivid', name: 'FRAME Volt' },
+    { id: 'netmirror', name: 'FRAME Echo' },
+    { id: 'vidsuper-castle', name: 'FRAME Rift' },
+    { id: 'vidsuper-vixsrc', name: 'FRAME Quill' }
+];
+
+async function fetchProviderStreams(provider, type, id, s, e) {
+    try {
+        const queryParams = new URLSearchParams({
+            q: String(id),
+            type,
+            provider: provider.id
+        });
+        if (type === 'tv') {
+            queryParams.set('season', String(s));
+            queryParams.set('episode', String(e));
+        }
+
+        const url = `${BASE_URL}/api/search?${queryParams.toString()}`;
+        const data = await fetchJson(url, {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Accept': 'application/json',
+                'Referer': 'https://peestream.in/'
+            },
+            signal: AbortSignal.timeout(12000)
+        });
+
+        if (!data || !Array.isArray(data.results) || !data.results.length) return [];
+
+        const streams = [];
+        for (const result of data.results) {
+            for (const stream of result.streams || []) {
+                if (!stream || !stream.url) continue;
+                streams.push({
+                    url: stream.url,
+                    server: provider.name,
+                    quality: stream.quality || 'Auto',
+                    type: stream.type === 'm3u8' || stream.url.includes('.m3u8') ? 'hls' : 'mp4',
+                    headers: stream.headers || {
+                        'User-Agent': USER_AGENT
+                    }
+                });
+            }
+        }
+        return streams;
+    } catch {
+        return [];
+    }
+}
+
+export async function getStream(args) {
+    const { id, s, e, server } = args;
+    const isTv = s != null && e != null;
+    const type = isTv ? 'tv' : 'movie';
+
+    let targets = PROVIDERS;
+    if (server && server !== 'all') {
+        const clean = server.toLowerCase().replace('frame ', '').trim();
+        targets = PROVIDERS.filter(p => p.id.toLowerCase() === clean || p.name.toLowerCase().includes(clean));
+        if (!targets.length) targets = PROVIDERS;
+    }
+
+    const settled = await Promise.allSettled(
+        targets.map(p => fetchProviderStreams(p, type, id, s, e))
+    );
+
+    const allUrls = [];
+    for (const r of settled) {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+            allUrls.push(...r.value);
+        }
+    }
+
+    return allUrls.length ? { allUrls } : null;
+}
+
+export async function getSources() {
+    return PROVIDERS.map(p => p.name);
+}

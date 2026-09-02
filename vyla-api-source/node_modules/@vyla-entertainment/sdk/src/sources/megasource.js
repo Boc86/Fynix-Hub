@@ -1,0 +1,47 @@
+import { fetchJson } from '../utils/helpers.js';
+
+const CONFIGURATION = 'W3siaWQiOiJkZWZhdWx0IiwibmFtZSI6Ik1lZ2FTb3VyY2UgZGVmYXVsdCIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS96b3JldS9tZWdhc291cmNlX3NjcmFwZXJzL3Jhdy9yZWZzL2hlYWRzL21haW4vZGVmYXVsdF9zY3JhcGVyLnB5IiwiZGVzY3JpcHRpb24iOiJEZWZhdWx0IHNjcmFwZXIgaG9zdGVkIG9uIEdpdEh1Yi4ifV0';
+const BASE_URL = `https://megasource.wasmer.app/${CONFIGURATION}`;
+
+async function getImdbId(tmdbApiKey, tmdbId, s, e) {
+    const key = tmdbApiKey;
+    if (!key) return null;
+    try {
+        const url = s != null && e != null
+            ? `https://api.themoviedb.org/3/tv/${tmdbId}/external_ids?api_key=${key}`
+            : `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}`;
+        const res = await fetchJson(url);
+        return res?.imdb_id || null;
+    } catch { return null; }
+}
+
+export async function getStream({ id, s, e, sdk }) {
+    const tmdbApiKey = sdk?.tmdbApiKey || null;
+    if (!tmdbApiKey) return null;
+    try {
+        const imdbId = await getImdbId(tmdbApiKey, id, s, e);
+        if (!imdbId) return null;
+
+        const path = s != null && e != null
+            ? `/stream/series/${imdbId}:${s}:${e}.json`
+            : `/stream/movie/${imdbId}.json`;
+
+        const res = await fetchJson(`${BASE_URL}${path}`);
+        if (!res?.streams?.length) return null;
+
+        const allUrls = res.streams.map(stream => {
+            if (!stream.url) return null;
+            const headers = stream.behaviorHints?.proxyHeaders?.request || {};
+            return {
+                url: stream.url,
+                server: `MegaSource - ${stream.title ? ` ${stream.title}` : ''}`,
+                headers: Object.keys(headers).length > 0 ? headers : undefined,
+                skipProxy: Object.keys(headers).length > 0 && stream.behaviorHints?.notWebReady === false
+            };
+        }).filter(Boolean);
+
+        return allUrls.length ? { allUrls } : null;
+    } catch {
+        return null;
+    }
+}

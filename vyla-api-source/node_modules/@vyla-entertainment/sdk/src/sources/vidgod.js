@@ -1,0 +1,147 @@
+import { USER_AGENT } from '../utils/helpers.js';
+
+const REDIS_URL = 'https://vidnest-redis-fell-prism-rest.cloud.layerbase.dev/';
+const REDIS_AUTH = 'Bearer ve8z9XSKatu74M7FjLU8eQ29';
+const ORIGIN = 'https://vidgod.space';
+
+const SERVERS = [
+    {
+        name: 'Pulsar',
+        key: 'pulsar',
+        base: 'https://vidnest-extractor.vividdubbing.workers.dev/api',
+        serverParam: 'prime'
+    },
+    {
+        name: 'Orion',
+        key: 'orion',
+        base: 'https://404-vidnest.lofiserver.workers.dev/api',
+        serverParam: 'gama'
+    },
+    {
+        name: 'Stellar',
+        key: 'stellar',
+        base: 'https://404-vidnest.lofiserver.workers.dev/api',
+        serverParam: 'sigma'
+    }
+];
+
+function buildCacheKey(serverKey, type, id, s, e) {
+    const parts = [serverKey, type, id];
+    if (type === 'tv') {
+        parts.push(s || '1', e || '1');
+    }
+    return parts.join(':');
+}
+
+async function getFromCache(key) {
+    try {
+        const res = await fetch(REDIS_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': REDIS_AUTH,
+                'Content-Type': 'application/json',
+                'Accept': '*/*',
+                'Origin': ORIGIN,
+                'Referer': `${ORIGIN}/`,
+                'User-Agent': USER_AGENT
+            },
+            body: JSON.stringify(['GET', key]),
+            signal: AbortSignal.timeout(6000)
+        });
+
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data || !data.result) return null;
+
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        return parsed?.streams?.length ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+async function fetchFromWorker(srv, type, id, s, e) {
+    try {
+        const endpoint = type === 'movie'
+            ? `${srv.base}/movie/${id}?server=${srv.serverParam}`
+            : `${srv.base}/tv/${id}/${s || '1'}/${e || '1'}?server=${srv.serverParam}`;
+
+        const res = await fetch(endpoint, {
+            headers: {
+                'Accept': 'application/json',
+                'Origin': ORIGIN,
+                'Referer': `${ORIGIN}/`,
+                'User-Agent': USER_AGENT
+            },
+            signal: AbortSignal.timeout(8000)
+        });
+
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data?.streams?.length ? data : null;
+    } catch {
+        return null;
+    }
+}
+
+async function resolveServer(srv, type, id, s, e) {
+    const cacheKey = buildCacheKey(srv.key, type, id, s, e);
+    const cached = await getFromCache(cacheKey);
+    if (cached) return { server: srv.name, data: cached };
+
+    const live = await fetchFromWorker(srv, type, id, s, e);
+    if (live) return { server: srv.name, data: live };
+
+    return null;
+}
+
+export async function getStream(args) {
+    const { id, s, e, server } = args;
+    const isTv = s != null && e != null;
+    const type = isTv ? 'tv' : 'movie';
+
+    let targets = SERVERS;
+    if (server && server !== 'all') {
+        const clean = server.toLowerCase().trim();
+        targets = SERVERS.filter(srv => srv.name.toLowerCase() === clean || srv.key.toLowerCase() === clean);
+        if (!targets.length) targets = SERVERS;
+    }
+
+    const settled = await Promise.allSettled(
+        targets.map(srv => resolveServer(srv, type, id, s, e))
+    );
+
+    const allUrls = [];
+
+    for (const r of settled) {
+        if (r.status !== 'fulfilled' || !r.value) continue;
+        const { server: serverName, data } = r.value;
+
+        for (const item of data.streams || []) {
+            if (!item || !item.url) continue;
+
+            const typeStr = String(item.type || '').toLowerCase();
+            const urlStr = String(item.url || '').toLowerCase();
+            const isM3U8 =
+                typeStr === 'hls' ||
+                typeStr === 'application/vnd.apple.mpegurl' ||
+                typeStr === 'cloudflare' ||
+                typeStr === 'tiktok' ||
+                urlStr.includes('.m3u8') ||
+                urlStr.includes('.txt');
+
+            allUrls.push({
+                url: item.url,
+                server: serverName,
+                quality: item.quality || 'Auto',
+                type: isM3U8 ? 'hls' : 'mp4',
+                headers: item.headers || {
+                    'User-Agent': USER_AGENT,
+                    'Referer': `${ORIGIN}/`
+                }
+            });
+        }
+    }
+
+    return allUrls.length ? { allUrls } : null;
+}

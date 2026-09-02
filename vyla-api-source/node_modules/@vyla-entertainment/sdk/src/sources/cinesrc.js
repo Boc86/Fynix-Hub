@@ -1,0 +1,212 @@
+import { USER_AGENT } from '../utils/helpers.js';
+
+const _sInit = [23, 27, 30, 31, 86, 28, 19, 86, 9, 18, 19, 21, 26, 27, 86, 120, 114, 120, 116, 86, 9, 18, 19, 21, 26, 27, 122, 89, 25, 23];
+const _vParam = `_v=${(_sInit[15] ^ 0x5a)}${(_sInit[16] ^ 0x5a)}${(_sInit[17] ^ 0x5a)}${(_sInit[18] ^ 0x5a)}`;
+
+const nD = '4860ac8bfddb';
+const aD = '224eff10e662e9635c9f671cf46351dcd69af42b1edd56f5e5fa21751f44b9c8';
+const Ls = [17, 91, 203, 44, 8, 177, 62, 239, 119, 3, 154, 81, 28, 210, 101, 7];
+const wa = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+const SERVERS = [
+    { id: 'NIGHT', endpoint: '/server/night' },
+    { id: 'EMP', endpoint: '/server/emp' },
+    { id: 'MAIN', endpoint: '/server/vidsrc' }
+];
+
+let cachedToken = null;
+let tokenExpiry = 0;
+
+function ab(e) {
+    let t = e >>> 0;
+    t ^= t >>> 16;
+    t = Math.imul(t, 2146121005) >>> 0;
+    t ^= t >>> 15;
+    t = Math.imul(t, 2221713035) >>> 0;
+    return (t ^ (t >>> 16)) >>> 0;
+}
+
+function sD(e) {
+    const t = new TextEncoder().encode(aD);
+    const r = Math.max(32, Math.min(128, e + 17));
+    const n = new Uint8Array(r);
+    let a = 2166136261;
+    for (let s = 0; s < r; s += 1) {
+        a ^= t[s % t.length] ?? s;
+        a = ab((a + Ls[s % Ls.length] + ((2654435761 * s) >>> 0)) >>> 0);
+        n[s] = a & 255;
+    }
+    return n;
+}
+
+function iD(e) {
+    let t = '';
+    for (let r = 0; r < e.length; r += 3) {
+        const n = e[r];
+        const a = e[r + 1];
+        const s = e[r + 2];
+        t += wa[n >>> 2];
+        t += wa[((3 & n) << 4) | ((a ?? 0) >>> 4)];
+        if (a === undefined) break;
+        t += wa[((15 & a) << 2) | ((s ?? 0) >>> 6)];
+        if (s === undefined) break;
+        t += wa[63 & s];
+    }
+    return t;
+}
+
+function generateCinesrcDirectHlsUrl(id, s, e) {
+    const isTv = s != null && e != null;
+    const tmdbId = Math.floor(Number(id));
+    const season = isTv ? Math.floor(Number(s || 1)) : 0;
+    const episode = isTv ? Math.floor(Number(e || 1)) : 0;
+
+    const str = `${nD}:${isTv ? 's' : 'm'}:${tmdbId}:${season}:${episode}`;
+    const a = new TextEncoder().encode(str);
+    const sArr = sD(a.length);
+    const i = new Uint8Array(a.length + 2);
+    i[0] = a.length & 255;
+    i[1] = (a.length >>> 8) & 255;
+    let o = (2654435769 ^ a.length) >>> 0;
+    for (let l = 0; l < a.length; l += 1) {
+        o = ab((o + sArr[l % sArr.length] + Ls[l % Ls.length] + l) >>> 0);
+        i[l + 2] = (a[l] ^ (255 & o)) ^ sArr[(7 * l + 3) % sArr.length];
+    }
+
+    return `https://glendale-plumbing.com/c/v1/${iD(i)}/master.m3u8`;
+}
+
+async function fetchBright67Subtitles(id, season, episode) {
+    let url = `https://subs.bright67.online/search?id=${id}`;
+    if (season != null && episode != null) {
+        url += `&season=${season}&episode=${episode}`;
+    }
+
+    try {
+        const res = await fetch(url, {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Referer': 'https://cinesrc.st/'
+            },
+            signal: AbortSignal.timeout(4000)
+        });
+
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (!Array.isArray(data)) return [];
+
+        return data.slice(0, 15).map(s => ({
+            label: s.display || s.languageName || s.language || 'English',
+            language: s.language || 'en',
+            file: s.url || s.r2Url,
+            type: (s.url || s.r2Url || '').endsWith('.vtt') ? 'vtt' : 'srt'
+        }));
+    } catch {
+        return [];
+    }
+}
+
+async function fetchInternalToken() {
+    if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+    try {
+        const res = await fetch('https://1embed.cc/api/token', {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Referer': 'https://1embed.cc/',
+                'Accept': 'application/json, text/plain, */*'
+            },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data?.token) {
+                cachedToken = data.token;
+                tokenExpiry = Date.now() + 1800 * 1000;
+                return cachedToken;
+            }
+        }
+    } catch { }
+
+    return '';
+}
+
+export async function getStream(args) {
+    const { id, s, e, clientIP } = args;
+    const isTv = s != null && e != null;
+    const isMovie = !isTv;
+    const allUrls = [];
+
+    const [subtitles, directHlsUrl] = await Promise.all([
+        fetchBright67Subtitles(id, isMovie ? undefined : s, isMovie ? undefined : e),
+        Promise.resolve(generateCinesrcDirectHlsUrl(id, s, e))
+    ]);
+
+    const masterUrlWithMark = `${directHlsUrl}?${_vParam}`;
+
+    allUrls.push({
+        url: masterUrlWithMark,
+        server: 'CineSrc (Direct Master)',
+        quality: 'Auto',
+        type: 'hls',
+        headers: {
+            'User-Agent': USER_AGENT,
+            'Referer': 'https://cinesrc.st/',
+            'Origin': 'https://cinesrc.st',
+            ...(clientIP && { 'X-Forwarded-For': clientIP })
+        },
+        subtitles: subtitles.length ? subtitles : undefined
+    });
+
+    const token = await fetchInternalToken();
+
+    await Promise.allSettled(
+        SERVERS.map(async (server) => {
+            const query = isTv
+                ? `id=${id}?type=tv&s=${s || 1}&e=${e || 1}`
+                : `id=${id}?type=movie`;
+
+            const stParam = token ? `&_st=${token}` : '';
+            const targetUrl = `https://1embed.cc${server.endpoint}/${query}${stParam}`;
+
+            const headers = {
+                'User-Agent': USER_AGENT,
+                'Referer': 'https://cinesrc.st/',
+                'Accept': 'application/json, text/plain, */*',
+                ...(token && { 'X-Stream-Token': token }),
+                ...(clientIP && { 'X-Forwarded-For': clientIP })
+            };
+
+            const res = await fetch(targetUrl, { headers, signal: AbortSignal.timeout(5000) }).catch(() => null);
+
+            if (res && res.ok) {
+                try {
+                    const data = await res.json();
+                    if (data && data.success !== false) {
+                        const streamUrl = data.streams?.proxy_m3u8 || data.streams?.raw_m3u8 || data.streams?.m3u8 || data.streamUrl;
+                        if (streamUrl && typeof streamUrl === 'string') {
+                            const urlWithMark = streamUrl.includes('?') ? `${streamUrl}&${_vParam}` : `${streamUrl}?${_vParam}`;
+                            allUrls.push({
+                                url: urlWithMark,
+                                server: `CineSrc (${data.selectedSource || data.provider || server.id})`,
+                                quality: 'Auto',
+                                type: streamUrl.includes('.m3u8') ? 'hls' : 'mp4',
+                                headers: {
+                                    'User-Agent': USER_AGENT,
+                                    'Referer': 'https://cinesrc.st/',
+                                    'Origin': 'https://cinesrc.st'
+                                },
+                                subtitles: subtitles.length ? subtitles : undefined
+                            });
+                        }
+                    }
+                } catch { }
+            }
+        })
+    );
+
+    return allUrls.length ? { allUrls } : null;
+}
+
+export async function getSources() {
+    return ['CineSrc (Direct Master)', 'CineSrc (NIGHT)', 'CineSrc (EMP)', 'CineSrc (MAIN)'];
+}

@@ -1,0 +1,122 @@
+import { USER_AGENT, fetchJson, getTmdbInfo } from '../utils/helpers.js';
+
+const BASE_URL = 'https://providers.peestream.in';
+
+export async function getStream(args) {
+    const { id, s, e, server, tmdbApiKey } = args;
+    const isTv = s != null && e != null;
+    const type = isTv ? 'tv' : 'movie';
+
+    let title = args.title || '';
+    let releaseYear = args.year || '';
+    let imdbId = args.imdbId || '';
+
+    if (!title) {
+        try {
+            const info = await getTmdbInfo(id, type, s, tmdbApiKey);
+            if (info) {
+                title = info.title || '';
+                if (info.year) releaseYear = info.year;
+                if (info.imdbId) imdbId = info.imdbId;
+            }
+        } catch { }
+    }
+
+    const queryParams = new URLSearchParams({
+        type,
+        tmdbId: String(id),
+        title: title || String(id)
+    });
+    if (releaseYear) queryParams.set('releaseYear', String(releaseYear));
+    if (imdbId) queryParams.set('imdbId', String(imdbId));
+    if (isTv) {
+        queryParams.set('season', String(s));
+        queryParams.set('episode', String(e));
+    }
+
+    const allUrls = [];
+
+    try {
+        const scrapeUrl = `${BASE_URL}/scrape?${queryParams.toString()}`;
+        const res = await fetch(scrapeUrl, {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Accept': 'text/event-stream',
+                'Referer': `${BASE_URL}/`
+            },
+            signal: AbortSignal.timeout(15000)
+        });
+
+        if (res.ok) {
+            const text = await res.text();
+            const events = text.split('\n\n');
+            for (const ev of events) {
+                if (ev.includes('event: completed')) {
+                    const dataMatch = ev.match(/data:\s*(.+)/);
+                    if (dataMatch) {
+                        try {
+                            const parsed = JSON.parse(dataMatch[1].trim());
+                            const stream = parsed.stream;
+                            const streamUrl = stream?.playlist || stream?.url || stream?.file;
+                            if (streamUrl) {
+                                allUrls.push({
+                                    url: streamUrl,
+                                    server: `PeeStream - ${parsed.sourceId || 'Poseidon'}`,
+                                    quality: 'Auto',
+                                    type: stream.type === 'hls' || streamUrl.includes('.m3u8') ? 'hls' : 'mp4',
+                                    headers: stream.headers || {
+                                        'User-Agent': USER_AGENT
+                                    }
+                                });
+                            }
+                        } catch { }
+                    }
+                }
+            }
+        }
+    } catch { }
+
+    if (!allUrls.length) {
+        try {
+            const searchUrl = `${BASE_URL}/api/search?q=${encodeURIComponent(title || id)}&type=${type}&tmdbId=${id}${isTv ? `&season=${s}&episode=${e}` : ''}`;
+            const data = await fetchJson(searchUrl, {
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Accept': 'application/json',
+                    'Referer': `${BASE_URL}/`
+                },
+                signal: AbortSignal.timeout(10000)
+            });
+
+            if (data && Array.isArray(data.results)) {
+                for (const result of data.results) {
+                    const pName = result.providerName || result.provider || 'PeeStream';
+                    for (const stream of result.streams || []) {
+                        if (!stream || !stream.url) continue;
+                        allUrls.push({
+                            url: stream.url,
+                            server: `PeeStream - ${stream.name || pName}`,
+                            quality: stream.quality || 'Auto',
+                            type: stream.type === 'm3u8' || stream.url.includes('.m3u8') ? 'hls' : 'mp4',
+                            headers: stream.headers || {
+                                'User-Agent': USER_AGENT
+                            }
+                        });
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    if (server && server !== 'all') {
+        const clean = server.toLowerCase().replace('peestream - ', '');
+        const filtered = allUrls.filter(u => u.server.toLowerCase().includes(clean));
+        if (filtered.length) return { allUrls: filtered };
+    }
+
+    return allUrls.length ? { allUrls } : null;
+}
+
+export async function getSources() {
+    return ['PeeStream - vaplayer'];
+}
