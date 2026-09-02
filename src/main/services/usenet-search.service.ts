@@ -143,6 +143,7 @@ export async function searchUsenet(
   }
 
   const allCustom = customIndexers.filter(i => i.enabled && enabledIndexerIds.includes(i.id))
+  console.log(`[Usenet] searchUsenet: ${allCustom.length} enabled indexer(s), searchTerm="${searchTerm}"`)
 
   const promises = allCustom.map(idx => searchNewznabIndexer(idx, query))
 
@@ -185,9 +186,9 @@ async function searchNewznabIndexer(
     // General search — only used by the Search All modal (no type/imdbid).
     searchUrl = `${apiBase}?t=search&q=${encodeURIComponent(searchTerm)}&limit=100&apikey=${indexer.apiKey}&o=json`
   }
-  console.log(`[Usenet] search ${indexer.name}: ${searchUrl.replace(indexer.apiKey, '***')}`)
+    console.log(`[Usenet] search ${indexer.name}: ${searchUrl.replace(indexer.apiKey, '***')}`)
 
-  try {
+    try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15000)
     const response = await fetch(searchUrl, {
@@ -196,12 +197,18 @@ async function searchNewznabIndexer(
     })
     clearTimeout(timeout)
 
-    if (!response.ok) return []
+    console.log(`[Usenet] ${indexer.name} response status: ${response.status}`)
+
+    if (!response.ok) {
+      console.error(`[Usenet] ${indexer.name} returned HTTP ${response.status}`)
+      return []
+    }
 
     const data = await response.json()
     if (!data?.channel?.item) return []
 
     const items = Array.isArray(data.channel.item) ? data.channel.item : [data.channel.item]
+    console.log(`[Usenet] ${indexer.name} returned ${items.length} results`)
 
     return items.map((item: any) => {
       const title = item.title || ''
@@ -231,6 +238,7 @@ async function searchNewznabIndexer(
       }
     })
   } catch (err: any) {
+    console.error(`[Usenet] ${indexer.name} search failed:`, err?.message || err)
     return []
   }
 }
