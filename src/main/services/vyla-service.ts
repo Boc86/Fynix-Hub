@@ -131,7 +131,7 @@ export async function startVyla(tmdbApiKey: string): Promise<boolean> {
     BYPASS_AUTH: '',
   }
 
-  vylaProcess = spawn('node', ['server.js'], {
+  vylaProcess = spawn(process.execPath, ['server.js'], {
     cwd: VYLA_DIR,
     env,
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -250,34 +250,23 @@ async function provisionStandardKey(): Promise<string | null> {
   }
 
   const label = `fynix-${Date.now().toString(36)}`
-  const child = spawn('node', ['add-key.mjs', 'standard', '100', label], {
-    cwd: VYLA_DIR,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const crypto = require('crypto')
+  const hex = crypto.randomBytes(8).toString('hex')
+  const key = `sk_${label}_${hex}`
 
-  const out = await new Promise<string>((resolve) => {
-    let data = ''
-    child.stdout?.on('data', (c: Buffer) => { data += c.toString() })
-    child.stderr?.on('data', (c: Buffer) => { data += c.toString() })
-    child.on('close', () => resolve(data.trim()))
-    child.on('error', () => resolve(''))
-  })
-
-  if (child.exitCode !== 0 || !out) {
-    console.error(`[Vyla] add-key.mjs failed: ${out}`)
+  try {
+    db = new DatabaseSync(dbPath)
+    db.prepare(
+      'INSERT INTO api_keys (key, type, rpm, active) VALUES (?, \'standard\', 100, 1)'
+    ).run(key)
+    db.close()
+    console.log('[Vyla] Provisioned standard API key')
+    return key
+  } catch (err: any) {
+    console.error('[Vyla] Failed to provision key:', err?.message || err)
+    if (db) db.close()
     return null
   }
-
-  // add-key.mjs prints:
-  //   Key created:
-  //   sk_<hex>
-  const key = out.split('\n').find(l => l.startsWith('sk_')) || ''
-  if (!key.startsWith('sk_')) {
-    console.error(`[Vyla] Unexpected key format: ${out}`)
-    return null
-  }
-
-  return key
 }
 
 function waitForFile(filePath: string, timeoutMs: number): Promise<boolean> {
