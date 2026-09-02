@@ -14,9 +14,7 @@ const config: ForgeConfig = {
     executableName: 'fynix-hub',
     asar: {
       unpack: ['**/*.node', 'vyla-api-source/**'],
-      unpackDir: 'assets/bin',
     },
-    extraResource: path.resolve(__dirname, 'vyla-api-source'),
     ignore: [
       '.git',
       '.flatpak-builder',
