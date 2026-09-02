@@ -205,7 +205,12 @@ async function searchNewznabIndexer(
     }
 
     const data = await response.json()
-    if (!data?.channel?.item) return []
+    if (!data?.channel?.item) {
+      console.log(`[Usenet] ${indexer.name} no results — response keys: ${Object.keys(data || {}).join(', ') || '(empty)'}`)
+      if (data?.channel) console.log(`[Usenet] ${indexer.name} channel keys: ${Object.keys(data.channel).join(', ')}`)
+      if (data?.error) console.log(`[Usenet] ${indexer.name} error: ${JSON.stringify(data.error)}`)
+      return []
+    }
 
     const items = Array.isArray(data.channel.item) ? data.channel.item : [data.channel.item]
     console.log(`[Usenet] ${indexer.name} returned ${items.length} results`)
