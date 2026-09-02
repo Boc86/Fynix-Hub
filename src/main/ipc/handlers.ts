@@ -282,6 +282,15 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
+  handle('mdblist:get-watchlist', async () => {
+    try {
+      return await MdbListService.getWatchlist()
+    } catch (err: any) {
+      console.error('[Handler] mdblist:get-watchlist failed:', err.message)
+      return []
+    }
+  })
+
   handle('mdblist:get-tokens', async () => {
     return MdbListService.getTokens()
   })

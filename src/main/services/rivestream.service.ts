@@ -1,90 +1,10 @@
 import { RivestreamResult } from '../../renderer/types.d'
-import { getSetting } from './cache.service'
-
-const BASE = 'https://api.vyla.cc'
-const SSE_TIMEOUT = 60000
-
-// Obfuscated default key to prevent casual scraping
-const _vk = [38, 62, 10, 51, 44, 59, 60, 45, 120, 61, 32, 55, 10, 55, 96, 101, 109, 101, 55, 108, 100, 109, 54, 99, 100, 49, 102, 101, 48, 51, 51, 48, 101, 100, 48, 98, 99, 55, 51, 100, 51, 48, 109, 103, 98]
-const getDeobfuscatedKey = () => String.fromCharCode(..._vk.map(c => c ^ 0x55))
-
-const _bk = 'c2tfZnluaXgtaHViX2I1MDgwYjkxOGM2MWQzMGVmZmUwMWU3NmJmMWZlODI3'
-const getBase64Key = () => Buffer.from(_bk, 'base64').toString('utf-8')
-
-function getVylaApiKey(): string {
-  const env = process.env.VYLA_API_KEY
-  if (env && env !== 'VYLA_API_KEY' && env.length > 20) return env
-  return getBase64Key()
-}
-
-interface SourceMeta {
-  key: string
-  label: string
-}
-
-interface TestResult {
-  source: string
-  ok: boolean
-  error?: string
-  elapsed_ms?: number
-}
-
-async function getSourceMeta(apiKey: string): Promise<SourceMeta[]> {
-  try {
-    const res = await fetch(`${BASE}/api?sources_meta=1`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-    })
-    const body = await res.json()
-    // Try common response shapes
-    return body.sources || body.data?.sources || body.results || []
-  } catch (err: any) {
-    console.warn('[Vyla] sources_meta failed:', err.message)
-    return []
-  }
-}
-
-async function testSources(
-  tmdbId: number,
-  sources: SourceMeta[],
-  season?: number,
-  episode?: number,
-): Promise<{ working: TestResult[]; labelMap: Map<string, string> }> {
-  const params = new URLSearchParams()
-  if (season != null && episode != null) {
-    params.set('season', String(season))
-    params.set('episode', String(episode))
-  }
-
-  let token = ''
-  try {
-    const authRes = await fetch(`${BASE}/api/auth`, { method: 'POST' })
-    const auth = await authRes.json()
-    token = auth.token || ''
-  } catch (err: any) {
-    console.warn('[Vyla] Auth failed:', err.message)
-  }
-
-  if (!token) return { working: [], labelMap: new Map() }
-
-  const results: TestResult[] = await Promise.all(
-    sources.map(s =>
-      fetch(`${BASE}/api/test/${tmdbId}?${params}&source=${s.key}`, {
-        headers: { 'X-Session-Token': token },
-      })
-        .then(r => r.json())
-        .catch(() => ({ source: s.key, ok: false } as TestResult))
-    )
-  )
-
-  return {
-    working: results.filter(r => r.ok),
-    labelMap: new Map(sources.map(s => [s.key, s.label])),
-  }
-}
+import { vylaBaseUrl } from './vyla-service'
+import { getEncryptedSetting } from './cache.service'
 
 async function parseSSE(
   sseUrl: string,
-  apiKey: string,
+  token: string,
   workingKeys: Set<string> | null,
   labelMap: Map<string, string>,
   type: 'movie' | 'tv',
@@ -92,14 +12,13 @@ async function parseSSE(
 ): Promise<RivestreamResult[]> {
   const results: RivestreamResult[] = []
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), SSE_TIMEOUT)
+  const timeout = setTimeout(() => controller.abort(), 60_000)
 
   try {
     const response = await fetch(sseUrl, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
+      headers: { 'X-Session-Token': token },
       signal: controller.signal,
     })
-    console.log(`[Vyla] SSE response: ${response.status} ${response.statusText}`)
 
     if (!response.ok) {
       const bodyText = await response.text().catch(() => '(unreadable)')
@@ -109,7 +28,7 @@ async function parseSSE(
     }
 
     const reader = response.body?.getReader()
-    if (!reader) { console.warn('[Vyla] SSE response body has no reader'); clearTimeout(timeout); return [] }
+    if (!reader) { clearTimeout(timeout); return [] }
 
     const decoder = new TextDecoder()
     let buffer = ''
@@ -158,7 +77,7 @@ async function parseSSE(
   } catch (err: any) {
     clearTimeout(timeout)
     if (err.name !== 'AbortError') {
-      console.error('[Vyla] SSE failed:', err.message)
+      console.error('[Vyla] SSE failed:', err?.message || err)
     }
     return results
   }
@@ -171,16 +90,44 @@ export async function searchRivestream(
   episode?: number,
   onSourceFound?: (source: RivestreamResult) => void,
 ): Promise<RivestreamResult[]> {
-  const apiKey = getVylaApiKey()
-  const keyPreview = apiKey ? apiKey.slice(0, 10) + '...' : 'MISSING'
-  console.log(`[Vyla] API key loaded: ${keyPreview} (length=${apiKey.length})`)
+  const base = vylaBaseUrl
+  if (!base) {
+    console.warn('[Vyla] Streaming API not available — Vyla server not running')
+    return []
+  }
+
+  const apiKey = getEncryptedSetting('vylaApiKey') || ''
+  if (!apiKey) {
+    console.warn('[Vyla] No API key — streaming will fail')
+    return []
+  }
+
+  console.log(`[Vyla] Base URL: ${base} (key length: ${apiKey.length})`)
+
+  // Obtain a session token from the self-hosted Vyla server
+  let token = ''
+  try {
+    const authRes = await fetch(`${base}/api/auth`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    })
+    const auth = await authRes.json()
+    token = auth.token || ''
+    if (!token) {
+      console.warn(`[Vyla] /api/auth returned no token: ${JSON.stringify(auth).slice(0, 200)}`)
+    }
+  } catch (err: any) {
+    console.warn(`[Vyla] /api/auth failed: ${err?.message || err}`)
+  }
+
+  if (!token) return []
 
   const sseUrl = type === 'movie'
-    ? `${BASE}/movie?id=${tmdbId}`
-    : `${BASE}/tv?id=${tmdbId}&season=${season}&episode=${episode}`
+    ? `${base}/movie?id=${tmdbId}`
+    : `${base}/tv?id=${tmdbId}&season=${season}&episode=${episode}`
   console.log(`[Vyla] SSE URL: ${sseUrl}`)
 
-  const results = await parseSSE(sseUrl, apiKey, null, new Map(), type, onSourceFound)
+  const results = await parseSSE(sseUrl, token, null, new Map(), type, onSourceFound)
   console.log(`[Vyla] SSE complete — ${results.length} source(s) returned`)
   return results
 }
