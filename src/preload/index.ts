@@ -107,6 +107,7 @@ const api = {
     getPlaybackMovies: () => ipcRenderer.invoke('mdblist:get-playback-movies'),
     getPlaybackEpisodes: () => ipcRenderer.invoke('mdblist:get-playback-episodes'),
     getWatchedProgress: () => ipcRenderer.invoke('mdblist:get-watched-progress'),
+    getWatchlist: () => ipcRenderer.invoke('mdblist:get-watchlist'),
     getSettings: () => ipcRenderer.invoke('mdblist:get-settings'),
   },
   torrent: {
