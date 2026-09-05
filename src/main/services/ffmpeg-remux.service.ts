@@ -326,10 +326,14 @@ function appendEndList(session: RemuxSession): void {
   }
 }
 
-/** Watch for the first real playlist write; clears any previous watcher. */
+/** Watch for the first real playlist write; clears any previous watcher.
+ * Resolves the session's ready promise when the playlist grows beyond the
+ * placeholder, or times out after 15s (caller should handle gracefully). */
 function armReadyWatcher(session: RemuxSession): void {
   if (session.readyWatcher) clearInterval(session.readyWatcher)
   const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
+  const start = Date.now()
+  const TIMEOUT_MS = 15_000 // must be > the 8s renderer watchdog
   session.readyWatcher = setInterval(() => {
     try {
       const stat = fs.statSync(playlistPath)
@@ -338,8 +342,17 @@ function armReadyWatcher(session: RemuxSession): void {
         if (session.readyWatcher) clearInterval(session.readyWatcher)
         session.readyWatcher = undefined
         session.readyResolve()
+        return
       }
     } catch {}
+    // Timeout: resolve with an error so servePlaylist gets the placeholder
+    // (hls.js will retry) and the watchdog in FFmpeg doesn't hang forever.
+    if (Date.now() - start >= TIMEOUT_MS) {
+      if (session.readyWatcher) clearInterval(session.readyWatcher)
+      session.readyWatcher = undefined
+      debug('Ready watcher timed out after 15s — serving placeholder playlist')
+      session.readyResolve()
+    }
   }, 300)
 }
 
@@ -677,8 +690,12 @@ export async function handleRemuxRequest(
       return
     }
 
-  // For playlist.m3u8: serve immediately (may be placeholder initially, refreshable).
+  // For playlist.m3u8: wait for the first real playlist write (FFmpeg
+  // replaces the placeholder after the first segment), then serve it.
+  // Without this, hls.js gets an empty playlist and the 8s watchdog fires
+  // before any segments are listed.
   if (filename === 'playlist.m3u8') {
+    await session.ready.catch(() => {})
     servePlaylist(session, res)
     return
   }
