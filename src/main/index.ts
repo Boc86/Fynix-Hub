@@ -75,6 +75,54 @@ import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 
 function detectGpuVendor(): string | null {
+  // First, try to detect which GPU drives the active display via DRM.
+  // On Wayland (no xrandr), we check /sys/class/drm/card*/card*-*/status
+  // for a "connected" output — that card is the display GPU.
+  // This is critical for hybrid GPU systems where lspci lists NVIDIA first
+  // but the display is actually connected to AMD/Intel.
+  try {
+    const drmPattern = '/sys/class/drm';
+    const entries = fs.readdirSync(drmPattern);
+    // Look for card directories
+    const cards = entries.filter(e => /^card\d+$/.test(e));
+    for (const card of cards) {
+      const drmPath = path.join(drmPattern, card);
+      const cardEntries = fs.readdirSync(drmPath);
+      // Check connector status dirs (e.g., card0-HDMI-A-1)
+      for (const entry of cardEntries) {
+        const statusPath = path.join(drmPath, entry, 'status');
+        if (fs.existsSync(statusPath)) {
+          try {
+            const status = fs.readFileSync(statusPath, 'utf-8').trim();
+            if (status === 'connected') {
+              // Read the PCI ID from the card's device uevent
+              const ueventPath = path.join(drmPath, 'device', 'uevent');
+              if (fs.existsSync(ueventPath)) {
+                const uevent = fs.readFileSync(ueventPath, 'utf-8');
+                const pciMatch = uevent.match(/PCI_ID=([0-9A-Fa-f]+):/i);
+                if (pciMatch) {
+                  const pciId = pciMatch[1];
+                  if (pciId === '10de') return 'nvidia';  // NVIDIA
+                  if (pciId === '1002' || pciId === '1002') return 'amd';  // AMD
+                  if (pciId === '8086') return 'intel';   // Intel
+                }
+                // Also check DRIVER field as fallback
+                const driverMatch = uevent.match(/DRIVER=(\w+)/);
+                if (driverMatch) {
+                  const driver = driverMatch[1].toLowerCase();
+                  if (driver.includes('nvidia')) return 'nvidia';
+                  if (driver.includes('amdgpu') || driver.includes('radeon')) return 'amd';
+                  if (driver.includes('i915') || driver.includes('xe')) return 'intel';
+                }
+              }
+            }
+          } catch { /* ignore individual card read errors */ }
+        }
+      }
+    }
+  } catch { /* /sys/class/drm unavailable */ }
+
+  // Fallback: use lspci (first match wins)
   try {
     const lspci = execSync('lspci -nn 2>/dev/null', { encoding: 'utf-8', timeout: 3000 });
     if (/vga.*nvidia|3d.*nvidia|display.*nvidia/i.test(lspci)) return 'nvidia';
@@ -92,20 +140,32 @@ if (gpuVendor === 'nvidia') {
   if (!process.env.LIBVA_DRIVER_NAME) process.env.LIBVA_DRIVER_NAME = 'nvidia';
   const hasDriver = existsSync(`${DRI_PATH}/nvidia_drv_video.so`);
   console.log(`[VA-API] NVIDIA GPU detected. Driver: ${hasDriver ? '✓' : '✗ MISSING — install libva-nvidia-driver'}`);
+  // NVIDIA VA-API often has EGL issues on Wayland — prefer software fallback.
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
 } else if (gpuVendor === 'intel') {
   const hasIhd = existsSync(`${DRI_PATH}/iHD_drv_video.so`);
   const hasI965 = existsSync(`${DRI_PATH}/i965_drv_video.so`);
   console.log(`[VA-API] Intel GPU detected. iHD: ${hasIhd ? '✓' : '✗'} i965: ${hasI965 ? '✓' : '✗'}${!hasIhd && !hasI965 ? ' — install intel-media-driver or libva-intel-driver' : ''}`);
+  // Intel VA-API works well — enable hardware decoding.
+  if (hasIhd || hasI965) {
+    app.commandLine.appendSwitch('ignore-gpu-blocklist');
+    app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder');
+    app.commandLine.appendSwitch('disable-software-rasterizer');
+  }
 } else if (gpuVendor === 'amd') {
   const hasRadeonsi = existsSync(`${DRI_PATH}/radeonsi_drv_video.so`);
   console.log(`[VA-API] AMD GPU detected. radeonsi: ${hasRadeonsi ? '✓' : '✗ MISSING — install mesa-va-drivers-freeworld'}`);
+  // AMD VA-API (VAAPI + EGL) on Wayland produces broken EGLImage surfaces
+  // that cause video to never render ("Preparing Stream" forever, audio plays).
+  // This is caused by radv not being a conformant Vulkan implementation +
+  // Wayland/EGL incompatibility. Force software rendering entirely.
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,Vulkan,VulkanSurface');
+  app.commandLine.appendSwitch('enable-features', 'CanvasOopRaster');
+  console.log('[VA-API] AMD: using software rendering (disable-gpu)');
 } else {
   console.log('[VA-API] GPU vendor unknown — VAAPI may not work');
 }
-
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,VaapiVideoDecodeLinuxGL');
-app.commandLine.appendSwitch('disable-software-rasterizer');
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;

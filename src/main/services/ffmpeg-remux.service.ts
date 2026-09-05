@@ -137,9 +137,12 @@ export function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: st
     '-loglevel', 'info',
     '-err_detect', 'ignore_err',
     '-fflags', '+genpts+discardcorrupt',
-    // Allow generous analysis/probe for slow HTTP streams (torrents).
-    '-analyzeduration', '60000000',
-    '-probesize', '100000000',
+    // Analysis probing: short for live streams (avoid blocking first segment),
+    // generous for file/torrent inputs that may have slow initial data.
+    // isLive = HTTP but not localhost (torrent server) — same logic as createSession.
+    ...(inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
+         ? ['-analyzeduration', '5000000', '-probesize', '5000000']
+         : ['-analyzeduration', '60000000', '-probesize', '100000000']),
     '-rw_timeout', '60000000',
   ]
 
