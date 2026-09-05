@@ -140,20 +140,31 @@ if (gpuVendor === 'nvidia') {
   if (!process.env.LIBVA_DRIVER_NAME) process.env.LIBVA_DRIVER_NAME = 'nvidia';
   const hasDriver = existsSync(`${DRI_PATH}/nvidia_drv_video.so`);
   console.log(`[VA-API] NVIDIA GPU detected. Driver: ${hasDriver ? '✓' : '✗ MISSING — install libva-nvidia-driver'}`);
+  // NVIDIA VA-API often has EGL issues on Wayland — prefer software fallback.
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
 } else if (gpuVendor === 'intel') {
   const hasIhd = existsSync(`${DRI_PATH}/iHD_drv_video.so`);
   const hasI965 = existsSync(`${DRI_PATH}/i965_drv_video.so`);
   console.log(`[VA-API] Intel GPU detected. iHD: ${hasIhd ? '✓' : '✗'} i965: ${hasI965 ? '✓' : '✗'}${!hasIhd && !hasI965 ? ' — install intel-media-driver or libva-intel-driver' : ''}`);
+  // Intel VA-API works well — enable hardware decoding.
+  if (hasIhd || hasI965) {
+    app.commandLine.appendSwitch('ignore-gpu-blocklist');
+    app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder');
+    app.commandLine.appendSwitch('disable-software-rasterizer');
+  }
 } else if (gpuVendor === 'amd') {
   const hasRadeonsi = existsSync(`${DRI_PATH}/radeonsi_drv_video.so`);
   console.log(`[VA-API] AMD GPU detected. radeonsi: ${hasRadeonsi ? '✓' : '✗ MISSING — install mesa-va-drivers-freeworld'}`);
+  // AMD VA-API on Wayland often has EGL compatibility issues — don't force
+  // disable-software-rasterizer so the app can fall back to software decoding.
+  if (hasRadeonsi) {
+    app.commandLine.appendSwitch('ignore-gpu-blocklist');
+    app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder');
+    // Don't disable software rasterizer — allows fallback when EGL fails.
+  }
 } else {
   console.log('[VA-API] GPU vendor unknown — VAAPI may not work');
 }
-
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,VaapiVideoDecodeLinuxGL');
-app.commandLine.appendSwitch('disable-software-rasterizer');
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
