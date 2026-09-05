@@ -155,13 +155,14 @@ if (gpuVendor === 'nvidia') {
 } else if (gpuVendor === 'amd') {
   const hasRadeonsi = existsSync(`${DRI_PATH}/radeonsi_drv_video.so`);
   console.log(`[VA-API] AMD GPU detected. radeonsi: ${hasRadeonsi ? '✓' : '✗ MISSING — install mesa-va-drivers-freeworld'}`);
-  // AMD VA-API on Wayland often has EGL compatibility issues — don't force
-  // disable-software-rasterizer so the app can fall back to software decoding.
-  if (hasRadeonsi) {
-    app.commandLine.appendSwitch('ignore-gpu-blocklist');
-    app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder');
-    // Don't disable software rasterizer — allows fallback when EGL fails.
-  }
+  // AMD VA-API (VAAPI + EGL) is unreliable on Wayland — causes video
+  // frames to not render (audio plays but video stays black/preparing).
+  // Use software decoding instead: --disable-gpu-rasterization + allow
+  // --ignore-gpu-blocklist for canvas/webgl compositing to still work.
+  // Software video decode is fast enough for 720p/1080p HLS streams.
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder');
+  // Don't disable software rasterizer — allows CPU decoding fallback.
 } else {
   console.log('[VA-API] GPU vendor unknown — VAAPI may not work');
 }
