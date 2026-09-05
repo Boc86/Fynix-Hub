@@ -157,13 +157,12 @@ if (gpuVendor === 'nvidia') {
   console.log(`[VA-API] AMD GPU detected. radeonsi: ${hasRadeonsi ? '✓' : '✗ MISSING — install mesa-va-drivers-freeworld'}`);
   // AMD VA-API (VAAPI + EGL) on Wayland produces broken EGLImage surfaces
   // that cause video to never render ("Preparing Stream" forever, audio plays).
-  // The system likely has both NVIDIA + AMD GPUs, and the NVIDIA Vulkan
-  // (lsfg-vk) driver conflicts with AMD's radv on Wayland.
-  // Fix: disable HW video decode, disable Vulkan, use software rendering.
-  app.commandLine.appendSwitch('ignore-gpu-blocklist');
-  app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,Vulkan,VulkanSurface,ValidateBaseImageOnCopy');
-  app.commandLine.appendSwitch('disable-gpu-sandbox');
-  // Don't disable software rasterizer — allows CPU decoding fallback.
+  // This is caused by radv not being a conformant Vulkan implementation +
+  // Wayland/EGL incompatibility. Force software rendering entirely.
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,Vulkan,VulkanSurface');
+  app.commandLine.appendSwitch('enable-features', 'CanvasOopRaster');
+  console.log('[VA-API] AMD: using software rendering (disable-gpu)');
 } else {
   console.log('[VA-API] GPU vendor unknown — VAAPI may not work');
 }
