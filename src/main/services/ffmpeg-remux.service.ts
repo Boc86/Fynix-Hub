@@ -137,12 +137,13 @@ export function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: st
     '-loglevel', 'info',
     '-err_detect', 'ignore_err',
     '-fflags', '+genpts+discardcorrupt',
-    // Analysis probing: short for live streams (avoid blocking first segment),
-    // generous for file/torrent inputs that may have slow initial data.
-    // isLive = HTTP but not localhost (torrent server) — same logic as createSession.
-    ...(inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
+    // Analysis probing: short for all HTTP streams (live or local).
+    // Even for localhost/WebTorrent, 60s analyzeduration delays the first
+    // segment beyond the player's 8s readiness timeout. 5s is enough to read
+    // MKV/MP4 headers from a local HTTP source.
+    ...(inputUrl.startsWith('http')
          ? ['-analyzeduration', '5000000', '-probesize', '5000000']
-         : ['-analyzeduration', '60000000', '-probesize', '100000000']),
+         : ['-analyzeduration', '5000000', '-probesize', '5000000']),
     '-rw_timeout', '60000000',
   ]
 
