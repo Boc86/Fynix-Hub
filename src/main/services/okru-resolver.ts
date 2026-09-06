@@ -176,9 +176,8 @@ function extractHlsFromJson(obj: any): string | null {
       if (v && typeof v.url === 'string' && v.url) return v.url
     }
   }
-  // url11 as last resort (might be SWF, but try anyway)
-  if (typeof obj.url11 === 'string' && obj.url11 && obj.url11.startsWith('http')) return obj.url11
-  if (typeof obj.url === 'string' && obj.url && obj.url.startsWith('http')) return obj.url
+  // NOTE: url11 and url are SWF player URLs (e.g. vp.swf), not stream URLs.
+  // Returning them as hlsManifestUrl causes FFmpeg to try demuxing a SWF file.
   return null
 }
 

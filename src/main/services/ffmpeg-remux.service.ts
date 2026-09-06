@@ -21,6 +21,23 @@ import * as path from 'path'
 import * as os from 'os'
 import type { IncomingMessage, ServerResponse } from 'http'
 
+// When GPU is disabled (e.g., AMD Wayland with --disable-gpu), Chromium cannot
+// use hardware video decoding. Software HEVC (Main 10) decoding is unreliable
+// or unsupported, so we force transcoding to H.264 (8-bit, 4:2:0) for browser
+// MSE compatibility. Check at call time — the env var is set by index.ts
+// AFTER this module is imported (imports are hoisted in ES modules).
+const FYNIX_GPU_DISABLED = 'FYNIX_GPU_DISABLED'
+
+/** Determine whether to transcode video to H.264 for browser compatibility. */
+function needsTranscode(): boolean {
+  // When GPU is disabled (e.g., AMD Wayland with --disable-gpu), Chromium cannot
+  // use hardware video decoding. Software HEVC (Main 10) decoding is unreliable
+  // or unsupported, so we force transcoding to H.264 (8-bit, 4:2:0) for browser
+  // MSE compatibility. When GPU is available, Chromium with VAAPI decodes HEVC
+  // natively — no transcode needed.
+  return process.env[FYNIX_GPU_DISABLED] === '1'
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface RemuxSession {
@@ -137,12 +154,13 @@ export function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: st
     '-loglevel', 'info',
     '-err_detect', 'ignore_err',
     '-fflags', '+genpts+discardcorrupt',
-    // Analysis probing: short for live streams (avoid blocking first segment),
-    // generous for file/torrent inputs that may have slow initial data.
-    // isLive = HTTP but not localhost (torrent server) — same logic as createSession.
-    ...(inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
+    // Analysis probing: short for all HTTP streams (live or local).
+    // Even for localhost/WebTorrent, 60s analyzeduration delays the first
+    // segment beyond the player's 8s readiness timeout. 5s is enough to read
+    // MKV/MP4 headers from a local HTTP source.
+    ...(inputUrl.startsWith('http')
          ? ['-analyzeduration', '5000000', '-probesize', '5000000']
-         : ['-analyzeduration', '60000000', '-probesize', '100000000']),
+         : ['-analyzeduration', '5000000', '-probesize', '5000000']),
     '-rw_timeout', '60000000',
   ]
 
@@ -336,7 +354,7 @@ function armReadyWatcher(session: RemuxSession): void {
   if (session.readyWatcher) clearInterval(session.readyWatcher)
   const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
   const start = Date.now()
-  const TIMEOUT_MS = 15_000 // must be > the 8s renderer watchdog
+  const TIMEOUT_MS = 30_000 // must be > the renderer watchdog (15s for remux streams)
   session.readyWatcher = setInterval(() => {
     try {
       const stat = fs.statSync(playlistPath)
@@ -430,7 +448,7 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
       // Continue the timeline at the exact end of the previous chunk so hls.js
       // sees one continuous growing playlist — no timestamp hole at the join.
       const tsOffset = sumPlaylistDuration(session)
-      const args = buildFFmpegArgs(session.inputUrl, session.outputDir, headers, false, audioTrackIndex, true, LIVE_CHUNK_SECONDS, tsOffset)
+      const args = buildFFmpegArgs(session.inputUrl, session.outputDir, headers, needsTranscode(), audioTrackIndex, true, LIVE_CHUNK_SECONDS, tsOffset)
       let newProc: ChildProcess
       try {
         newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -474,7 +492,7 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
           // seek → restart-to-0 (the usenet restart bug, same as live-TV).
           const tsOffset = sumPlaylistDuration(session)
           const args: string[] = ['-ss', String(lastDuration)]
-          args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, false, audioTrackIndex, true, undefined, tsOffset))
+          args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, needsTranscode(), audioTrackIndex, true, undefined, tsOffset))
           let newProc: ChildProcess
           try {
             newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -535,13 +553,13 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
      debug('No resume seek (resumePosition=', resumePosition, ') — starting from 0:00')
    }
    // ponytail: Chromium (Electron 42) with VAAPI decodes HEVC natively.
-   // No transcode needed — just remux (copy) the video stream.
-   // Live http(s) streams are chunked: -t caps each FFmpeg process, the exit
+   // When GPU is disabled (AMD Wayland), force H.264 transcode for software
+   // decode compatibility. Live http(s) streams are chunked: -t caps each FFmpeg process, the exit
    // handler respawns append_list (see LIVE_CHUNK_SECONDS). Localhost HTTP
    // (torrent server) and file:// are FINITE files — chunk rotation would
    // respawn ffmpeg at byte 0 and replay the file from 0:00.
    const isLive = inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
-   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, false, audioTrackIndex, false, isLive ? LIVE_CHUNK_SECONDS : undefined))
+   args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, needsTranscode(), audioTrackIndex, false, isLive ? LIVE_CHUNK_SECONDS : undefined))
 
    debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))
 
