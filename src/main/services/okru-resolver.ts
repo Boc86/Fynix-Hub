@@ -235,8 +235,12 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     console.log('[okru-resolver] no data-options found in page, body snippet:', body.slice(1000, 2000))
   }
 
-  // 1) Plaintext .m3u8 anywhere in body or decoded data-options (cheap, v1.3.3-style).
-  const reUrl = extractHlsManifestUrl(body) || extractHlsManifestUrl(decoded)
+  // 1) Plaintext .m3u8 anywhere in decoded data-options (cheap, v1.3.3-style).
+  // Only search the decoded string, NOT the raw body — the body has &quot; HTML
+  // entities which the regex's quote-stopper doesn't recognize, causing it to
+  // match through multiple JSON values and grab a corrupt URL starting at the
+  // SWF player URL (vp.swf) and running through to the next .m3u8 in the page.
+  const reUrl = decoded ? extractHlsManifestUrl(decoded) : null
   if (reUrl) {
     console.log('[okru-resolver] extracted manifest URL via regex')
     return { hlsManifestUrl: reUrl }
