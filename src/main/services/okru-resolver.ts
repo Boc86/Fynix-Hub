@@ -155,10 +155,10 @@ function extractHlsFromJson(obj: any, _depth = 0): string | null {
     }
   }
 
-  // Direct hlsManifestUrl field
-  if (typeof obj.hlsManifestUrl === 'string' && obj.hlsManifestUrl) return obj.hlsManifestUrl
-  // ondemandHls field
-  if (typeof obj.ondemandHls === 'string' && obj.ondemandHls) return obj.ondemandHls
+  // Direct hlsManifestUrl field — validate it's not a SWF player URL
+  if (typeof obj.hlsManifestUrl === 'string' && obj.hlsManifestUrl && !/\.swf/i.test(obj.hlsManifestUrl)) return obj.hlsManifestUrl
+  // ondemandHls field — validate it's not a SWF player URL
+  if (typeof obj.ondemandHls === 'string' && obj.ondemandHls && !/\.swf/i.test(obj.ondemandHls)) return obj.ondemandHls
   // url240/360/480/720/1080 = quality MP4, skip url/url11 (SWF players)
   const urlFields = ['url240', 'url360', 'url480', 'url720', 'url1080', 'url1440', 'url2160']
   for (const key of urlFields) {
