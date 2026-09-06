@@ -337,7 +337,7 @@ function armReadyWatcher(session: RemuxSession): void {
   if (session.readyWatcher) clearInterval(session.readyWatcher)
   const playlistPath = path.join(session.outputDir, 'playlist.m3u8')
   const start = Date.now()
-  const TIMEOUT_MS = 15_000 // must be > the 8s renderer watchdog
+  const TIMEOUT_MS = 30_000 // must be > the renderer watchdog (15s for remux streams)
   session.readyWatcher = setInterval(() => {
     try {
       const stat = fs.statSync(playlistPath)

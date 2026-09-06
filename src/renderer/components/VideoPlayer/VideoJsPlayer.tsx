@@ -379,10 +379,10 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         })
       }
       // Detect dead stream: poll every 2s, surface error if no playback after 8s
-      // (15s for remux/live streams where FFmpeg needs to start up + produce
+      // (30s for remux/live streams where FFmpeg needs to start up + produce
       // first segment before hls.js can begin playback).
       const isRemuxLive = isRemux && src?.includes('/remux/')
-      const timeout = isRemuxLive ? 15_000 : 8_000
+      const timeout = isRemuxLive ? 30_000 : 8_000
       let hasPlayed = false
       let elapsed = 0
       const pollTimer = setInterval(() => {
