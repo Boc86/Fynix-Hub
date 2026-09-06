@@ -401,6 +401,8 @@ function rewriteHlsUrls(playlist: string, baseUrl: string, proxyId: string): str
     (_match, rawUrl, rest) => {
       // Already rewritten? Skip.
       if (rawUrl.startsWith('http://127.0.0.1:')) return _match
+      // Fix JSON-escaped \u0026 in URLs before resolving with new URL()
+      rawUrl = rawUrl.replace(/\u0026/g, '&')
       // Resolve relative URLs against the playlist's base URL
       let absoluteUrl: string
       try {
@@ -719,7 +721,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
       // ok.ru CDN URLs in HLS playlists may contain literal \u0026 (JSON unicode
       // escape for &) when scraped from the page — new URL() rejects backslashes
       // in query strings, so unescape them here.
-      remoteUrl = remoteUrl.replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
+      remoteUrl = remoteUrl.replace(/\\u0026/g, '&')
     } catch {
       res.writeHead(400)
       res.end('Bad proxy URL encoding')
