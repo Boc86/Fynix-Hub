@@ -117,16 +117,20 @@ function htmlDecode(s: string): string {
       const m: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
       return m[c] ?? _m
     })
-    .replace(/\\\\u0026/g, '&')
     .replace(/\\u0026/g, '&')
-    .replace(/\\\//g, '/')
+    .replace(/\\\\u0026/g, '&')
+    .replace(/\\\\\//g, '/')
     .replace(/\\\\"/g, '"')
     .replace(/\\"/g, '"')
 }
 
+function safeJsonParse(s: string): any | null {
+  try { return JSON.parse(s) } catch { return null }
+}
+
 function extractHlsManifestUrl(decoded: string): string | null {
   // Any .m3u8 on any okcdn.ru or mail.ru subdomain
-  const hlsRe = /https?:\/\/[^\s"'\\]+\.(?:okcdn|mail)\.[^\s"'\\]*\.m3u8[^\s"'\\]*/gi
+  const hlsRe = /https?:\/\/[^\s"']+\.(?:okcdn|mail)\.[^\s"']*\.m3u8[^\s"']*/gi
   const all: string[] = []
   let m: RegExpExecArray | null
   while ((m = hlsRe.exec(decoded)) !== null) all.push(m[0])
@@ -137,26 +141,18 @@ function extractHlsManifestUrl(decoded: string): string | null {
   return null
 }
 
-function extractHlsFromJson(obj: any): string | null {
-  // Try nested flashvars.metadata first (main video page format)
-  if (obj.flashvars && typeof obj.flashvars.metadata === 'string') {
-    try {
-      const meta = JSON.parse(obj.flashvars.metadata)
-      if (typeof meta.hlsManifestUrl === 'string' && meta.hlsManifestUrl) return meta.hlsManifestUrl
-      if (Array.isArray(meta.videos) && meta.videos.length > 0) {
-        // prefer higher quality
-        const qualities: Record<string, number> = { mobile: 0, lowest: 1, low: 2, sd: 3, hd: 4, full: 5, quad: 6, ultra: 7 }
-        let best = meta.videos[0]
-        let bestScore = -1
-        for (const v of meta.videos) {
-          if (v && typeof v.url === 'string' && v.url) {
-            const score = qualities[v.name] ?? 0
-            if (score > bestScore) { best = v; bestScore = score }
-          }
-        }
-        if (best && best.url) return best.url
-      }
-    } catch { /* not JSON */ }
+function extractHlsFromJson(obj: any, _depth = 0): string | null {
+  if (_depth > 5) return null
+  // Try nested flashvars.metadata — it may be a JSON-encoded string or
+  // already a parsed object (ok.ru page format varies by region/visitor).
+  if (obj.flashvars && obj.flashvars.metadata) {
+    const meta = typeof obj.flashvars.metadata === 'string'
+      ? safeJsonParse(obj.flashvars.metadata)
+      : obj.flashvars.metadata
+    if (meta) {
+      const result = extractHlsFromJson(meta, _depth + 1)
+      if (result) return result
+    }
   }
 
   // Direct hlsManifestUrl field
@@ -216,17 +212,9 @@ function extractFromMetadata(decoded: string): string | null {
   const closeQuote = j + 1
   if (decoded[closeQuote] !== '"') return null
   const metaStr = decoded.slice(i, closeQuote)
-  try {
-    const meta = JSON.parse(metaStr)
-    return extractHlsFromJson(meta)
-  } catch {
-    try {
-      const meta = JSON.parse(metaStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\'))
-      return extractHlsFromJson(meta)
-    } catch {
-      return null
-    }
-  }
+  const meta = safeJsonParse(metaStr)
+  if (meta) return extractHlsFromJson(meta)
+  return null
 }
 
 async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<string, string>): Promise<OkruMetadata> {
@@ -300,14 +288,14 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
   const configMatch = body.match(/data-config="([^"]+)"/)
   if (configMatch) {
     const configDecoded = htmlDecode(configMatch[1])
-    try {
-      const config = JSON.parse(configDecoded)
+    const config = safeJsonParse(configDecoded)
+    if (config) {
       const hls = extractHlsFromJson(config)
       if (hls) {
         console.log('[okru-resolver] extracted manifest URL from data-config JSON')
         return { hlsManifestUrl: hls }
       }
-    } catch { /* not valid JSON */ }
+    }
     const hlsFromConfig = extractHlsManifestUrl(configDecoded)
     if (hlsFromConfig) {
       console.log('[okru-resolver] extracted manifest URL from data-config regex')
