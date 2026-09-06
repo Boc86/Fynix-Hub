@@ -37,6 +37,7 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
     return {
       ...baseHeaders,
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept-Encoding': 'identity',
     }
   }
   if (isOkCdnHls || isVkUser || isVk) {
@@ -45,6 +46,7 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
       'Referer': 'https://ok.ru/',
       'Origin': 'https://ok.ru',
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept-Encoding': 'identity',
     }
   }
   if (isDailymotion) {
@@ -53,6 +55,7 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
       'Referer': 'https://www.dailymotion.com/',
       'Origin': 'https://www.dailymotion.com',
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept-Encoding': 'identity',
     }
   }
   if (isCdnLive) {
@@ -60,6 +63,7 @@ function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): R
       ...baseHeaders,
       'Referer': 'https://cdnlivetv.is/',
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept-Encoding': 'identity',
     }
   }
   return baseHeaders
