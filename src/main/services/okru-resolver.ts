@@ -414,10 +414,13 @@ export async function resolveOkruReplay(url: string): Promise<string> {
   const meta = await fetchEmbedMetadata(videoId)
   const masterUrl = meta.hlsManifestUrl || meta.ondemandHls
   if (!masterUrl) throw new Error('No HLS manifest in ok.ru metadata')
-  // ok.ru serves an HLS master playlist (.m3u8) with relative variant URLs.
-  // Fetch & resolve it to a direct CDN segment URL so the local proxy can
-  // stream it as progressive MP4 (the browser uses native <video>, not hls.js,
-  // because the proxy URL ends in .mp4 for content-type inference).
+  // If the URL is already a direct progressive CDN URL (not an HLS .m3u8
+  // master playlist), return it directly — the proxy streams it as MP4.
+  if (!/\.m3u8/i.test(masterUrl)) {
+    console.log('[okru-resolver] returning direct progressive CDN URL')
+    return masterUrl
+  }
+  // HLS master playlist — resolve to a variant URL.
   console.log('[okru-resolver] resolving HLS master playlist to best variant')
   try {
     const { url: variantUrl } = await fetchMasterPlaylist(masterUrl)
