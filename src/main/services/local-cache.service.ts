@@ -21,15 +21,25 @@ function generateProxyId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
 
-// Headers to inject for ok.ru and VK CDN streams (required for CORS/auth)
+// Headers to inject for CDN streams. ok.ru CDN now serves progressive MP4
+// URLs that reject Referer/Origin headers (HTTP 400) — only User-Agent
+// is needed. HLS manifest URLs (.m3u8) still accept Referer/Origin.
 function getCdnHeaders(url: string, baseHeaders: Record<string, string> = {}): Record<string, string> {
   const isOkCdn = /okcdn\.ru/i.test(url)
+  const isOkCdnHls = isOkCdn && /\.m3u8/i.test(url)
   const isVkUser = /vkuser\.net/i.test(url)
   const isVk = /vk\.com|vkvideo/i.test(url)
   const isDailymotion = /dailymotion\.com/i.test(url)
   const isCdnLive = /cdnlivetv\.(is|tv)/i.test(url)
 
-  if (isOkCdn || isVkUser || isVk) {
+  if (isOkCdn && !isOkCdnHls) {
+    // Progressive MP4 from ok.ru CDN — no Referer/Origin (CDN returns 400)
+    return {
+      ...baseHeaders,
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    }
+  }
+  if (isOkCdnHls || isVkUser || isVk) {
     return {
       ...baseHeaders,
       'Referer': 'https://ok.ru/',
