@@ -712,6 +712,10 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     let remoteUrl: string
     try {
       remoteUrl = decodeURIComponent(subPath)
+      // ok.ru CDN URLs in HLS playlists may contain literal \u0026 (JSON unicode
+      // escape for &) when scraped from the page — new URL() rejects backslashes
+      // in query strings, so unescape them here.
+      remoteUrl = remoteUrl.replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
     } catch {
       res.writeHead(400)
       res.end('Bad proxy URL encoding')
