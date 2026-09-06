@@ -1224,6 +1224,13 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
               config={{
                 hlsJs: {
                   startPosition: 0,
+                  // Start at the highest quality level immediately so playback
+                  // begins in full resolution. hls.js will auto-downshift only
+                  // if measured bandwidth is genuinely insufficient.
+                  // (Without this, hls.js starts at level 0/low quality and may
+                  // stay there on local proxy where first-segment throughput
+                  // readings are skewed by proxy overhead.)
+                  startLevel: -1,
                   // NOTE: v2.1.8 added Kodi-style deep buffering + generous retries
                   // (maxBufferLength 60 / backBufferLength 60 / retry 4-6) for the
                   // FFmpeg remux path, but it applies globally — including direct
