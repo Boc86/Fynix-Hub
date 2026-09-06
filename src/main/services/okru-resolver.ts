@@ -136,7 +136,12 @@ function extractHlsManifestUrl(decoded: string): string | null {
   while ((m = hlsRe.exec(decoded)) !== null) all.push(m[0])
   if (all.length > 0) {
     const withQuery = all.filter(u => u.includes('?'))
-    return (withQuery.length > 0 ? withQuery : all)[0]
+    const rawUrl = (withQuery.length > 0 ? withQuery : all)[0]
+    // The decoded data-options preserves JSON escape sequences like \u0026
+    // (which is &). Replace them so the URL is valid for new URL() and CDN
+    // requests — a literal backslash in a URL query is invalid and causes
+    // TypeError: Invalid URL in streamRemoteUrl.
+    return rawUrl.replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
   }
   return null
 }
