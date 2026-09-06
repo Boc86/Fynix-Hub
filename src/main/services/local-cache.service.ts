@@ -113,7 +113,7 @@ export function createProxySession(remoteUrl: string): { proxyId: string; proxyU
   // instead of hls.js (which would try to parse the MP4 bytes as an HLS
   // playlist and fail). The ".mp4" suffix is cosmetic; the proxy handler
   // matches /proxy/<id>/<anything>.
-  const proxyUrl = `http://127.0.0.1:${serverPort}/proxy/${proxyId}/index.mp4`
+  const proxyUrl = `http://127.0.0.1:${serverPort}/proxy/${proxyId}/master.m3u8`
   debug('Proxy session created:', proxyId, '→', proxyUrl, '(remote:', remoteUrl.slice(0, 60) + ')')
   return { proxyId, proxyUrl }
 }

@@ -161,19 +161,6 @@ function extractHlsFromJson(obj: any, _depth = 0): string | null {
     }
   }
 
-  // videos array — skip SWF player URLs (e.g. vp.swf), only return
-  // actual video stream URLs (mp4, vkuser.net, okcdn.ru progressive).
-  // Check BEFORE hlsManifestUrl so we return progressive MP4 URLs directly
-  // instead of HLS manifest URLs (the proxy streams as progressive MP4
-  // for native <video> since the proxy URL ends in .mp4).
-  if (Array.isArray(obj.videos) && obj.videos.length > 0) {
-    for (const v of obj.videos) {
-      if (v && typeof v.url === 'string' && v.url && !/\.swf(?:["'\s?]|$)/i.test(v.url)) {
-        return v.url
-      }
-    }
-  }
-
   // Direct hlsManifestUrl field — validate it's not a SWF player URL
   if (typeof obj.hlsManifestUrl === 'string' && obj.hlsManifestUrl && !/\.swf/i.test(obj.hlsManifestUrl)) return obj.hlsManifestUrl
   // ondemandHls field — validate it's not a SWF player URL
@@ -185,8 +172,14 @@ function extractHlsFromJson(obj: any, _depth = 0): string | null {
       return obj[key]
     }
   }
-  // NOTE: url11 and url are SWF player URLs (e.g. vp.swf), not stream URLs.
-  // Returning them as hlsManifestUrl causes FFmpeg to try demuxing a SWF file.
+  // videos array — skip SWF player URLs (e.g. vp.swf)
+  if (Array.isArray(obj.videos) && obj.videos.length > 0) {
+    for (const v of obj.videos) {
+      if (v && typeof v.url === 'string' && v.url && !/\.swf(?:["'\s?]|$)/i.test(v.url)) {
+        return v.url
+      }
+    }
+  }
   return null
 }
 
@@ -245,20 +238,17 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     console.log('[okru-resolver] no data-options found in page, body snippet:', body.slice(1000, 2000))
   }
 
-  // Step 1: Surgical nested metadata extraction — this finds the
-  // flashvars.metadata JSON which contains the videos[] array with
-  // progressive CDN URLs (preferred — the proxy streams them as progressive
-  // MP4 for native <video>). This runs before the .m3u8 regex so we get a
-  // direct progressive URL instead of an HLS master playlist URL.
-  if (decoded) {
-    const metaHls = extractFromMetadata(decoded)
-    if (metaHls) {
-      console.log('[okru-resolver] extracted manifest URL from flashvars.metadata')
-      return { hlsManifestUrl: metaHls }
-    }
+  // 1) Plaintext .m3u8 anywhere in decoded data-options (cheap, v1.3.3-style).
+  // Only search the decoded string, NOT the raw body — the body has &quot;
+  // HTML entities which the regex's quote-stopper doesn't recognize, causing
+  // it to match through multiple JSON values and grab a corrupt URL.
+  const reUrl = decoded ? extractHlsManifestUrl(decoded) : null
+  if (reUrl) {
+    console.log('[okru-resolver] extracted manifest URL via regex')
+    return { hlsManifestUrl: reUrl }
   }
 
-  // Step 2: Whole-object parse (works when data-options is well-formed JSON).
+  // 2) Whole-object parse (works when data-options is well-formed JSON).
   if (decoded) {
     try {
       const parsed = JSON.parse(decoded)
@@ -274,16 +264,18 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     }
   }
 
-  // Step 3: Plaintext .m3u8 anywhere in decoded data-options (fallback).
-  // Only search the decoded string, NOT the raw body — the body has &quot; HTML
-  // // entities which prevent proper URL extraction.
-  const reUrl = decoded ? extractHlsManifestUrl(decoded) : null
-  if (reUrl) {
-    console.log('[okru-resolver] extracted manifest URL via regex')
-    return { hlsManifestUrl: reUrl }
+  // 3) Surgical nested metadata extraction (the common ok.ru case).
+  // When metadata is a JSON-encoded string (not a pre-parsed object),
+  // extractFromMetadata brace-matches it out of the decoded data-options.
+  if (decoded) {
+    const metaHls = extractFromMetadata(decoded)
+    if (metaHls) {
+      console.log('[okru-resolver] extracted manifest URL from flashvars.metadata')
+      return { hlsManifestUrl: metaHls }
+    }
   }
 
-  // Step 4: Fallback: regex for "hlsManifestUrl" key on decoded data-options.
+  // 4) Fallback: regex for "hlsManifestUrl" key on decoded data-options.
   if (decoded) {
     const hlsKeyMatch = decoded.match(/"hlsManifestUrl"\s*:\s*"((?:[^"\\]|\\.)*)"/)
     if (hlsKeyMatch) {
@@ -295,7 +287,7 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     }
   }
 
-  // Step 5: Targeted raw-body hlsManifestUrl with HTML entities.
+  // 5) Targeted raw-body hlsManifestUrl with HTML entities.
   const hlsRawMatch = body.match(/hlsManifestUrl(?:&quot;)?\s*:\s*(?:&quot;)?([^&"]+\.m3u8[^&"]*)/i)
   if (hlsRawMatch) {
     let url = hlsRawMatch[1].replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
@@ -303,7 +295,7 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     return { hlsManifestUrl: url }
   }
 
-  // Step 6: data-config JSON in the page.
+  // 6) data-config JSON in the page.
   const configMatch = body.match(/data-config="([^"]+)"/)
   if (configMatch) {
     const configDecoded = htmlDecode(configMatch[1])
@@ -414,22 +406,8 @@ export async function resolveOkruReplay(url: string): Promise<string> {
   const meta = await fetchEmbedMetadata(videoId)
   const masterUrl = meta.hlsManifestUrl || meta.ondemandHls
   if (!masterUrl) throw new Error('No HLS manifest in ok.ru metadata')
-  // If the URL is already a direct progressive CDN URL (not an HLS .m3u8
-  // master playlist), return it directly — the proxy streams it as MP4.
-  if (!/\.m3u8/i.test(masterUrl)) {
-    console.log('[okru-resolver] returning direct progressive CDN URL')
-    return masterUrl
-  }
-  // HLS master playlist — resolve to a variant URL.
-  console.log('[okru-resolver] resolving HLS master playlist to best variant')
-  try {
-    const { url: variantUrl } = await fetchMasterPlaylist(masterUrl)
-    console.log('[okru-resolver] resolved to variant:', variantUrl.slice(0, 80))
-    return variantUrl
-  } catch (err: any) {
-    console.log('[okru-resolver] fallback to raw manifest URL:', err.message)
-    return masterUrl
-  }
+  console.log('[okru-resolver] returning HLS manifest URL for proxy/hls.js playback')
+  return masterUrl
 }
 
 export function isOkruReplay(url: string): boolean {
