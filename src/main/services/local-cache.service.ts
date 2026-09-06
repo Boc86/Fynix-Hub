@@ -94,7 +94,12 @@ export function createProxySession(remoteUrl: string): { proxyId: string; proxyU
   const proxyId = generateProxyId()
   const cdnHeaders = getCdnHeaders(remoteUrl)
   proxySessions.set(proxyId, { id: proxyId, url: remoteUrl, headers: cdnHeaders })
-  const proxyUrl = `http://127.0.0.1:${serverPort}/proxy/${proxyId}/`
+  // The URL must end with a video extension (.mp4) so that @videojs/react's
+  // HlsJsVideo component infers ContentTypes.MP4 → native <video> playback
+  // instead of hls.js (which would try to parse the MP4 bytes as an HLS
+  // playlist and fail). The ".mp4" suffix is cosmetic; the proxy handler
+  // matches /proxy/<id>/<anything>.
+  const proxyUrl = `http://127.0.0.1:${serverPort}/proxy/${proxyId}/index.mp4`
   debug('Proxy session created:', proxyId, '→', proxyUrl, '(remote:', remoteUrl.slice(0, 60) + ')')
   return { proxyId, proxyUrl }
 }
@@ -424,11 +429,36 @@ function safeError(res: http.ServerResponse, message: string): void {
   res.end(message)
 }
 
+/**
+ * Serve the first proxied request — the master playlist or a progressive
+ * video file. For HLS playlists we must buffer + rewrite variant/segment
+ * URLs. For progressive video (e.g. ok.ru CDN MP4 without .m3u8 extension)
+ * we must NOT buffer the whole file into memory — stream it through instead,
+ * forwarding the client's Range header so the browser can seek.
+ */
 async function serveRemotePlaylist(
   remoteUrl: string, proxyId: string, req: http.IncomingMessage, res: http.ServerResponse,
 ) {
+  const cdnHeaders = getCdnHeaders(remoteUrl)
+
+  // For the first request of a progressive video, the browser may send a
+  // Range header (hls.js probes the first 1KB for the init segment). Detect
+  // content type via a streaming request — if it's a playlist, buffer and
+  // rewrite; if it's a video, pipe through.
+  // ok.ru/VK CDN URLs have no .m3u8 extension and serve progressive MP4.
+  const isLikelyVideo = !/\.m3u8/i.test(remoteUrl) && (
+    req.headers.range          // Browser probing for init segment
+    || /okcdn\.ru|vkuser\.net/i.test(remoteUrl)  // Known progressive CDN
+  )
+
+  if (isLikelyVideo) {
+    // Video path — stream straight through, no buffering.
+    streamRemoteUrl(remoteUrl, cdnHeaders, req, res)
+    return
+  }
+
+  // Playlist path — fetch, check content type, rewrite.
   try {
-    const cdnHeaders = getCdnHeaders(remoteUrl)
     const { status, body, contentType } = await fetchRemoteUrl(remoteUrl, cdnHeaders)
 
     if (status !== 200) {
@@ -438,15 +468,24 @@ async function serveRemotePlaylist(
       return
     }
 
-    const content = body.toString('utf-8')
-    const rewritten = rewriteHlsUrls(content, remoteUrl, proxyId)
+    const isPlaylist = /mpegurl|x-mpegurl/i.test(contentType)
+      || /\\.m3u8(\\?|$)/i.test(remoteUrl)
+      || body.toString('utf-8').startsWith('#EXTM3U')
 
-    safeWriteHead(res, 200, {
-      'Content-Type': contentType || 'application/x-mpegURL; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-    })
-    safeEnd(res, rewritten)
+    if (isPlaylist) {
+      const content = body.toString('utf-8')
+      const rewritten = rewriteHlsUrls(content, remoteUrl, proxyId)
+      safeWriteHead(res, 200, {
+        'Content-Type': contentType || 'application/x-mpegURL; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      })
+      safeEnd(res, rewritten)
+    } else {
+      // Got a video file back (no .m3u8 in URL, not a playlist by content type) —
+      // stream it through without buffering 7+ GB into memory.
+      streamRemoteUrl(remoteUrl, cdnHeaders, req, res)
+    }
   } catch (err: any) {
     debug('Remote playlist error:', err.message)
     safeError(res, 'Remote playlist proxy error')
@@ -499,14 +538,79 @@ async function serveRemoteFile(
   }
 }
 
+/** Stream a remote URL directly to the response, forwarding Range requests.
+ *  Used for large progressive files (ok.ru/VK CDN MP4s) that can't be
+ *  buffered into memory. */
+function streamRemoteUrl(
+  remoteUrl: string,
+  headers: Record<string, string>,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  const u = new URL(remoteUrl)
+  const isHttps = u.protocol === 'https:'
+  const client = isHttps ? https : http
+
+  const outHeaders: Record<string, string> = { ...headers }
+  // Forward Range header so the CDN returns 206 for seek requests.
+  const range = req.headers.range
+  if (range) outHeaders['Range'] = range
+  // Don't request gzip from the CDN — we pipe bytes directly.
+  outHeaders['Accept-Encoding'] = 'identity'
+
+  const upstreamReq = client.request({
+    hostname: u.hostname,
+    port: u.port || (isHttps ? 443 : 80),
+    path: u.pathname + u.search,
+    method: 'GET',
+    headers: outHeaders,
+  }, (upRes) => {
+    // Pass through key headers from upstream.
+    safeWriteHead(res, upRes.statusCode || 200, {
+      'Content-Type': upRes.headers['content-type'] || 'video/mp4',
+      'Accept-Ranges': upRes.headers['accept-ranges'] || 'bytes',
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': '*',
+      ...(upRes.headers['content-range'] && { 'Content-Range': upRes.headers['content-range'] }),
+      ...(upRes.headers['content-length'] && { 'Content-Length': upRes.headers['content-length'] }),
+    })
+
+    upRes.pipe(res)
+    upRes.on('error', () => {
+      if (!res.writableEnded) res.end()
+    })
+    res.on('close', () => {
+      upRes.destroy()
+    })
+  })
+
+  upstreamReq.on('error', (err) => {
+    debug('Stream remote URL error:', err.message, 'for', remoteUrl.slice(0, 80))
+    safeError(res, 'Remote stream error')
+  })
+  upstreamReq.setTimeout(300000, () => upstreamReq.destroy(new Error('Stream timeout')))
+  upstreamReq.end()
+}
+
 // Fetch a proxied URL and decide whether it's a playlist (rewrite) or segment (serve).
 // CDN variant URLs like /expires/.../video/ don't have .m3u8 extensions,
 // so we check the Content-Type header from the upstream response.
+// For segments (video data), we stream directly without buffering the whole file.
 async function serveProxiedContent(
   remoteUrl: string, proxyId: string, req: http.IncomingMessage, res: http.ServerResponse,
 ) {
+  const cdnHeaders = getCdnHeaders(remoteUrl)
+
+  // For non-.m3u8 URLs without a Range header, do a lightweight peek to
+  // classify the content. If the upstream returns a playlist content-type,
+  // buffer + rewrite; otherwise stream the binary through.
+  // With a Range header we stream straight away (segments carry Range headers).
+  if (req.headers.range && !/\\.m3u8/i.test(remoteUrl)) {
+    streamRemoteUrl(remoteUrl, cdnHeaders, req, res)
+    return
+  }
+
   try {
-    const cdnHeaders = getCdnHeaders(remoteUrl)
     const { status, body, contentType } = await fetchRemoteUrl(remoteUrl, cdnHeaders)
 
     if (status !== 200) {
@@ -531,33 +635,10 @@ async function serveProxiedContent(
       })
       safeEnd(res, rewritten)
     } else {
-      // Serve raw segment bytes
-      const rangeHeader = req.headers.range
-      if (rangeHeader) {
-        const parts = rangeHeader.replace(/bytes=/, '').split('-')
-        const start = parseInt(parts[0], 10)
-        const end = parts[1] ? parseInt(parts[1], 10) : body.length - 1
-        const chunkSize = end - start + 1
-
-        safeWriteHead(res, 206, {
-          'Content-Range': `bytes ${start}-${end}/${body.length}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunkSize,
-          'Content-Type': contentType || 'video/mp4',
-          'Cache-Control': 'no-store',
-          'Access-Control-Allow-Origin': '*',
-        })
-        safeEnd(res, body.slice(start, end + 1))
-      } else {
-        safeWriteHead(res, 200, {
-          'Content-Length': body.length,
-          'Content-Type': contentType || 'video/mp4',
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'no-store',
-          'Access-Control-Allow-Origin': '*',
-        })
-        safeEnd(res, body)
-      }
+      // Serve raw segment/bytes by streaming directly from the CDN.
+      // For large progressive files (ok.ru/VK CD, this avoids loading
+      // the entire file into memory — we pipe through Range requests.
+      streamRemoteUrl(remoteUrl, cdnHeaders, req, res)
     }
   } catch (err: any) {
     debug('Proxied content error:', err.message)
@@ -611,8 +692,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     const session = proxySessions.get(proxyMatch[1])!
     const subPath = proxyMatch[2]
 
-    if (!subPath || subPath === 'master.m3u8') {
-      // First request: fetch the master playlist
+    if (!subPath || subPath === 'master.m3u8' || subPath === 'index.mp4') {
+      // First request: fetch the master playlist (or progressive video)
       serveRemotePlaylist(session.url, session.id, req, res)
       return
     }

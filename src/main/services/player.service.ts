@@ -79,8 +79,14 @@ function debug(...args: unknown[]) {
  * Determine if a URL is already browser-playable by hls.js or natively.
  * Returns true for .m3u8 (HLS), .mp4, .webm, .m4a, .mp3.
  */
+/** Check if a URL serves browser-playable media (HLS or progressive). */
 function isBrowserPlayable(url: string): boolean {
-  return /\.(m3u8|mp4|webm|m4a|mp3|aac|ogg)(\?|$)/i.test(url)
+  if (/\.(m3u8|mp4|webm|m4a|mp3|aac|ogg)(\?|$)/i.test(url)) return true
+  // ok.ru/VK CDN URLs serve progressive MP4 without a file extension.
+  // These are browser-playable via hls.js/MSE when proxied with CDN headers.
+  // Routing them through FFmpeg remux causes 400 Bad Request from the CDN
+  // (FFmpeg's -headers option sends Origin/Referer in a way the CDN rejects).
+  return needsCdnProxy(url)
 }
 
 /**
