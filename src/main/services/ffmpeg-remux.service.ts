@@ -24,8 +24,9 @@ import type { IncomingMessage, ServerResponse } from 'http'
 // When GPU is disabled (e.g., AMD Wayland with --disable-gpu), Chromium cannot
 // use hardware video decoding. Software HEVC (Main 10) decoding is unreliable
 // or unsupported, so we force transcoding to H.264 (8-bit, 4:2:0) for browser
-// MSE compatibility.
-const gpuDisabled = process.env.FYNIX_GPU_DISABLED === '1'
+// MSE compatibility. Check at call time — the env var is set by index.ts
+// AFTER this module is imported (imports are hoisted in ES modules).
+const FYNIX_GPU_DISABLED = 'FYNIX_GPU_DISABLED'
 
 /** Determine whether to transcode video to H.264 for browser compatibility. */
 function needsTranscode(): boolean {
@@ -34,7 +35,7 @@ function needsTranscode(): boolean {
   // or unsupported, so we force transcoding to H.264 (8-bit, 4:2:0) for browser
   // MSE compatibility. When GPU is available, Chromium with VAAPI decodes HEVC
   // natively — no transcode needed.
-  return gpuDisabled
+  return process.env[FYNIX_GPU_DISABLED] === '1'
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
