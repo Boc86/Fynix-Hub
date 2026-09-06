@@ -263,8 +263,19 @@ function HlsStartFix({
 
     // Also intercept MANIFEST_LOADED for re-loads
     const onManifestLoaded = () => {
-      console.log(`[HlsStartFix:${id}] MANIFEST_LOADED, startPosition:`, engine.startPosition, 'forcing startLoad(0)')
+      console.log(`[HlsStartFix:${id}] MANIFEST_LOADED, startPosition:`, engine.startPosition, 'levels:', engine.levels?.length ?? 0, 'forcing startLoad(0)')
       engine.startLoad(0)
+      // Force the highest quality level immediately after manifest loads.
+      // startLevel: -1 in config only sets the *initial* level index; hls.js ABR
+      // can still downshift on the first segment if the proxy adds latency to
+      // the bandwidth probe. Explicitly setting currentLevel to the top level
+      // keeps playback at max resolution from the start.
+      const levels = engine.levels
+      if (levels && levels.length > 0) {
+        const topLevel = levels.length - 1
+        console.log(`[HlsStartFix:${id}] forcing level to ${topLevel} (${levels[topLevel].width}x${levels[topLevel].height})`)
+        engine.currentLevel = topLevel
+      }
     }
     engine.on(Hls.Events.MANIFEST_LOADED, onManifestLoaded)
     return () => {
@@ -1231,6 +1242,15 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
                   // stay there on local proxy where first-segment throughput
                   // readings are skewed by proxy overhead.)
                   startLevel: -1,
+                  // Give the proxy path enough headroom before hls.js considers
+                  // a segment "starved" and downshifts ABR. The local proxy fetches
+                  // from CDN with injected headers, adding latency to the first
+                  // bandwidth probe that would otherwise cause hls.js to clamp to
+                  // the lowest level and stay there.
+                  maxStarvationDelay: 4,
+                  // Widen the high-weight buffer threshold so hls.js doesn't
+                  // aggressively swap levels before enough throughput is measured.
+                  abrBandWidthFactor: 1.5,
                   // NOTE: v2.1.8 added Kodi-style deep buffering + generous retries
                   // (maxBufferLength 60 / backBufferLength 60 / retry 4-6) for the
                   // FFmpeg remux path, but it applies globally — including direct

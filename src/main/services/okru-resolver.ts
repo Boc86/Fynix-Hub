@@ -118,8 +118,7 @@ function htmlDecode(s: string): string {
       const m: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
       return m[c] ?? _m
     })
-    .replace(/\\u0026/g, '&')
-    .replace(/\\\\u0026/g, '&')
+    .replace(/\u0026/g, '&')
     .replace(/\\\\\//g, '/')
     .replace(/\\\\"/g, '"')
     .replace(/\\"/g, '"')
@@ -142,7 +141,7 @@ function extractHlsManifestUrl(decoded: string): string | null {
     // (which is &). Replace them so the URL is valid for new URL() and CDN
     // requests — a literal backslash in a URL query is invalid and causes
     // TypeError: Invalid URL in streamRemoteUrl.
-    return rawUrl.replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
+    return rawUrl.replace(/\u0026/g, '&')
   }
   return null
 }
@@ -279,7 +278,7 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
   if (decoded) {
     const hlsKeyMatch = decoded.match(/"hlsManifestUrl"\s*:\s*"((?:[^"\\]|\\.)*)"/)
     if (hlsKeyMatch) {
-      let url = hlsKeyMatch[1].replace(/\\u0026/g, '&')
+      let url = hlsKeyMatch[1].replace(/\u0026/g, '&')
       if (url.startsWith('http')) {
         console.log('[okru-resolver] extracted hlsManifestUrl via regex on decoded data-options')
         return { hlsManifestUrl: url }
@@ -290,7 +289,7 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
   // 5) Targeted raw-body hlsManifestUrl with HTML entities.
   const hlsRawMatch = body.match(/hlsManifestUrl(?:&quot;)?\s*:\s*(?:&quot;)?([^&"]+\.m3u8[^&"]*)/i)
   if (hlsRawMatch) {
-    let url = hlsRawMatch[1].replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
+    let url = hlsRawMatch[1].replace(/\u0026/g, '&')
     console.log('[okru-resolver] extracted hlsManifestUrl from raw body')
     return { hlsManifestUrl: url }
   }
