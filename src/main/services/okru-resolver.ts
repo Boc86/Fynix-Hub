@@ -166,10 +166,13 @@ function extractHlsFromJson(obj: any, _depth = 0): string | null {
       return obj[key]
     }
   }
-  // videos array fallback (top-level)
+  // videos array fallback (top-level) — skip SWF player URLs (e.g. vp.swf),
+  // only return actual video stream URLs (mp4, vkuser.net, okcdn.ru progressive)
   if (Array.isArray(obj.videos) && obj.videos.length > 0) {
     for (const v of obj.videos) {
-      if (v && typeof v.url === 'string' && v.url) return v.url
+      if (v && typeof v.url === 'string' && v.url && !/\.swf(?:["'\s?]|$)/i.test(v.url)) {
+        return v.url
+      }
     }
   }
   // NOTE: url11 and url are SWF player URLs (e.g. vp.swf), not stream URLs.
