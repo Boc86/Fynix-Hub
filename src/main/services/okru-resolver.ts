@@ -245,8 +245,9 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     console.log('[okru-resolver] no data-options found in page, body snippet:', body.slice(1000, 2000))
   }
 
-  // 1) Plaintext .m3u8 anywhere in body or decoded data-options (cheap, v1.3.3-style).
-  const reUrl = extractHlsManifestUrl(body) || extractHlsManifestUrl(decoded)
+  // 1) Plaintext .m3u8 anywhere in decoded data-options first (already &-resolved via htmlDecode),
+  //    then fallback to raw body for CDN URLs that may not have been in data-options.
+  const reUrl = extractHlsManifestUrl(decoded) || extractHlsManifestUrl(body)
   if (reUrl) {
     console.log('[okru-resolver] extracted manifest URL via regex')
     return { hlsManifestUrl: reUrl }
@@ -290,6 +291,7 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
   }
 
   // 5) Targeted raw-body hlsManifestUrl with HTML entities.
+  //    order swapped: &u0026 first (double-backslash), then single-backslash
   const hlsRawMatch = body.match(/hlsManifestUrl(?:&quot;)?\s*:\s*(?:&quot;)?([^&"]+\.m3u8[^&"]*)/i)
   if (hlsRawMatch) {
     let url = hlsRawMatch[1].replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
