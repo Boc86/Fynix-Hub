@@ -175,7 +175,7 @@ export async function startPlayback(
       debug('CDN stream needs proxy for auth headers:', resolvedUrl.slice(0, 80))
       if (OkruResolver.isOkruReplay(inputUrl)) {
         const port = LocalCache.getPort()
-        const { proxyUrl, proxyId, destroy } = await OkruPlayback.resolveAndCreateOkruProxy(resolvedUrl, port)
+        const { proxyUrl, proxyId, destroy } = await OkruPlayback.resolveAndCreateOkruProxy(inputUrl, port)
         s.okruProxyId = proxyId
         s.proxyId = proxyId
         s._okruProxyDestroy = destroy
