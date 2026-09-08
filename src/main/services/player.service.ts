@@ -16,6 +16,7 @@ import type { Chapter, AudioTrackInfo } from './ffmpeg-remux.service'
 import * as LocalCache from './local-cache.service'
 import * as OkruResolver from './okru-resolver'
 import * as DailymotionResolver from './dailymotion-resolver'
+import * as OkruPlayback from './okru-playback'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,8 @@ interface SessionState {
   chapters: Chapter[]
   audioTracks: AudioTrackInfo[]
   timer: ReturnType<typeof setInterval> | null
+  okruProxyId: string | null
+  _okruProxyDestroy: (() => void) | null
 }
 
 /**
@@ -63,6 +66,8 @@ function session(clientId: string): SessionState {
       chapters: [],
       audioTracks: [],
       timer: null,
+      okruProxyId: null,
+      _okruProxyDestroy: null,
     }
     sessions.set(clientId, s)
   }
@@ -79,6 +84,7 @@ function debug(...args: unknown[]) {
  * Determine if a URL is already browser-playable by hls.js or natively.
  * Returns true for .m3u8 (HLS), .mp4, .webm, .m4a, .mp3.
  */
+/** Check if a URL serves browser-playable media (HLS or progressive). */
 function isBrowserPlayable(url: string): boolean {
   return /\.(m3u8|mp4|webm|m4a|mp3|aac|ogg)(\?|$)/i.test(url)
 }
@@ -158,9 +164,18 @@ export async function startPlayback(
     }
 
     if (needsCdnProxy(resolvedUrl)) {
-      // Browser-playable but needs CDN headers → route through local proxy.
-      // The proxy injects Referer/Origin headers that the browser can't send.
+      // Browser-playable but needs CDN headers → route through proxy.
+      // For ok.ru replays, use the ok.ru-only proxy module so the shared
+      // cache service is not touched for other providers.
       debug('CDN stream needs proxy for auth headers:', resolvedUrl.slice(0, 80))
+      if (OkruResolver.isOkruReplay(inputUrl)) {
+        const port = LocalCache.getPort()
+        const { proxyUrl, proxyId, destroy } = await OkruPlayback.resolveAndCreateOkruProxy(inputUrl, port)
+        s.okruProxyId = proxyId
+        s.proxyId = proxyId
+        s._okruProxyDestroy = destroy
+        return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
+      }
       const { proxyId, proxyUrl } = LocalCache.createProxySession(resolvedUrl)
       s.proxyId = proxyId
       return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
@@ -255,6 +270,11 @@ function teardownSession(clientId: string): void {
     LocalCache.removeFileSession(s.fileSessionId)
     s.fileSessionId = null
   }
+  if (s.okruProxyId) {
+      debug('Removing ok.ru proxy session:', s.okruProxyId)
+      OkruPlayback.destroyOkruProxySession(s.okruProxyId)
+      s.okruProxyId = null
+    }
   if (s.proxyId) {
     debug('Removing proxy session:', s.proxyId)
     LocalCache.removeProxySession(s.proxyId)
