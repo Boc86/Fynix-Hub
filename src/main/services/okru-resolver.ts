@@ -1,6 +1,7 @@
 import * as http from 'http'
 import * as https from 'https'
 import { URL } from 'url'
+import * as zlib from 'zlib'
 
 const OKRU_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -68,9 +69,9 @@ function fetchUrl(url: string, headers: Record<string, string>, maxRedirects = 5
           const encoding = (res.headers['content-encoding'] || '').toLowerCase()
           let body: Buffer = buffer
           try {
-            if (encoding === 'gzip') body = require('zlib').gunzipSync(buffer)
-            else if (encoding === 'deflate') body = require('zlib').inflateSync(buffer)
-            else if (encoding === 'br') body = require('zlib').brotliDecompressSync(buffer)
+            if (encoding === 'gzip') body = zlib.gunzipSync(buffer)
+            else if (encoding === 'deflate') body = zlib.inflateSync(buffer)
+            else if (encoding === 'br') body = zlib.brotliDecompressSync(buffer)
           } catch {
             body = buffer
           }
@@ -107,6 +108,7 @@ interface OkruMetadata {
   ondemandHls?: string
   videos?: { url?: string }[]
   failoverHosts?: string[]
+  _decoded?: string
 }
 
 function htmlDecode(s: string): string {
@@ -139,12 +141,30 @@ function extractHlsManifestUrl(decoded: string): string | null {
 
 function extractHlsFromJson(obj: any): string | null {
   // Try nested flashvars.metadata first (main video page format)
-  if (obj.flashvars && typeof obj.flashvars.metadata === 'string') {
-    try {
-      const meta = JSON.parse(obj.flashvars.metadata)
+  if (obj.flashvars && obj.flashvars.metadata) {
+    if (typeof obj.flashvars.metadata === 'string') {
+      try {
+        const meta = JSON.parse(obj.flashvars.metadata)
+        if (typeof meta.hlsManifestUrl === 'string' && meta.hlsManifestUrl) return meta.hlsManifestUrl
+        if (Array.isArray(meta.videos) && meta.videos.length > 0) {
+          // prefer higher quality
+          const qualities: Record<string, number> = { mobile: 0, lowest: 1, low: 2, sd: 3, hd: 4, full: 5, quad: 6, ultra: 7 }
+          let best = meta.videos[0]
+          let bestScore = -1
+          for (const v of meta.videos) {
+            if (v && typeof v.url === 'string' && v.url) {
+              const score = qualities[v.name] ?? 0
+              if (score > bestScore) { best = v; bestScore = score }
+            }
+          }
+          if (best && best.url) return best.url
+        }
+      } catch { /* not JSON */ }
+    } else if (typeof obj.flashvars.metadata === 'object') {
+      // metadata is already a parsed object (newer ok.ru responses)
+      const meta = obj.flashvars.metadata as Record<string, any>
       if (typeof meta.hlsManifestUrl === 'string' && meta.hlsManifestUrl) return meta.hlsManifestUrl
       if (Array.isArray(meta.videos) && meta.videos.length > 0) {
-        // prefer higher quality
         const qualities: Record<string, number> = { mobile: 0, lowest: 1, low: 2, sd: 3, hd: 4, full: 5, quad: 6, ultra: 7 }
         let best = meta.videos[0]
         let bestScore = -1
@@ -156,7 +176,7 @@ function extractHlsFromJson(obj: any): string | null {
         }
         if (best && best.url) return best.url
       }
-    } catch { /* not JSON */ }
+    }
   }
 
   // Direct hlsManifestUrl field
@@ -176,7 +196,7 @@ function extractHlsFromJson(obj: any): string | null {
       if (v && typeof v.url === 'string' && v.url) return v.url
     }
   }
-  // url11 as last resort (might be SWF, but try anyway)
+  // url11 as last resort, url as ultimate fallback — prefer SWF/hls over nothing
   if (typeof obj.url11 === 'string' && obj.url11 && obj.url11.startsWith('http')) return obj.url11
   if (typeof obj.url === 'string' && obj.url && obj.url.startsWith('http')) return obj.url
   return null
@@ -245,9 +265,10 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
     console.log('[okru-resolver] no data-options found in page, body snippet:', body.slice(1000, 2000))
   }
 
-  // 1) Plaintext .m3u8 anywhere in decoded data-options first (already &-resolved via htmlDecode),
-  //    then fallback to raw body for CDN URLs that may not have been in data-options.
-  const reUrl = extractHlsManifestUrl(decoded) || extractHlsManifestUrl(body)
+  // 1) Plaintext .m3u8 anywhere in the raw HTML body first (v2.0.6 order —
+  //    the real HLS manifest is often embedded as plaintext outside data-options),
+  //    then fallback to decoded data-options for JSON-parsed metadata.
+  const reUrl = extractHlsManifestUrl(body) || extractHlsManifestUrl(decoded)
   if (reUrl) {
     console.log('[okru-resolver] extracted manifest URL via regex')
     return { hlsManifestUrl: reUrl }
@@ -292,11 +313,13 @@ async function fetchEmbedPage(videoId: string, baseUrl: string, headers: Record<
 
   // 5) Targeted raw-body hlsManifestUrl with HTML entities.
   //    order swapped: &u0026 first (double-backslash), then single-backslash
-  const hlsRawMatch = body.match(/hlsManifestUrl(?:&quot;)?\s*:\s*(?:&quot;)?([^&"]+\.m3u8[^&"]*)/i)
+  const hlsRawMatch = body.match(/hlsManifestUrl(?:&quot;)?\s*:\s*(?:&quot;)?([^&"\u0026]+\.m3u8[^&"\u0026]*)/i)
   if (hlsRawMatch) {
     let url = hlsRawMatch[1].replace(/\\u0026/g, '&').replace(/\\\\u0026/g, '&')
-    console.log('[okru-resolver] extracted hlsManifestUrl from raw body')
-    return { hlsManifestUrl: url }
+    if (url.startsWith('http') && !/\.swf$/i.test(url)) {
+      console.log('[okru-resolver] extracted hlsManifestUrl from raw body')
+      return { hlsManifestUrl: url }
+    }
   }
 
   // 6) data-config JSON in the page.
@@ -408,10 +431,25 @@ export async function resolveOkruReplay(url: string): Promise<string> {
   const videoId = await extractVideoIdFromUrl(url)
   if (!videoId) throw new Error('Not an ok.ru video URL: ' + url)
   const meta = await fetchEmbedMetadata(videoId)
+  // v2.0.6: try hlsManifestUrl/ondemandHls first, then fall through to
+  // extractFromMetadata (which returns videos[].url progressive URL)
   const masterUrl = meta.hlsManifestUrl || meta.ondemandHls
-  if (!masterUrl) throw new Error('No HLS manifest in ok.ru metadata')
-  console.log('[okru-resolver] returning raw HLS manifest URL, letting mpv handle playlist parsing')
-  return masterUrl
+  if (masterUrl) {
+    console.log('[okru-resolver] returning HLS manifest URL, letting hls.js handle playlist parsing')
+    return masterUrl
+  }
+  // Fallback: extractFromMetadata may have found a direct progressive URL
+  const progressiveUrl = await extractFromMetadata(
+    (meta as any)._decoded || ''
+  )
+  // Re-run extraction on the decoded data-options to get videos[] URL
+  const parsed = JSON.parse(meta._decoded || '{}')
+  const fromMeta = extractFromMetadata(meta._decoded || '')
+  if (fromMeta) {
+    console.log('[okru-resolver] returning progressive URL from metadata fallback')
+    return fromMeta
+  }
+  throw new Error('No HLS manifest or progressive URL in ok.ru metadata')
 }
 
 export function isOkruReplay(url: string): boolean {

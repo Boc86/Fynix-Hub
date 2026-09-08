@@ -3,6 +3,7 @@ import Layout from './components/Layout/Layout'
 import Browser from './components/Browser/Browser'
 import DetailView from './components/DetailView/DetailView'
 import { VideoPlayer, type VideoPlayerHandle } from './components/VideoPlayer/VideoPlayer'
+import OkruPlayer from './components/OkruPlayer/OkruPlayer'
 import SearchModal from './components/SearchModal/SearchModal'
 import Sidebar from './components/Sidebar/Sidebar'
 
@@ -77,6 +78,7 @@ export default function App() {
   const [audioTracksInfo, setAudioTracksInfo] = useState<any[]>([])
   const [isRemux, setIsRemux] = useState(false)
   const [dlhdEmbedUrl, setDlhdEmbedUrl] = useState<string | null>(null)
+  const [okruEmbedUrl, setOkruEmbedUrl] = useState<string | null>(null)
   const [trailerUrl, setTrailerUrl] = useState<string | null>(null)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updatePercent, setUpdatePercent] = useState(0)
@@ -382,7 +384,7 @@ export default function App() {
     } else if (modalCount === 0 && prevModalCountRef.current > 0) {
       const el = savedFocusRef.current
       savedFocusRef.current = null
-      if (el && document.contains(el)) {
+      if (el && document.contains(el) && typeof el.focus === 'function') {
         el.focus()
       }
     }
@@ -1123,7 +1125,20 @@ export default function App() {
 
   // Helper: call player.start() and wire the returned HLS URL into the player UI.
   const startPlayerUrl = useCallback(async (url: string, resumePosition?: number, referer?: string, forceRemux?: boolean) => {
-    window.api.log(`[App] startPlayerUrl resumePosition=${resumePosition} url=${url?.slice(0, 80)}`)
+    // ok.ru replays: embed the ok.ru iframe player directly instead of the
+    // resolver→proxy→hls.js chain (which hits CDN 400s on VK HLS manifests).
+    if (/ok\.ru\/video(?:embed)?\/\d+/.test(url)) {
+      window.api.log('[App] ok.ru URL — opening iframe embed player')
+      const videoId = url.match(/ok\.ru\/video(?:embed)?\/(\d+)/)?.[1]
+      if (videoId) {
+        setOkruEmbedUrl(`https://ok.ru/videoembed/${videoId}?autoplay=1`)
+        setDlhdEmbedUrl(null)
+        setStreamUrl(undefined)
+        setAudioTracksInfo([])
+        setIsRemux(false)
+        return { streamUrl: '', isRemux: false, audioTracks: [], duration: null, chapters: [] }
+      }
+    }
     const result = await window.api.player.start(url, resumePosition, referer, forceRemux)
     const hlsUrl = result?.streamUrl ?? url
     setStreamUrl(hlsUrl)
@@ -1425,6 +1440,7 @@ export default function App() {
         // Don't clear the ref yet — wait for user response
         setStreamUrl(undefined)
         setDlhdEmbedUrl(null)
+        setOkruEmbedUrl(null)
         resumePositionRef.current = undefined
         setStreamError(null)
         setPlayerInfo(undefined)
@@ -1442,6 +1458,7 @@ export default function App() {
         setDeletePromptOpen({ usenetPath: currentUsenetPathRef.current, isCompleted: false })
         setStreamUrl(undefined)
         setDlhdEmbedUrl(null)
+        setOkruEmbedUrl(null)
         resumePositionRef.current = undefined
         setStreamError(null)
         setPlayerInfo(undefined)
@@ -1459,6 +1476,7 @@ export default function App() {
         setDeletePromptOpen({ usenetId: currentUsenetIdRef.current, isCompleted: false })
         setStreamUrl(undefined)
         setDlhdEmbedUrl(null)
+        setOkruEmbedUrl(null)
         resumePositionRef.current = undefined
         setStreamError(null)
         setPlayerInfo(undefined)
@@ -1471,6 +1489,7 @@ export default function App() {
     currentUsenetPathRef.current = null
     setStreamUrl(undefined)
     setDlhdEmbedUrl(null)
+    setOkruEmbedUrl(null)
     resumePositionRef.current = undefined
     setStreamError(null)
     setPlayerInfo(undefined)
@@ -1690,8 +1709,10 @@ export default function App() {
       
       // 'c' key for context menus — delegated to Browser component
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    // Use capture=true so keydown events fire even when a cross-origin
+    // iframe (ok.ru, DLHD) has focus and captures the event in its own document.
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [view, searchOpen, sidebarOpen, torrentSearchOpen, freeSearchOpen, contextTarget, virtualKeyboardOpen, goBack])
 
   // --- Profile Logic (must be before any early returns — Rules of Hooks) ---
@@ -1800,6 +1821,8 @@ export default function App() {
             allow="autoplay; encrypted-media"
           />
         </div>
+      ) : (okruEmbedUrl ? (
+        <OkruPlayer url={okruEmbedUrl} onBack={handlePlayerBack} />
       ) : (
         <VideoPlayer
           ref={videoPlayerRef}
@@ -1817,7 +1840,7 @@ export default function App() {
           isRemux={isRemux}
           onStreamUrlChange={setStreamUrl}
         />
-      ))}
+      )))}
       {view === 'trailer' && trailerUrl && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: '#000', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '8px 16px', background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', gap: 12, zIndex: 1 }}>
