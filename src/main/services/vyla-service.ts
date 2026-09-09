@@ -2,6 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { spawn, execSync } from 'child_process'
+import Database from 'better-sqlite3'
 import { getEncryptedSetting, setEncryptedSetting } from './cache.service'
 
 // --- Paths ---
@@ -204,7 +205,6 @@ async function waitForHealth(baseUrl: string, timeoutMs: number, apiKey?: string
 }
 
 async function provisionStandardKey(): Promise<string | null> {
-  const { DatabaseSync } = require('node:sqlite')
   const dbPath = path.join(DATA_DIR, 'api_keys.db')
   const dbDir = path.dirname(dbPath)
   if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true })
@@ -213,8 +213,8 @@ async function provisionStandardKey(): Promise<string | null> {
   const existingKey = getEncryptedSetting('vylaApiKey')
   if (existingKey) {
     try {
-      const db = new DatabaseSync(dbPath)
-      const row = db.prepare('SELECT key FROM api_keys WHERE key = ? AND active = 1').get(existingKey)
+      const db = new Database(dbPath)
+      const row = db.prepare('SELECT key FROM api_keys WHERE key = ? AND active = 1').get(existingKey) as { key: string } | undefined
       db.close()
       if (row) {
         console.log('[Vyla] Reusing previously provisioned key')
@@ -226,9 +226,9 @@ async function provisionStandardKey(): Promise<string | null> {
   }
 
   // Create the database and api_keys table if not already present.
-  let db: any
+  let db: Database.Database | null = null
   try {
-    db = new DatabaseSync(dbPath)
+    db = new Database(dbPath)
     db.exec(`
       CREATE TABLE IF NOT EXISTS api_keys (
         key TEXT PRIMARY KEY,
@@ -255,9 +255,9 @@ async function provisionStandardKey(): Promise<string | null> {
   const key = `sk_${label}_${hex}`
 
   try {
-    db = new DatabaseSync(dbPath)
+    db = new Database(dbPath)
     db.prepare(
-      'INSERT INTO api_keys (key, type, rpm, active) VALUES (?, \'standard\', 100, 1)'
+      `INSERT INTO api_keys (key, type, rpm, active) VALUES (?, 'standard', 100, 1)`
     ).run(key)
     db.close()
     console.log('[Vyla] Provisioned standard API key')

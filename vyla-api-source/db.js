@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,7 +11,22 @@ if (!fs.existsSync(DB_DIR)) {
     fs.mkdirSync(DB_DIR, { recursive: true });
 }
 
-const db = new DatabaseSync(DB_PATH);
+// Use node:sqlite (native Node.js builtin, available in Electron's bundled Node.js)
+// Fall back to better-sqlite3 if node:sqlite is unavailable
+let Database;
+try {
+    const sqlite = await import('node:sqlite');
+    Database = sqlite.DatabaseSync;
+} catch {
+    try {
+        const bs3 = await import('better-sqlite3');
+        Database = bs3.default;
+    } catch {
+        throw new Error('No SQLite module available — neither node:sqlite nor better-sqlite3 could be loaded');
+    }
+}
+
+const db = new Database(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA busy_timeout = 5000;');
 
