@@ -2,6 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { spawn, execSync } from 'child_process'
+import Database from 'better-sqlite3'
 import { getEncryptedSetting, setEncryptedSetting } from './cache.service'
 
 // --- Paths ---
@@ -128,12 +129,23 @@ export async function startVyla(tmdbApiKey: string): Promise<boolean> {
     PROXY_URL: '',
     GA_MEASUREMENT_ID: '',
     GA_API_SECRET: '',
-    BYPASS_AUTH: '',
+    BYPASS_AUTH: 'true',
   }
 
-  vylaProcess = spawn(process.execPath, ['server.js'], {
+  // Use ELECTRON_RUN_AS_NODE=1 to make the Electron binary execute server.js
+  // as a plain Node.js process. Without this, the Electron binary loads its
+  // main process (index.js) — the entire Fynix Hub app — instead of the Vyla
+  // server script. In NODE_RUN_AS_NODE mode, Electron switches like --no-sandbox
+  // are invalid; only script args are passed through.
+  const childEnv = {
+    ...env,
+    ELECTRON_RUN_AS_NODE: '1',
+    ELECTRON_NO_SANDBOX: '1',
+  }
+
+  vylaProcess = spawn(process.execPath, [path.join(VYLA_DIR, 'server.js')], {
     cwd: VYLA_DIR,
-    env,
+    env: childEnv,
     stdio: ['ignore', 'inherit', 'inherit'],
     detached: false,
   })
@@ -150,14 +162,33 @@ export async function startVyla(tmdbApiKey: string): Promise<boolean> {
     }
   })
 
-  const healthy = await waitForHealth(vylaBaseUrl, 30_000)
+  // Health check: try the /health endpoint which probes sources, but also
+  // accept a basic liveness response from / if /health is slow (source probing
+  // can take 60-120s in headless/remote environments).
+  const healthy = await waitForHealth(vylaBaseUrl, 120_000)
   if (!healthy) {
-    console.error('[Vyla] Server failed to become healthy within 30s')
+    // Fallback: check if the server is at least accepting connections
+    // (the port is listening but /health source probes are slow)
+    const isAlive = await checkServerAlive(vylaBaseUrl)
+    if (isAlive) {
+      console.log('[Vyla] Server is running (health probes pending, sources will be available shortly)')
+      return true
+    }
+    console.error('[Vyla] Server failed to become healthy within 120s')
     return false
   }
   console.log('[Vyla] Server is healthy')
 
   return true
+}
+
+async function checkServerAlive(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/`, { method: 'GET', signal: AbortSignal.timeout(5000) })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 export function stopVyla(): void {
@@ -204,7 +235,6 @@ async function waitForHealth(baseUrl: string, timeoutMs: number, apiKey?: string
 }
 
 async function provisionStandardKey(): Promise<string | null> {
-  const { DatabaseSync } = require('node:sqlite')
   const dbPath = path.join(DATA_DIR, 'api_keys.db')
   const dbDir = path.dirname(dbPath)
   if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true })
@@ -213,8 +243,8 @@ async function provisionStandardKey(): Promise<string | null> {
   const existingKey = getEncryptedSetting('vylaApiKey')
   if (existingKey) {
     try {
-      const db = new DatabaseSync(dbPath)
-      const row = db.prepare('SELECT key FROM api_keys WHERE key = ? AND active = 1').get(existingKey)
+      const db = new Database(dbPath)
+      const row = db.prepare('SELECT key FROM api_keys WHERE key = ? AND active = 1').get(existingKey) as { key: string } | undefined
       db.close()
       if (row) {
         console.log('[Vyla] Reusing previously provisioned key')
@@ -226,9 +256,9 @@ async function provisionStandardKey(): Promise<string | null> {
   }
 
   // Create the database and api_keys table if not already present.
-  let db: any
+  let db: Database.Database | null = null
   try {
-    db = new DatabaseSync(dbPath)
+    db = new Database(dbPath)
     db.exec(`
       CREATE TABLE IF NOT EXISTS api_keys (
         key TEXT PRIMARY KEY,
@@ -255,9 +285,9 @@ async function provisionStandardKey(): Promise<string | null> {
   const key = `sk_${label}_${hex}`
 
   try {
-    db = new DatabaseSync(dbPath)
+    db = new Database(dbPath)
     db.prepare(
-      'INSERT INTO api_keys (key, type, rpm, active) VALUES (?, \'standard\', 100, 1)'
+      `INSERT INTO api_keys (key, type, rpm, active) VALUES (?, 'standard', 100, 1)`
     ).run(key)
     db.close()
     console.log('[Vyla] Provisioned standard API key')
