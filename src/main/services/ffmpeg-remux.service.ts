@@ -184,9 +184,12 @@ export function buildFFmpegArgs(inputUrl: string, outputDir: string, headers: st
       '-reconnect_delay_max', '30',
     ] : []),
     '-i', inputUrl,
-    // Only map first video + selected audio — skip subtitles and other streams
-    // that would generate extra HLS playlists the local cache server doesn't serve.
-    '-map', '0:v:0', '-map', `0:a:${audioTrackIndex ?? 0}`,
+    // Map first video + selected audio. Use '?' (optional) on video map
+    // to handle HLS multi-program streams where the first program may be
+    // audio-only — without this, FFmpeg fails with "Stream map matches no
+    // streams" and exits with code 234. If no video is found, the stream
+    // will still produce audio-only segments (hls.js can handle that).
+    '-map', '0:v:0?', '-map', `0:a:${audioTrackIndex ?? 0}`,
   )
 
   if (transcodeVideo) {
@@ -467,55 +470,65 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
       debug('Respawned FFmpeg for next live chunk')
       return
     }
-    // Growing-file restart: when input is a local file still being written
-    // (e.g. NZB download or recording), FFmpeg hits EOF when the current
-    // chunk ends. If the file has grown since we opened it, restart from
-    // the last reported duration to keep streaming.
-    if (code === 0 && session.inputUrl.startsWith('file://')) {
-      const filePath = session.inputUrl.replace(/^file:\/\//, '')
-      try {
-        const stat = fs.statSync(filePath)
-        const totalBytes = stat.size
-        const lastDuration = parseLastDuration(session.stderrBuffer)
-        debug(`Growing-file check: input=${filePath} totalBytes=${totalBytes} lastDuration=${lastDuration}`)
-        // Heuristic: if the file is reasonably large (>1MB), assume it's
-        // still in-progress. Downloads/recordings always exceed this.
-        const looksInProgress = totalBytes > 1024 * 1024 && totalBytes > session.openedBytes
-        if (looksInProgress && typeof lastDuration === 'number' && lastDuration > 0) {
-          debug(`Respawn in place from ${lastDuration}s (file grew ${session.openedBytes} → ${totalBytes})`)
-          // Remove ffmpeg's premature ENDLIST so the appended segments land
-          // before the end marker.
-          stripEndList(session)
-          // -ss is an INPUT seek: ffmpeg re-zeroes output PTS at the seek
-          // point, so appended segments must be shifted by the playlist
-          // duration or hls.js sees a timestamp hole → bufferSeekOverHole →
-          // seek → restart-to-0 (the usenet restart bug, same as live-TV).
-          const tsOffset = sumPlaylistDuration(session)
-          const args: string[] = ['-ss', String(lastDuration)]
-          args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, needsTranscode(), audioTrackIndex, true, undefined, tsOffset))
-          let newProc: ChildProcess
-          try {
-            newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
-          } catch (err: any) {
-            debug('FFmpeg respawn failed:', err?.message)
-            session.ended = true
-            appendEndList(session)
-            return
-          }
-          // Same session id + same output dir + append_list → the renderer's
-          // playlist URL keeps growing seamlessly with no restart visible.
-          session.process = newProc
-          session.openedBytes = totalBytes
-          session.lastError = null
-          session.stderrBuffer = []
-          wireProcess(session, newProc, headers, audioTrackIndex)
-          armReadyWatcher(session)
-          debug('Respawned FFmpeg in place (append_list)')
+    // Growing-file restart: when input is a local file or local HTTP stream
+    // still being written (e.g. NZB download, recording, or WebTorrent
+    // streaming), FFmpeg hits EOF when the current chunk ends. If the source
+    // is still growing, restart from the last reported duration to keep
+    // streaming seamlessly.
+    const inputStartsFile = session.inputUrl.startsWith('file://')
+    const inputIsLocalHttp = isLocalHttpUrl(session.inputUrl)
+    if (code === 0 && (inputStartsFile || inputIsLocalHttp)) {
+      const lastDuration = parseLastDuration(session.stderrBuffer)
+      // For file:// inputs: check actual file growth via fs.statSync.
+      // For local HTTP (WebTorrent streaming): can't stat, so trust lastDuration > 0
+      // as a signal that the source was producing data and may still be growing.
+      let looksInProgress = false
+      let grewInfo = ''
+      let totalBytes = 0
+      if (inputStartsFile) {
+        const filePath = session.inputUrl.replace(/^file:\/\//, '')
+        try {
+          const stat = fs.statSync(filePath)
+          totalBytes = stat.size
+          looksInProgress = totalBytes > 1024 * 1024 && totalBytes > session.openedBytes
+          grewInfo = ` (file grew ${session.openedBytes} -> ${totalBytes})`
+        } catch (err: any) {
+          debug('Growing-file check failed (file renamed/complete?):', err?.message)
+          looksInProgress = false
+        }
+      } else if (inputIsLocalHttp) {
+        looksInProgress = typeof lastDuration === 'number' && lastDuration > 0
+        grewInfo = ` (HTTP source, lastDuration=${lastDuration})`
+      }
+      if (looksInProgress && typeof lastDuration === 'number' && lastDuration > 0) {
+        debug(`Respawn in place from ${lastDuration}s${grewInfo}`)
+        stripEndList(session)
+        // -ss is an INPUT seek: ffmpeg re-zeroes output PTS at the seek
+        // point, so appended segments must be shifted by the playlist
+        // duration or hls.js sees a timestamp hole → bufferSeekOverHole →
+        // seek → restart-to-0 (the usenet restart bug, same as live-TV).
+        const tsOffset = sumPlaylistDuration(session)
+        const args: string[] = ['-ss', String(lastDuration)]
+        args.push(...buildFFmpegArgs(session.inputUrl, session.outputDir, headers, needsTranscode(), audioTrackIndex, true, undefined, tsOffset))
+        let newProc: ChildProcess
+        try {
+          newProc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+        } catch (err: any) {
+          debug('FFmpeg respawn failed:', err?.message)
+          session.ended = true
+          appendEndList(session)
           return
         }
-      } catch (err: any) {
-        // File path gone — nzbget renamed the completed file. Stream is over.
-        debug('Growing-file check failed (file renamed/complete?):', err?.message)
+        // Same session id + same output dir + append_list → the renderer's
+        // playlist URL keeps growing seamlessly with no restart visible.
+        session.process = newProc
+        if (inputStartsFile) session.openedBytes = totalBytes
+        session.lastError = null
+        session.stderrBuffer = []
+        wireProcess(session, newProc, headers, audioTrackIndex)
+        armReadyWatcher(session)
+        debug('Respawned FFmpeg in place (append_list)')
+        return
       }
     }
     // Stream over — let hls.js finish instead of stalling on a live playlist.
@@ -538,6 +551,7 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
    resumePosition = 0,
    headers: string[] = [],
    audioTrackIndex?: number,
+   forceRemux = false,
  ): { sessionId: string; streamUrl: string } {
    const id = generateId()
    const outputDir = getSessionDir(id)
@@ -558,7 +572,9 @@ function wireProcess(session: RemuxSession, proc: ChildProcess, headers: string[
    // handler respawns append_list (see LIVE_CHUNK_SECONDS). Localhost HTTP
    // (torrent server) and file:// are FINITE files — chunk rotation would
    // respawn ffmpeg at byte 0 and replay the file from 0:00.
-   const isLive = inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
+   // isLive is true only for explicitly live TV sources (forceRemux=true),
+   // not for VOD files over HTTP (which are finite and should run to EOF).
+   const isLive = forceRemux && inputUrl.startsWith('http') && !isLocalHttpUrl(inputUrl)
    args.push(...buildFFmpegArgs(inputUrl, outputDir, headers, needsTranscode(), audioTrackIndex, false, isLive ? LIVE_CHUNK_SECONDS : undefined))
 
    debug('Spawning FFmpeg:', 'ffmpeg', args.join(' '))

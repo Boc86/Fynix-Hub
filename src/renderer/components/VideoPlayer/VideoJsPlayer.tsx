@@ -261,10 +261,16 @@ function HlsStartFix({
       console.log(`[HlsStartFix:${id}] startLoad(0) failed:`, e)
     }
 
-    // Also intercept MANIFEST_LOADED for re-loads
+    // Also intercept MANIFEST_LOADED for re-loads — only override startPosition
+    // on the initial manifest load, not on re-loads (e.g., hls.js recovery after
+    // a DISCONTINUITY) which would restart playback from 0:00.
+    let manifestLoadedCount = 0
     const onManifestLoaded = () => {
-      console.log(`[HlsStartFix:${id}] MANIFEST_LOADED, startPosition:`, engine.startPosition, 'levels:', engine.levels?.length ?? 0, 'forcing startLoad(0)')
-      engine.startLoad(0)
+      manifestLoadedCount++
+      console.log(`[HlsStartFix:${id}] MANIFEST_LOADED #${manifestLoadedCount}, startPosition:`, engine.startPosition, 'levels:', engine.levels?.length ?? 0, 'forcing startLoad(0)')
+      if (manifestLoadedCount === 1) {
+        engine.startLoad(0)
+      }
       // Force the highest quality level immediately after manifest loads.
       // startLevel: -1 in config only sets the *initial* level index; hls.js ABR
       // can still downshift on the first segment if the proxy adds latency to

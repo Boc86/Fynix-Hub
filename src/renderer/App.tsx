@@ -1176,7 +1176,7 @@ export default function App() {
     setPlayerLoading(true)
     setStreamError(null)
     try {
-      await startPlayerUrl(result.embedUrl, undefined, undefined, true)
+      await startPlayerUrl(result.embedUrl)
       setView('player')
     } catch (err: any) {
       window.api.log('[App] Vyla manual play failed:', err?.message)

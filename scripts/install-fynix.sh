@@ -103,23 +103,31 @@ banner() {
 download() {
   local url="$1"; local out="$2"
   local name; name=$(basename "$url")
-  # Get total size (best-effort)
-  local total
+
+  # Get total size — try the HEAD request first, then fall back to a
+  # ranged GET (first byte) which GitHub reliably answers with Content-Length.
+  local total=0
   total=$(curl -sIL --max-time 20 "$url" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="content-length"{s=$2} END{print s+0}')
   [[ "$total" =~ ^[0-9]+$ ]] || total=0
+  if (( total == 0 )); then
+    # Fallback: ranged GET — ask for exactly 1 byte, server must reply with
+    # the full Content-Length header.
+    total=$(curl -sI -L --range 0-0 --max-time 20 "$url" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="content-length"{s=$2} END{print s+0}')
+    [[ "$total" =~ ^[0-9]+$ ]] || total=0
+  fi
 
   # Start download in background
   curl -sL --max-time 600 "$url" -o "$out" &
   local pid=$!
   local start=$SECONDS
-  local prev=0 prevt=$start
+  local prev=0 prevt=$SECONDS
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; local si=0
 
   while kill -0 "$pid" 2>/dev/null; do
     local now=$SECONDS
     local cur=0; [[ -f "$out" ]] && cur=$(stat -c%s "$out" 2>/dev/null || echo 0)
     local pct=0; (( total > 0 )) && pct=$(( cur * 100 / total ))
-    # Speed over the last second
+    # Speed since last check
     local dt=$(( now - prevt )); (( dt < 1 )) && dt=1
     local rate=$(( (cur - prev) / dt ))
     prev=$cur; prevt=$now
@@ -130,7 +138,7 @@ download() {
     fi
     printf "\r  ${ORANGE}%s${RESET} ${WHITE}%-28s${RESET} ${BOLD}%3d%%${RESET} ${GREY}%s/s  ETA %s${RESET}" \
       "${spin:si++%10:1}" "$name" "$pct" "$(hr_size $rate)" "$(fmt_dur $eta)"
-    sleep 1
+    sleep 0.1
   done
   # Ensure curl finished
   wait "$pid"
@@ -147,9 +155,9 @@ download() {
 # Human-readable byte size
 hr_size() {
   local b=$1
-  (( b >= 1073741824 )) && { printf "%.1f GB" "$(echo "scale=1;$b/1073741824"|bc 2>/dev/null || echo $((b/1073741824)))"; return; }
-  (( b >= 1048576 ))    && { printf "%.1f MB" "$((b/1048576))"; return; }
-  (( b >= 1024 ))       && { printf "%.0f KB" "$((b/1024))"; return; }
+  (( b >= 1073741824 )) && { printf "%.1f GB" "$(echo "scale=1;$b/1073741824"|bc 2>/dev/null || echo "$b"|awk '{printf "%.1f",$1/1073741824}')"; return; }
+  (( b >= 1048576 ))    && { printf "%.1f MB" "$(echo "scale=1;$b/1048576"|bc 2>/dev/null || echo "$b"|awk '{printf "%.1f",$1/1048576}')"; return; }
+  (( b >= 1024 ))       && { printf "%.0f KB" "$(echo "scale=1;$b/1024"|bc 2>/dev/null || echo "$b"|awk '{printf "%.1f",$1/1024}')"; return; }
   printf "%d B" "$b"
 }
 

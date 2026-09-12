@@ -212,6 +212,14 @@ function createWindow(): void {
   mainWindow.webContents.once('did-finish-load', () => {
     mainWindow?.show();
   });
+
+  // Capture renderer console messages for debugging
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const levelStr = ['log', 'info', 'warn', 'error', 'debug'][level] || `level:${level}`;
+    const msg = `[Renderer:${levelStr}] ${message}`;
+    if (level >= 2) console.error(msg); // warn/error → stderr
+    else console.log(msg); // log/info → stdout (also goes to stderr in Electron)
+  });
   setupRemoteControl(mainWindow.webContents, mainWindow);
   setupCursorHide(mainWindow);
 

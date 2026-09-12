@@ -217,7 +217,7 @@ export async function startPlayback(
   debug('Starting FFmpeg remux for:', resolvedUrl.slice(0, 80))
   let result: { sessionId: string; streamUrl: string }
   try {
-    result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders, audioTrackIndex)
+    result = FfmpegRemux.createSession(resolvedUrl, resumePosition || 0, ffmpegHeaders, audioTrackIndex, forceRemux)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to start FFmpeg remux session'
     throw new Error(`FFmpeg remux failed: ${msg}`)
