@@ -36,8 +36,10 @@ If you find this project useful, consider supporting development on Ko-fi. Every
 ### Playback
 - **HTML5 playback** — high-quality video playback via built-in HTML5 player with hardware acceleration
 - **Auto-play** — automatically cycle through torrent results until one plays successfully
-- **Vyla / Rivestream** — optional streaming sources for instant playback without downloading
-- **Sports live streaming** — watch live sports events directly from supported sources
+| **Vyla / Rivestream** — optional streaming sources for instant playback without downloading |
+| **Live TV** — M3U playlist streaming with FFmpeg remux for non-HLS sources (MPEG-TS, etc.) |
+| **Sports live streaming** — watch live sports events directly from supported sources |
+| **Hardware-aware GPU rendering** — automatic GPU detection with AMD software rendering fallback on Wayland |
 - **Resume playback** — pick up where you left off with per-title progress tracking
 
 ### Linux Desktop
@@ -95,7 +97,7 @@ Download the latest release for Linux from the [Releases page](https://github.co
 |---------|-------------|
 | Torrent Indexers | Enable/disable built-in indexers and add custom Torznab URLs |
 | Usenet Indexers | Add Newznab-compatible indexers with API keys |
-| Vyla / Rivestream | Optional streaming source (TMDB-based) |
+| Vyla / Rivestream | Bundled streaming source — auto-provisioned API key, no external configuration required ||
 | Debrid Services | Real-Debrid, All-Debrid, Premiumize for cached torrent streaming |
 
 ### Media Sources
@@ -108,6 +110,7 @@ Download the latest release for Linux from the [Releases page](https://github.co
 | Usenet | Media | Newznab-compatible Usenet indexers |
 | NZBGet | Downloader | Usenet NZB download client integration |
 | HTML5 Player | Player | High-quality video playback via HTML5 + FFmpeg remux |
+| M3U / Live TV | Media | Live TV streaming via M3U playlists with FFmpeg HLS remux |
 
 ### Keyboard Navigation
 
@@ -156,10 +159,11 @@ npm run make    # Build all packages
 
 - **Frontend**: React, TypeScript, Zustand (state management), CSS Modules
 - **Backend**: Electron, Vite (bundler), Electron Forge (packaging)
-- **Data**: TMDB API, torrent indexers, Newznab Usenet, YouTube
-- **Player**: HTML5 (browser-based video playback with FFmpeg remux)
-- **Updates**: electron-updater (GitHub Releases)
-- **Packaging**: Debian (.deb), RPM (.rpm), AppImage, portable ZIP
+| **Data**: TMDB API, torrent indexers, Newznab Usenet, YouTube, self-hosted Vyla streaming API |
+| **Player**: HTML5 (browser-based video playback with FFmpeg remux) |
+| **Live TV**: M3U playlist parsing, FFmpeg HLS remux for MPEG-TS sources, CDNLive proxy |
+| **Updates**: electron-updater (GitHub Releases) |
+| **Packaging**: Debian (.deb), RPM (.rpm), AppImage, portable ZIP |
 
 ## License
 

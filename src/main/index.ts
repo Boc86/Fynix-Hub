@@ -163,6 +163,9 @@ if (gpuVendor === 'nvidia') {
   app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder,Vulkan,VulkanSurface');
   app.commandLine.appendSwitch('enable-features', 'CanvasOopRaster');
   console.log('[VA-API] AMD: using software rendering (disable-gpu)');
+  // Signal to other modules (e.g., ffmpeg-remux) that GPU is disabled,
+  // so they force H.264 transcoding instead of HEVC passthrough.
+  process.env.FYNIX_GPU_DISABLED = '1';
 } else {
   console.log('[VA-API] GPU vendor unknown — VAAPI may not work');
 }
@@ -208,6 +211,14 @@ function createWindow(): void {
   // sees the splash immediately with no black/blank gap.
   mainWindow.webContents.once('did-finish-load', () => {
     mainWindow?.show();
+  });
+
+  // Capture renderer console messages for debugging
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const levelStr = ['log', 'info', 'warn', 'error', 'debug'][level] || `level:${level}`;
+    const msg = `[Renderer:${levelStr}] ${message}`;
+    if (level >= 2) console.error(msg); // warn/error → stderr
+    else console.log(msg); // log/info → stdout (also goes to stderr in Electron)
   });
   setupRemoteControl(mainWindow.webContents, mainWindow);
   setupCursorHide(mainWindow);
