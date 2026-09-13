@@ -203,13 +203,15 @@ export async function getSportsList(): Promise<SportarrSport[]> {
 
 async function fetchAll<T>(basePath: string): Promise<T[]> {
   const all: T[] = []
+  let page = 1
   const pageSize = 100
   while (true) {
     const sep = basePath.includes('?') ? '&' : '?'
-    const url = `${basePath}${sep}page=${Math.floor(all.length / pageSize) + 1}&pageSize=${pageSize}`
+    const url = `${basePath}${sep}page=${page}&pageSize=${pageSize}`
     const data = await http.get<T>(url)
     all.push(...data.items)
     if (all.length >= data.total || data.items.length === 0) break
+    page++
   }
   return all
 }
@@ -233,7 +235,7 @@ export async function getLeaguesBySport(sportId: string): Promise<SportarrLeague
 }
 
 export async function getSeasons(leagueId: string): Promise<SportarrSeason[]> {
-  const cacheKey = `sports:seasons:v2:${leagueId}`
+  const cacheKey = `sports:seasons:v3:${leagueId}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrSeason[]
 
@@ -249,7 +251,7 @@ export async function getSeasons(leagueId: string): Promise<SportarrSeason[]> {
 }
 
 export async function getUpcomingEvents(leagueId: string, seasonId?: string): Promise<SportarrEvent[]> {
-  const cacheKey = `sports:upcoming:v2:${leagueId}:${seasonId || 'all'}`
+  const cacheKey = `sports:upcoming:v3:${leagueId}:${seasonId || 'all'}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrEvent[]
 
@@ -268,7 +270,7 @@ export async function getUpcomingEvents(leagueId: string, seasonId?: string): Pr
 }
 
 export async function getPastEvents(leagueId: string, seasonId?: string): Promise<SportarrEvent[]> {
-  const cacheKey = `sports:past:v2:${leagueId}:${seasonId || 'all'}`
+  const cacheKey = `sports:past:v3:${leagueId}:${seasonId || 'all'}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrEvent[]
 
@@ -287,7 +289,7 @@ export async function getPastEvents(leagueId: string, seasonId?: string): Promis
 }
 
 export async function getEventDetails(eventId: string): Promise<SportarrEvent | null> {
-  const cacheKey = `sports:event:v2:${eventId}`
+  const cacheKey = `sports:event:v3:${eventId}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrEvent
 
@@ -302,7 +304,7 @@ export async function getEventDetails(eventId: string): Promise<SportarrEvent | 
 }
 
 export async function getEventsInRange(leagueId: string, seasonId: string, from: string, to: string): Promise<SportarrEvent[]> {
-  const cacheKey = `sports:events:range:v2:${leagueId}:${seasonId}:${from}:${to}`
+  const cacheKey = `sports:events:range:v3:${leagueId}:${seasonId}:${from}:${to}`
   const cached = CacheService.getCache(cacheKey)
   if (cached) return JSON.parse(cached) as SportarrEvent[]
 
