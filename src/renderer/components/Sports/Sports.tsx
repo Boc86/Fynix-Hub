@@ -322,10 +322,11 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
             const server = useSettingsStore.getState().liveTvServer || 'cdnlive'
             const result = await window.api.damiTv.extractUrl({ id: s.id || s.source, name: match.title, countryCode: '', playerUrl: url }, server).catch(() => null)
             if (result?.hlsUrl) url = result.hlsUrl
+            else return null
           }
           return { source: s.source, streamNo: 1, language: 'Unknown', hd: true, embedUrl: url }
         }))
-      const valid = resolved.filter(s => s.embedUrl)
+      const valid = resolved.filter((s): s is NonNullable<typeof resolved[0]> => s !== null)
       if (valid.length === 0) setScheduleStreamError('No playable streams found for this event')
       else setScheduleStreams(valid.map((s, i) => ({ ...s, streamNo: i + 1 })))
     } catch { setScheduleStreamError('Failed to resolve stream sources') }
