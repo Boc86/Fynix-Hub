@@ -9,8 +9,9 @@ const CACHE_TTL = 300000
 interface ApiResponse<T> {
   items: T[]
   total: number
-  skip: number
-  limit: number
+  page: number
+  pageSize: number
+  totalPages: number
 }
 
 interface SportarrSport {
@@ -202,14 +203,13 @@ export async function getSportsList(): Promise<SportarrSport[]> {
 
 async function fetchAll<T>(basePath: string): Promise<T[]> {
   const all: T[] = []
-  let skip = 0
   const pageSize = 100
   while (true) {
     const sep = basePath.includes('?') ? '&' : '?'
-    const data = await http.get<T>(`${basePath}${sep}skip=${skip}&limit=${pageSize}`)
+    const url = `${basePath}${sep}page=${Math.floor(all.length / pageSize) + 1}&pageSize=${pageSize}`
+    const data = await http.get<T>(url)
     all.push(...data.items)
     if (all.length >= data.total || data.items.length === 0) break
-    skip += pageSize
   }
   return all
 }
@@ -312,7 +312,7 @@ export async function getEventsInRange(leagueId: string, seasonId: string, from:
     // (per a MotoGP workaround), which caused cross-league leakage: e.g.
     // selecting MotoGP returned F1 results, selecting DTM returned MotoGP
     // results, because the seasonId alone wasn't enough to disambiguate.
-    const path = `/events?league=${encodeURIComponent(leagueId)}&season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page_size=100`
+    const path = `/events?league=${encodeURIComponent(leagueId)}&season=${encodeURIComponent(seasonId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
     const items = await fetchAll<SportarrEvent>(path)
     const events = items.filter(e => e.isActive)
     CacheService.setCache(cacheKey, JSON.stringify(events), CACHE_TTL)
@@ -345,8 +345,11 @@ export async function getTeamDetails(teamId: string): Promise<SportarrTeam | nul
 
 export async function searchEvents(query: string): Promise<SportarrEvent[]> {
   try {
-    const data = await http.get<SportarrEvent>(`/search?q=${encodeURIComponent(query)}&types=event`)
-    return data.items
+    const res = await fetch(`${SPORTARR_BASE}/search?q=${encodeURIComponent(query)}&types=event`)
+    if (!res.ok) throw new Error(`Sportarr API error: ${res.status}`)
+    const data = await res.json()
+    // Search endpoint uses `results` array, not `items`
+    return data.results || data.items || []
   } catch (err: any) {
     console.error(`[Sports] Failed to search events for ${query}:`, err.message)
     return []
