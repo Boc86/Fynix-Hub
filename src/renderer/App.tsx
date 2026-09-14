@@ -1140,6 +1140,10 @@ export default function App() {
       }
     }
     const result = await window.api.player.start(url, resumePosition, referer, forceRemux)
+    // Clear any stale ok.ru/DLHD embed state — this path handles HLS/torrent/usenet
+    // streams directly, not iframe embeds
+    setOkruEmbedUrl(null)
+    setDlhdEmbedUrl(null)
     const hlsUrl = result?.streamUrl ?? url
     setStreamUrl(hlsUrl)
     setAudioTracksInfo(result?.audioTracks ?? [])
