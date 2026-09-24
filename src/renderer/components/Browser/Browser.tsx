@@ -238,15 +238,8 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
       try {
         const progress = await window.api.mdblist.getWatchedProgress()
             if (progress && Array.isArray(progress) && progress.length > 0) {
-              const now = Date.now()
-              const thirtyDays = 30 * 24 * 60 * 60 * 1000
-              const sevenDays = 7 * 24 * 60 * 60 * 1000
               const activeProgress = progress.filter((p: any) => {
                 if (!p.next_episode) return false
-                if ((p.completion ?? 0) >= 0.99) return false
-                const lastWatch = p.last_watched_at ? new Date(p.last_watched_at).getTime() : 0
-                if (lastWatch > 0 && now - lastWatch > thirtyDays && (p.completion ?? 0) < 0.3) return false
-                if (lastWatch > 0 && now - lastWatch > sevenDays && (p.completion ?? 0) < 0.05) return false
                 return true
               })
                 const upNextPromises = activeProgress.map(async (p: any) => {
