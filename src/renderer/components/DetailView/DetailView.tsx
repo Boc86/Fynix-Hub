@@ -456,6 +456,16 @@ export default function DetailView({ onBack, onPlay, onPlayTrailer, onContextMen
               episode: ep.episodeNumber,
             });
           }
+        } else if (cSection.id === 'season' && isTv) {
+          const s = seasons[focusedItem];
+          if (s) {
+            onContextMenu({
+              type: 'season',
+              tmdbId: selectedMedia.id,
+              title: selectedMedia.title,
+              season: s.seasonNumber,
+            });
+          }
         } else {
           onContextMenu({
             type: isTv ? 'tv' : 'movie',

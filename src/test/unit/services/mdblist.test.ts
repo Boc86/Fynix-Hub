@@ -74,6 +74,21 @@ describe('mdblist payload converters', () => {
     })
   })
 
+  it('converts Trakt-style mark-watched season payload (whole season)', () => {
+    const p = convertHistoryPayload({
+      shows: [{
+        ids: { tmdb: 1396 },
+        seasons: [{ season: 1 }],
+      }],
+    })
+    expect(p).toEqual({
+      shows: [{
+        ids: { tmdb: 1396 },
+        seasons: [{ number: 1 }],
+      }],
+    })
+  })
+
   it('unwraps MDBList watched envelope into Trakt-style array', () => {
     const env = {
       movies: [{ watched_at: 'x', movie: { ids: { tmdb: 278 } } }],
