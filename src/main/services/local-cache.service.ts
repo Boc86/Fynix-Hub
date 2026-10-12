@@ -300,14 +300,18 @@ function serveFile(filePath: string, req: http.IncomingMessage, res: http.Server
       stream.pipe(res)
       stream.on('error', () => { if (!res.writableEnded) res.end() })
     } else {
+      // No Range header — serve the full file. Don't set Content-Length so
+      // the browser reads progressively as the file grows (in-progress
+      // usenet downloads). A stale Content-Length would cap playback at the
+      // size seen at request time (e.g. showing 20 min of a 2-hour file).
       res.writeHead(200, {
-        'Content-Length': totalSize,
         'Content-Type': 'application/octet-stream',
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
         'Access-Control-Allow-Origin': '*',
+        'Transfer-Encoding': 'chunked',
       })
-      const stream = fs.createReadStream(filePath)
+      const stream = fs.createReadStream(filePath, { autoClose: true })
       stream.pipe(res)
       stream.on('error', () => { if (!res.writableEnded) res.end() })
     }
