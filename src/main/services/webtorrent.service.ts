@@ -112,21 +112,33 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
       debug(`Torrent warning for ${torrent.infoHash.slice(0, 16)}: ${err?.message || err}`)
     })
 
+    // Debug: log periodic progress
+    let progressLogCount = 0
+    const progressInterval = setInterval(() => {
+      progressLogCount++
+      debug(`Torrent ${torrent.infoHash.slice(0, 16)} progress: numPeers=${torrent.numPeers}, downloadSpeed=${torrent.downloadSpeed} bytes/s, progress=${torrent.progress}`)
+      if (progressLogCount >= 10) {
+        clearInterval(progressInterval)
+      }
+    }, 5000)
+
     // Debug: log peer connections and tracker events
-    ;(torrent as any).on('peer', (peer: any) => {
-      debug(`Peer connected for ${torrent.infoHash.slice(0, 16)}: type=${peer.type || 'unknown'}`)
+    ;(torrent as any).on('peer', (peer: any, opts?: any) => {
+      const peerStr = typeof peer === 'string' ? peer : (peer?.id || peer?.host || 'obj')
+      const source = opts?.source || 'unknown'
+      debug(`Peer announced for ${torrent.infoHash.slice(0, 16)}: ${peerStr} (source: ${source}, numPeers: ${torrent.numPeers})`)
     })
 
-    ;(torrent as any).on('trackerAnnounce', () => {
-      debug(`Tracker announce for ${torrent.infoHash.slice(0, 16)}`)
+    ;(torrent as any).on('peererror', (err: any) => {
+      debug(`Peer error for ${torrent.infoHash.slice(0, 16)}: ${err?.message || err}`)
     })
 
-    // Timeout after 120 seconds (increased for slow peer discovery)
+    // Timeout after 60 seconds (metadata typically arrives within 30s with uTP)
     setTimeout(() => {
       if (infoHash && !torrentMap.has(infoHash)) {
-        reject(new Error('Torrent add timeout after 120s'))
+        reject(new Error('Torrent add timeout after 60s'))
       }
-    }, 120000)
+    }, 60000)
   })
 }
 

@@ -723,7 +723,9 @@ export default function App() {
       return url
     }
 
+    window.api.log('[App] Adding torrent to WebTorrent client, waiting for metadata (may take 10-30s)...')
     const torrentResult = await window.api.torrent.addTorrent(result.magnetUri)
+    window.api.log('[App] Torrent metadata acquired, getting stream URL...')
     const streamRes = await window.api.torrent.getStreamUrl(torrentResult.infoHash)
     return streamRes.url
   }, [])
