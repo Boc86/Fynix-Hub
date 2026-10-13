@@ -560,12 +560,16 @@ async function searchTorrentio(query: TorrentQuery): Promise<TorrentResult[]> {
       const seedersMatch = titleParts[1]?.match(/👤\s*(\d+)/)
       const seeders = seedersMatch ? parseInt(seedersMatch[1]) : extractNum(titleParts[1] || '', [/(\d+)\s*seed/i])
 
+      // Use torrentio's magnet_uri if available (includes torrentio-specific trackers/web seeds)
+      // Fall back to building from infoHash with default trackers
+      const magnetUri = s.magnet_uri || s.url || buildMagnetUri(infoHash, title)
+
       results.push({
         title,
         seeders,
         leechers: 0,
         size,
-        magnetUri: buildMagnetUri(infoHash, title),
+        magnetUri,
         infoHash,
         indexer: 'Torrentio',
         quality: qualityFromTitle(title),
@@ -615,7 +619,7 @@ async function searchMediafusion(query: TorrentQuery): Promise<TorrentResult[]> 
         seeders,
         leechers: 0,
         size,
-        magnetUri: buildMagnetUri(infoHash, title),
+        magnetUri: s.magnet_uri || buildMagnetUri(infoHash, title),
         infoHash,
         indexer: 'MediaFusion',
         quality: qualityFromTitle(title),
