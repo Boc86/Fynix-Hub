@@ -87,8 +87,8 @@ export function shouldRefreshTrackers(): boolean {
   return Date.now() - lastUpdated > TRACKERS_REFRESH_MS
 }
 
-function buildMagnetUri(infoHash: string, name: string): string {
-  const trackers = getTrackers().map(t => `tr=${encodeURIComponent(t)}`).join('&')
+function buildMagnetUri(infoHash: string, name: string, extraTrackers: string[] = []): string {
+  const trackers = [...getTrackers(), ...extraTrackers].map(t => `tr=${encodeURIComponent(t)}`).join('&')
   return `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(name)}&${trackers}`
 }
 
@@ -560,11 +560,13 @@ async function searchTorrentio(query: TorrentQuery): Promise<TorrentResult[]> {
       const seedersMatch = titleParts[1]?.match(/👤\s*(\d+)/)
       const seeders = seedersMatch ? parseInt(seedersMatch[1]) : extractNum(titleParts[1] || '', [/(\d+)\s*seed/i])
 
-      // Always use buildMagnetUri (includes default trackers) as the base.
-      // Torrentio's API returns magnet_uri with no trackers (DHT-only), causing
-      // WebTorrent to hang. buildMagnetUri appends DEFAULT_TRACKERS which include
-      // UDP trackers that torrentio torrents are reachable on.
-      const magnetUri = buildMagnetUri(infoHash, title)
+      // Extract tracker URLs from torrentio's sources field
+      // Format: "tracker:udp://opentor.net:6969", "dht:...", etc.
+      const extraTrackers = (s.sources || [])
+        .filter((src: string) => src.startsWith('tracker:'))
+        .map((src: string) => src.slice('tracker:'.length))
+
+      const magnetUri = buildMagnetUri(infoHash, title, extraTrackers)
 
       results.push({
         title,
@@ -616,12 +618,17 @@ async function searchMediafusion(query: TorrentQuery): Promise<TorrentResult[]> 
       // MediaFusion description uses emoji markers: ▶️ for seeders, 💾 for peers
       const seeders = extractNum(desc, [/▶️\s*(\d+)/, /(\d+)\s*seed/i, /💾\s*(\d+)/])
 
+      // Extract tracker URLs from MediaFusion's sources field
+      const extraTrackers = (s.sources || [])
+        .filter((src: string) => src.startsWith('tracker:'))
+        .map((src: string) => src.slice('tracker:'.length))
+
       results.push({
         title,
         seeders,
         leechers: 0,
         size,
-        magnetUri: s.magnet_uri || buildMagnetUri(infoHash, title),
+        magnetUri: buildMagnetUri(infoHash, title, extraTrackers),
         infoHash,
         indexer: 'MediaFusion',
         quality: qualityFromTitle(title),
