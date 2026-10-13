@@ -560,9 +560,11 @@ async function searchTorrentio(query: TorrentQuery): Promise<TorrentResult[]> {
       const seedersMatch = titleParts[1]?.match(/👤\s*(\d+)/)
       const seeders = seedersMatch ? parseInt(seedersMatch[1]) : extractNum(titleParts[1] || '', [/(\d+)\s*seed/i])
 
-      // Use torrentio's magnet_uri if available (includes torrentio-specific trackers/web seeds)
-      // Fall back to building from infoHash with default trackers
-      const magnetUri = s.magnet_uri || s.url || buildMagnetUri(infoHash, title)
+      // Always use buildMagnetUri (includes default trackers) as the base.
+      // Torrentio's API returns magnet_uri with no trackers (DHT-only), causing
+      // WebTorrent to hang. buildMagnetUri appends DEFAULT_TRACKERS which include
+      // UDP trackers that torrentio torrents are reachable on.
+      const magnetUri = buildMagnetUri(infoHash, title)
 
       results.push({
         title,

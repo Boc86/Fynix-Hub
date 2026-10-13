@@ -8,10 +8,10 @@ export async function initWebTorrent(): Promise<any> {
   const WebTorrent = WebTorrentModule.default || WebTorrentModule
   
   // Initialize with proper WebTorrent v3 configuration
-  // uTP is disabled because utp-native has native module issues
-  // DHT is enabled (pure JS, no native modules) for peer discovery
+  // uTP is enabled for peer discovery on standard BitTorrent trackers
+  // DHT is enabled for peer discovery when trackers fail
   cachedClient = new WebTorrent({
-    utp: false,
+    utp: true,
     dht: true,
     maxConns: 50,
   })
