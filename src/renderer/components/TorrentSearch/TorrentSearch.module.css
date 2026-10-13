@@ -20,7 +20,6 @@
   width: 640px;
   max-width: 90vw;
   max-height: 80vh;
-  height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -94,6 +93,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  max-height: calc(80vh - 116px);
 }
 
 .loading {
