@@ -59,6 +59,9 @@ export async function prefetchBatch(results: { infoHash: string; magnetUri: stri
 
 export async function addTorrent(magnetUri: string, options?: any): Promise<any> {
   debug(`Adding torrent: ${magnetUri.slice(0, 80)}...`)
+  debug(`Full magnet URI (${magnetUri.length} chars): ${magnetUri}`)
+  const trackerCount = (magnetUri.match(/&tr=/g) || []).length
+  debug(`Trackers in magnet URI: ${trackerCount}`)
   const c = await getClient()
   const infoHash = (magnetUri.match(/xt=urn:btih:([a-fA-F0-9]+)/) || [])[1]?.toLowerCase()
 
@@ -98,6 +101,24 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
 
     torrent.on('ready', () => {
       debug(`Torrent ready: ${torrent.infoHash}`)
+    })
+
+    // Debug: log when peers are discovered
+    torrent.on('noPeers', (err: any) => {
+      debug(`No peers for ${torrent.infoHash.slice(0, 16)}: ${err?.message || 'unknown'}`)
+    })
+
+    torrent.on('warning', (err: any) => {
+      debug(`Torrent warning for ${torrent.infoHash.slice(0, 16)}: ${err?.message || err}`)
+    })
+
+    // Debug: log peer connections and tracker events
+    ;(torrent as any).on('peer', (peer: any) => {
+      debug(`Peer connected for ${torrent.infoHash.slice(0, 16)}: type=${peer.type || 'unknown'}`)
+    })
+
+    ;(torrent as any).on('trackerAnnounce', () => {
+      debug(`Tracker announce for ${torrent.infoHash.slice(0, 16)}`)
     })
 
     // Timeout after 120 seconds (increased for slow peer discovery)

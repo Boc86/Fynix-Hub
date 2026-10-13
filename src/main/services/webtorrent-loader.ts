@@ -16,8 +16,19 @@ export async function initWebTorrent(): Promise<any> {
     maxConns: 50,
   })
 
+  console.log('[WebTorrent] Client config:', {
+    utp: true,
+    dht: true,
+    maxConns: 50,
+    WEBRTC_SUPPORT: (WebTorrent as any).WEBRTC_SUPPORT,
+  })
+
   cachedClient.on('error', (err: Error) => {
     console.error('[WebTorrent] Client error:', err)
+  })
+
+  cachedClient.on('warning', (err: Error) => {
+    console.warn('[WebTorrent] Client warning:', err)
   })
 
   return cachedClient

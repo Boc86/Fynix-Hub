@@ -688,7 +688,10 @@ export default function App() {
   }, [torrentSearchOpen, runTorrentSearch])
 
   const playTorrent = useCallback(async (result: TorrentResult): Promise<string> => {
-    window.api.log('[App] playTorrent called with:', result?.title, result?.infoHash?.slice(0, 16), 'magnet:', result?.magnetUri?.slice(0, 60))
+    window.api.log('[App] playTorrent called with:', result?.title, result?.infoHash?.slice(0, 16))
+    window.api.log('[App] FULL magnet URI:', result?.magnetUri)
+    const trackerCount = (result?.magnetUri?.match(/&tr=/g) || []).length
+    window.api.log('[App] Trackers in magnet:', trackerCount)
     // Guard: reject results whose infoHash wasn't in the current search
     if (searchInfoHashesRef.current.size > 0 && !searchInfoHashesRef.current.has(result.infoHash.toLowerCase())) {
       const msg = `playTorrent rejected: ${result.infoHash.slice(0, 16)} not in current search (${searchInfoHashesRef.current.size} hashes)`
