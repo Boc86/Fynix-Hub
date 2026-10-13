@@ -370,11 +370,12 @@ function serveTorrentStream(
   info.stream.pipe(res)
   info.stream.on('error', () => { if (!res.writableEnded) res.end() })
 
-  // If the torrent stalls (no data for 15s), end the response so mpv can
+  // If the torrent stalls (no data for 60s), end the response so the player can
   // reconnect. Without this, a paused torrent hangs the HTTP response
   // forever, mpv's video output freezes, and the system monitor kills it.
+  // 60s timeout allows slow torrents (few peers) to download first pieces.
   let stallTimer: ReturnType<typeof setTimeout> | null = null
-  const STALL_TIMEOUT = 15000
+  const STALL_TIMEOUT = 60000
   const resetStall = () => {
     if (stallTimer) clearTimeout(stallTimer)
     stallTimer = setTimeout(() => {
