@@ -42,33 +42,37 @@ interface BuiltInIndexer {
 const TRACKERS_URL = 'https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt'
 const TRACKERS_REFRESH_MS = 24 * 60 * 60 * 1000 // 24 hours
 
+// Trackers: HTTP/HTTPS/WSS are reliable in Electron (UDP trackers time out).
+// uTP peers still connect via TCP for downloading, but trackers must be HTTP-based
+// because UDP tracker sockets fail in Electron's process context.
 const DEFAULT_TRACKERS = [
-  // HTTP trackers (more reliable in restricted network environments)
-  'http://tracker.opentrackr.org:80/announce',
-  'http://tracker.torrent.eu.org:451/announce',
-  'http://open.stealth.si:80/announce',
+  // HTTP trackers
   'http://tracker.dler.org:6969/announce',
-  'http://tracker.moeking.me:6969/announce',
+  'http://tracker.dler.com:6969/announce',
+  'http://tracker.p2p.today:6969/announce',
+  'http://tracker.renfei.net:8080/announce',
+  'http://tracker.opentrackr.org:80/announce',
   'http://explodie.org:6969/announce',
-  'http://p4p.arenabg.com:1337/announce',
+  'http://open.stealth.si:80/announce',
+  'http://tracker.torrent.eu.org:451/announce',
   'http://9.rarbg.to:2710/announce',
-  'http://retracker.local:80/announce',
+  'http://p4p.arenabg.com:1337/announce',
   // HTTPS trackers
   'https://tracker.tamersunion.org:443/announce',
   'https://tracker.opentor.net:443/announce',
-  // WebTorrent (WebRTC-based) trackers
+  // WebTorrent (WebRTC-based) trackers — useful as fallback
   'wss://tracker.openwebtorrent.com:443/announce',
   'wss://tracker.btorrent.xyz:443/announce',
   'wss://tracker.files.fm:7073/announce',
-  'wss://tracker.tribuo.io:443/announce',
-  'wss://tracker.openwebtorrent.com:443/announce',
 ]
+
+// Filter out UDP trackers — they fail in Electron's network context
+const TRACKER_FILTER = (t: string) => !t.startsWith('udp://')
 
 export function getTrackers(): string[] {
   const stored = CacheService.getSetting<string[]>('trackerList')
   if (stored && stored.length > 0) {
-    // Filter to only HTTP/HTTPS/WSS trackers (UDP trackers fail in Electron uTP issues)
-    const filtered = stored.filter(t => !t.startsWith('udp://'))
+    const filtered = stored.filter(TRACKER_FILTER)
     if (filtered.length > 0) return filtered
   }
   return DEFAULT_TRACKERS
@@ -79,7 +83,7 @@ export async function refreshTrackers(): Promise<string[]> {
     const res = await fetch(TRACKERS_URL)
     if (!res.ok) throw new Error(`Tracker list fetch failed: ${res.status}`)
     const text = await res.text()
-    const trackers = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#') && !l.startsWith('udp://'))
+    const trackers = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#') && TRACKER_FILTER(l))
     if (trackers.length === 0) throw new Error('Tracker list empty')
     CacheService.setSetting('trackerList', trackers)
     CacheService.setSetting('trackerListLastUpdated', Date.now())
