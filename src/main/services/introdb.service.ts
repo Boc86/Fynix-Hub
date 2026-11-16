@@ -27,6 +27,10 @@ export async function getSegments(query: SegmentQuery): Promise<SegmentResult[]>
     // dropped by the package.
     const apiKey = getSetting<string>('introDbApiKey')
 
+    // theintrodb@4 targets API v4 (base https://api.theintrodb.org/v4).
+    // We address media by tmdbId — v4 resolves it server-side to the TVDB
+    // identity, converting our TMDB season/episode numbering automatically,
+    // so no explicit `mapping` is needed here.
     const { getMedia } = await import('theintrodb')
     const params = {
       tmdbId: query.tmdbId,
@@ -38,7 +42,9 @@ export async function getSegments(query: SegmentQuery): Promise<SegmentResult[]>
       ? await getMedia(params, { apiKey })
       : await getMedia(params)
 
-    if (!data) return []
+    // v4 getMedia() returns a discriminated union on `kind`; only 'media'
+    // carries the grouped segment arrays.
+    if (!data || data.kind !== 'media') return []
 
     const results: SegmentResult[] = []
 
