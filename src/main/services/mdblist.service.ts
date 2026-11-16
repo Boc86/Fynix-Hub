@@ -231,10 +231,10 @@ function isNetworkError(err: any): boolean {
 // ── Payload converters (MDBList API uses Trakt-style consumer payloads) ──
 
 export function convertScrobblePayload(media: any): any {
-  // MDBList scrobble API accepts the standard Trakt-style payload directly:
-  //   { show: { ids: { tmdb } }, episode: { season, number }, progress }
-  //   { movie: { ids: { tmdb } }, progress }
-  // No transformation needed — pass through unchanged.
+  // Renderer sends the MDBList-native shape already:
+  //   movie: { movie: { ids: { tmdb } }, progress, app_name }
+  //   show:  { show: { ids: { tmdb }, season, episode }, progress, app_name }
+  // Pass through unchanged.
   return media
 }
 
@@ -500,53 +500,6 @@ export async function getWatchedShowsWithProgress() {
 }
 
 // ── MDBList payload builders ────────────────────────────────────────────────
-export interface MarkWatchedPayload {
-  movies?: { ids: { tmdb: number }[] } | null
-  shows?: { ids: { tmdb: number }; seasons?: { number: number; episodes?: { number: number }[] }[] } | null
-}
-
-/**
- * Build the MDBList /sync/watched body from a ContextTarget.
- * Used by both the renderer (App.tsx) and the player (VideoPlayer.tsx).
- */
-export function buildMarkWatchedPayload(target: {
-  type: 'movie' | 'tv' | 'episode' | 'season'
-  tmdbId: number
-  season?: number
-  episode?: number
-}): MarkWatchedPayload {
-  if (target.type === 'movie') {
-    return { movies: [{ ids: { tmdb: target.tmdbId } }] }
-  }
-  if (target.type === 'episode') {
-    return {
-      shows: [{
-        ids: { tmdb: target.tmdbId },
-        seasons: [{ number: target.season!, episodes: [{ number: target.episode! }] }],
-      }],
-    }
-  }
-  if (target.type === 'season') {
-    return {
-      shows: [{
-        ids: { tmdb: target.tmdbId },
-        seasons: [{ number: target.season! }],
-      }],
-    }
-  }
-  // 'tv' → mark the whole show as watched
-  return { shows: [{ ids: { tmdb: target.tmdbId } }] }
-}
-
-/**
- * Build the MDBList /sync/watched/remove body from a ContextTarget.
- * Same shape as markWatchedPayload.
- */
-export function buildMarkUnwatchedPayload(target: {
-  type: 'movie' | 'tv' | 'episode' | 'season'
-  tmdbId: number
-  season?: number
-  episode?: number
-}): MarkWatchedPayload {
-  return buildMarkWatchedPayload(target)
-}
+// Re-exported from the shared module so main + renderer use ONE implementation.
+export { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '../../shared/mdblist-payloads'
+export type { MarkWatchedPayload, WatchTarget } from '../../shared/mdblist-payloads'

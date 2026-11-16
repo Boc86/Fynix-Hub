@@ -11,6 +11,7 @@ import {
   buildMarkWatchedPayload,
   buildMarkUnwatchedPayload,
 } from '@/main/services/mdblist.service'
+import { buildScrobblePayload } from '@/shared/mdblist-payloads'
 
 // Baked-in client ID (obfuscated in the service with the same XOR scheme
 // Trakt uses). This test pins it so a bad obfuscation is caught immediately.
@@ -127,6 +128,31 @@ describe('mdblist mark payload builders', () => {
   })
   it('builds unwatched payload identical to watched', () => {
     expect(buildMarkUnwatchedPayload({ type: 'movie', tmdbId: 278 })).toEqual({ movies: [{ ids: { tmdb: 278 } }] })
+  })
+})
+
+describe('mdblist scrobble payload builder (MDBList-native shape)', () => {
+  it('builds movie scrobble with flat movie key and progress 0-100', () => {
+    expect(buildScrobblePayload(278, 'movie', 0.155)).toEqual({
+      movie: { ids: { tmdb: 278 } },
+      progress: 15.5,
+      app_name: 'Fynix Hub',
+    })
+  })
+  it('builds show scrobble with flat season/episode ON the show object (not a sibling episode key)', () => {
+    const p = buildScrobblePayload(1396, 'tv', 0.10, 1, 2)
+    expect(p).toEqual({
+      show: { ids: { tmdb: 1396 }, season: 1, episode: 2 },
+      progress: 10,
+      app_name: 'Fynix Hub',
+    })
+    expect(p).not.toHaveProperty('episode')
+  })
+  it('falls back to movie shape when tv lacks season/episode', () => {
+    expect(buildScrobblePayload(1396, 'tv', 0.5)).toHaveProperty('movie')
+  })
+  it('clamps progress to a minimum of 1%', () => {
+    expect(buildScrobblePayload(278, 'movie', 0).progress).toBe(1.0)
   })
 })
 
