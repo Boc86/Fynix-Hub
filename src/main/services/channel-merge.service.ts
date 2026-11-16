@@ -164,8 +164,15 @@ export async function getAvailableCountries(): Promise<AvailableCountry[]> {
 
 
 async function doMerge(): Promise<MergedChannel[]> {
+  // Don't let a slow/hung CDN fetch block the merge: M3U channels (disk cache)
+  // render immediately, CDN channels join on the next merge if they arrive late.
+  const cdnPromise = getProvider('cdnlive').getChannels().catch(() => [] as any[])
+  const cdnCapped = Promise.race([
+    cdnPromise,
+    new Promise<never[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+  ])
   const [cdnChs, m3uChs] = await Promise.all([
-    getProvider('cdnlive').getChannels().catch(() => [] as any[]),
+    cdnCapped,
     getAllM3UChannels().catch(() => [] as any[]),
   ])
 
