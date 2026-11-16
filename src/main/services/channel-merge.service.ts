@@ -12,6 +12,7 @@
 import { getProvider } from './livetv-providers'
 import { getAllM3UChannels } from './iptv-m3u.service'
 import { cleanChannelName } from '@/shared/cleanChannelName'
+import { countCountriesByCode, countryFlagEmoji, ISO_COUNTRY_NAMES } from '@/shared/iso-country-codes'
 import {
   detectCountryCode,
   COUNTRY_NAMES,
@@ -129,9 +130,49 @@ export async function searchMergedChannels(query: string, limit = 300): Promise<
   return out
 }
 
+export interface AvailableCountry {
+  code: string
+  name: string
+  flag: string
+  count: number
+}
+
+/**
+ * Countries present in the merged channel list (CDN + M3U), with per-country
+ * channel counts. Names/flags come from the static ISO 3166-1 alpha-2 table
+ * (src/shared/iso-country-codes.ts) — NOT from the cdnlivetv "dami-tv" API,
+ * which is no longer operational. Never throws: if the merge fails entirely we
+ * still return the static ISO list (count 0) so the country filter stays usable.
+ */
+export async function getAvailableCountries(): Promise<AvailableCountry[]> {
+  try {
+    const all = await getMergedChannels()
+    const counted = countCountriesByCode(all)
+    if (counted.length > 0) return counted
+  } catch (err: any) {
+    console.log('[Channels] getAvailableCountries: merge failed, using static ISO list:', err?.message || err)
+  }
+  return Object.keys(ISO_COUNTRY_NAMES)
+    .map((code) => ({
+      code,
+      name: ISO_COUNTRY_NAMES[code],
+      flag: countryFlagEmoji(code),
+      count: 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+
 async function doMerge(): Promise<MergedChannel[]> {
+  // Don't let a slow/hung CDN fetch block the merge: M3U channels (disk cache)
+  // render immediately, CDN channels join on the next merge if they arrive late.
+  const cdnPromise = getProvider('cdnlive').getChannels().catch(() => [] as any[])
+  const cdnCapped = Promise.race([
+    cdnPromise,
+    new Promise<never[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+  ])
   const [cdnChs, m3uChs] = await Promise.all([
-    getProvider('cdnlive').getChannels().catch(() => [] as any[]),
+    cdnCapped,
     getAllM3UChannels().catch(() => [] as any[]),
   ])
 
@@ -184,10 +225,16 @@ async function doMerge(): Promise<MergedChannel[]> {
   const merged = Array.from(map.values())
 
   // Sort: CDN first, then by country + name (the renderer cap takes the head).
+  // Channels with NO detected country go LAST — '' would sort first and fill
+  // the 15k renderer cap with countryless channels, starving the country
+  // filter on the Live TV / Settings pages.
   merged.sort((a, b) => {
     const aCdn = a.sources.includes('cdnlive') ? 0 : 1
     const bCdn = b.sources.includes('cdnlive') ? 0 : 1
     if (aCdn !== bCdn) return aCdn - bCdn
+    const aEmpty = a.countryCode ? 0 : 1
+    const bEmpty = b.countryCode ? 0 : 1
+    if (aEmpty !== bEmpty) return aEmpty - bEmpty
     if (a.countryCode !== b.countryCode) return a.countryCode.localeCompare(b.countryCode)
     return a.name.localeCompare(b.name)
   })

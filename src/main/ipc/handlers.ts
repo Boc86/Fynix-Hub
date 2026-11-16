@@ -741,7 +741,10 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('dami-tv:get-available-countries', async () => {
-    return DamiTVService.getAvailableCountries()
+    // Country list is derived from the MERGED channel set (CDN + M3U) with a
+    // static ISO 3166-1 alpha-2 table for names/flags — the cdnlivetv "dami-tv"
+    // API is no longer operational and must not be a dependency here.
+    return ChannelMergeService.getAvailableCountries()
   })
 
   handle('dami-tv:extract-url', async (_event, ch: { id: string; name: string; countryCode: string; playerUrl?: string }, server?: LiveTVServerId) => {

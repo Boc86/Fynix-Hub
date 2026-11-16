@@ -1,6 +1,6 @@
 import * as CacheService from './cache.service'
 import { lookupLogo } from './tv-logo.service'
-
+import { countryFlagEmoji, detectCountrySuffix, ISO_COUNTRY_NAMES } from '@/shared/iso-country-codes'
 const API_BASE = 'https://api.cdnlivetv.is/api/v1'
 const API_BASE_TV = 'https://cdnlivetv.tv/api/v1'
 const CACHE_TTL = 60000
@@ -42,19 +42,11 @@ const CC_MAP: [string, string][] = [
   ['denmark', 'dk'],
 ]
 
+// Names come from the shared static ISO 3166-1 alpha-2 table; 'intl'/'int' are
+// non-ISO pseudo-codes used by this provider for international feeds.
 const COUNTRY_NAMES: Record<string, string> = {
-  us: "United States", gb: "United Kingdom", es: "Spain", fr: "France", de: "Germany",
-  it: "Italy", pl: "Poland", au: "Australia", pt: "Portugal", ca: "Canada", br: "Brazil",
-  mx: "Mexico", ar: "Argentina", in: "India", hk: "Hong Kong", my: "Malaysia", intl: "International",
-  ae: "UAE", se: "Sweden", no: "Norway", dk: "Denmark", hr: "Croatia", rs: "Serbia",
-  il: "Israel", hu: "Hungary", cz: "Czech Republic", ro: "Romania", bg: "Bulgaria",
-  gr: "Greece", tr: "Turkey", za: "South Africa", cy: "Cyprus", si: "Slovenia",
-  ie: "Ireland", nz: "New Zealand", pe: "Peru", dz: "Algeria", ru: "Russia",
-  az: "Azerbaijan", id: "Indonesia", nl: "Netherlands", int: "International",
-  at: "Austria", sa: "Saudi Arabia", be: "Belgium", cl: "Chile", uy: "Uruguay",
-  co: "Colombia", eg: "Egypt", ua: "Ukraine", jp: "Japan", kr: "South Korea",
-  th: "Thailand", ph: "Philippines", sg: "Singapore", pk: "Pakistan", bd: "Bangladesh",
-  qa: "Qatar", kw: "Kuwait", bh: "Bahrain", om: "Oman", jo: "Jordan",
+  intl: 'International', int: 'International',
+  ...ISO_COUNTRY_NAMES,
 }
 
 function detectCountryCode(name: string): string {
@@ -69,14 +61,16 @@ function detectCountryCode(name: string): string {
       return code
     }
   }
+  // cdnlivetv channel names carry the country as a trailing alpha-2 suffix
+  // ("Sky Sports F1 FHD UK", "Canal 9 HD DK") — the API's `code` field is
+  // empty these days. Validate against the static ISO 3166-1 table.
+  const suffix = detectCountrySuffix(name)
+  if (suffix) return suffix
   return 'intl'
 }
 
 function countryFlag(code: string): string {
-  if (!code || code === 'intl' || code === 'int') return '\uD83C\uDF0D'
-  const c = code.toUpperCase()
-  if (c.length !== 2) return '\uD83C\uDF0D'
-  return String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65) + String.fromCodePoint(0x1F1E6 + c.charCodeAt(1) - 65)
+  return countryFlagEmoji(code)
 }
 
 export interface DamiTVStream {
@@ -185,62 +179,82 @@ function getCredentials(): { user: string; plan: string } {
   return { user, plan }
 }
 
+/** One attempt at the channels endpoint with a hard timeout. */
+async function fetchChannelsFrom(base: string, user: string, plan: string, timeoutMs: number) {
+  const url = `${base}/channels/?user=${encodeURIComponent(user)}&plan=${encodeURIComponent(plan)}`
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!res.ok) throw new Error(`LiveTV channels HTTP ${res.status} from ${base}`)
+  return res.json()
+}
+
 export async function getChannels(): Promise<DamiTVChannel[]> {
   const cached = CacheService.getCache('dami-tv:channels')
   if (cached) return JSON.parse(cached)
 
   const { user, plan } = getCredentials()
-  const url = `${API_BASE}/channels/?user=${encodeURIComponent(user)}&plan=${encodeURIComponent(plan)}`
+  console.log(`[LiveTV] Fetching channels (user=${user} plan=${plan})`)
 
-  console.log(`[LiveTV] Fetching channels: ${url}`)
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15000)
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-    if (!res.ok) {
-      console.log(`[LiveTV] HTTP ${res.status} for channels`)
-      throw new Error(`LiveTV channels HTTP ${res.status}`)
-    }
-    const data = await res.json()
+  // The CDN occasionally hangs a connection instead of answering (seen as a
+  // 15s abort in the app while the same URL answers in ~300ms from curl).
+  // That is usually a stale keep-alive socket in undici's pool after a network
+  // change — a retry opens a fresh connection and succeeds. Try the primary
+  // API host twice, then the .tv vhost once, with short timeouts.
+  const attempts: Array<{ base: string; tries: number }> = [
+    { base: API_BASE, tries: 2 },
+    { base: API_BASE_TV, tries: 1 },
+  ]
+  const errors: string[] = []
+  for (const { base, tries } of attempts) {
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      try {
+        const data = await fetchChannelsFrom(base, user, plan, 6000)
 
-    // handle both { channels: [...] } and raw array responses
-    const rawChannels = Array.isArray(data) ? data : (data.channels || data.data || [])
-    console.log(`[LiveTV] API returned ${rawChannels.length} raw items`)
+        // handle both { channels: [...] } and raw array responses
+        const rawChannels = Array.isArray(data) ? data : (data.channels || data.data || [])
+        console.log(`[LiveTV] API returned ${rawChannels.length} raw items (${base}, attempt ${attempt})`)
 
-    const channels: DamiTVChannel[] = rawChannels
-      .map(parseChannel)
-      .filter((c: DamiTVChannel) => c.name)
-      .filter((c: DamiTVChannel, i: number, arr: DamiTVChannel[]) => arr.findIndex((x: DamiTVChannel) => x.id === c.id) === i)
+        const channels: DamiTVChannel[] = rawChannels
+          .map(parseChannel)
+          .filter((c: DamiTVChannel) => c.name)
+          .filter((c: DamiTVChannel, i: number, arr: DamiTVChannel[]) => arr.findIndex((x: DamiTVChannel) => x.id === c.id) === i)
 
-    // Construct tv-logo URL (no API calls needed, synchronous)
-    for (const ch of channels) {
-      if (!ch.countryCode) continue
-      const logoUrl = lookupLogo(ch.name, ch.countryCode)
-      if (logoUrl) {
-        ch.logoImage = logoUrl
+        // Construct tv-logo URL (no API calls needed, synchronous)
+        for (const ch of channels) {
+          if (!ch.countryCode) continue
+          const logoUrl = lookupLogo(ch.name, ch.countryCode)
+          if (logoUrl) {
+            ch.logoImage = logoUrl
+          }
+        }
+
+        const dayMs = msUntilEndOfDay()
+        CacheService.setCache('dami-tv:channels', JSON.stringify(channels), dayMs)
+        CacheService.setCache('dami-tv:channels-stale', JSON.stringify(channels), dayMs + 86400000 * 6) // keep stale for 6 more days
+        console.log(`[LiveTV] Loaded ${channels.length} channels from ${base}`)
+        return channels
+      } catch (err: any) {
+        // Include the undici cause code (UND_ERR_CONNECT_TIMEOUT, ENOTFOUND,
+        // ETIMEDOUT, ...) so an in-app failure is distinguishable from a dead API.
+        errors.push(`${base}#${attempt}: ${err?.message || err}${err?.cause?.code ? ` (${err.cause.code})` : ''}`)
+        if (attempt < tries) await new Promise((r) => setTimeout(r, 500)) // brief backoff before retry
       }
     }
-
-    const dayMs = msUntilEndOfDay()
-    CacheService.setCache('dami-tv:channels', JSON.stringify(channels), dayMs)
-    CacheService.setCache('dami-tv:channels-stale', JSON.stringify(channels), dayMs + 86400000 * 6) // keep stale for 6 more days
-    console.log(`[LiveTV] Loaded ${channels.length} channels from cdnlivetv.is`)
-    return channels
-  } catch (err: any) {
-    console.warn(`[LiveTV] Failed to fetch channels: ${err?.message || err}`)
-
-    // fallback: check if we have stale cached data
-    const stale = CacheService.getCache('dami-tv:channels-stale')
-    if (stale) {
-      console.log('[LiveTV] Using stale cached channels')
-      return JSON.parse(stale)
-    }
-    throw err
   }
+
+  console.warn(`[LiveTV] Failed to fetch channels: ${errors.join(' | ')}`)
+
+  // fallback: check if we have stale cached data
+  const stale = CacheService.getCache('dami-tv:channels-stale')
+  if (stale) {
+    console.log('[LiveTV] Using stale cached channels')
+    return JSON.parse(stale)
+  }
+  // Fail soft with an empty list so callers (IPC handlers, provider fallback,
+  // merge) don't hard-error or block startup; M3U sources still provide channels.
+  return []
 }
 
 export async function getChannelsByCountry(countryCode: string): Promise<DamiTVChannel[]> {
@@ -272,10 +286,25 @@ function decodeObfuscatedBase64(s: string): string {
 }
 
 async function extractHlsUrlFromPlayerPage(playerUrl: string): Promise<string | null> {
-  const res = await fetch(playerUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Referer': 'https://cdnlivetv.is/' }
-  })
-  const html = await res.text()
+  const headers = { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Referer': 'https://cdnlivetv.is/' }
+  // The CDN sometimes hangs a connection (stale keep-alive socket); a hard
+  // timeout + one retry with a fresh connection fixes that. Without this the
+  // fetch can hang forever and playback never starts.
+  let html = ''
+  let lastErr: any = null
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(playerUrl, { headers, signal: AbortSignal.timeout(10000) })
+      if (!res.ok) throw new Error(`player page HTTP ${res.status}`)
+      html = await res.text()
+      lastErr = null
+      break
+    } catch (err) {
+      lastErr = err
+      if (attempt === 1) await new Promise((r) => setTimeout(r, 500))
+    }
+  }
+  if (lastErr) throw lastErr
 
   // ponytail: regex fallback for direct .m3u8 URLs before trying JS obfuscation
   const m3u8Match = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/)

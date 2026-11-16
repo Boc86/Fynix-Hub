@@ -24,6 +24,7 @@ import { useMediaStore } from './store/mediaStore'
 import { useSettingsStore } from './store/settingsStore'
 import { usePlayerStore } from './store/playerStore'
 import { forceRefreshWatchData } from './utils/refreshWatchData'
+import { countryMatches, normalizeCountryCode } from './utils/countryCode'
 
 // Heavy screens are code-split so the shell (Browser) paints instantly and
 // each screen chunk loads only on first visit. The type-only import keeps
@@ -419,7 +420,7 @@ export default function App() {
         }))
         let filtered = chs
         if (selectedLiveTvCountries.length > 0) {
-          filtered = chs.filter((c: any) => selectedLiveTvCountries.includes(c.countryCode))
+          filtered = chs.filter((c: any) => countryMatches(selectedLiveTvCountries, c.countryCode))
         }
         setEpgLiveTvChannels(filtered)
       }).catch(() => setEpgLiveTvChannels([]))

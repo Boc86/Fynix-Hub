@@ -4,6 +4,7 @@ import type { UsenetIndexerConfig } from '../../main/services/usenet-search.serv
 import { useMediaStore } from './mediaStore'
 import { usePlayerStore } from './playerStore'
 import { normalizeLogoUrl } from '../utils/logos'
+import { normalizeCountryCode } from '../utils/countryCode'
 
 export interface UserProfile {
   id: string
@@ -318,7 +319,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     get().saveToDisk()
   },
   setLiveTvEnabled: (enabled) => { set({ liveTvEnabled: enabled }); get().saveToDisk() },
-  setSelectedLiveTvCountries: (codes) => { set({ selectedLiveTvCountries: codes }); get().saveToDisk() },
+  setSelectedLiveTvCountries: (codes) => {
+    // Normalize to lowercase ISO alpha-2 (aliases like 'UK' -> 'gb') so the
+    // filter comparisons stay consistent no matter where the codes came from.
+    const normalized = Array.from(new Set(codes.map(normalizeCountryCode).filter(Boolean)))
+    set({ selectedLiveTvCountries: normalized })
+    get().saveToDisk()
+  },
   setLiveTvVisibleChannels: (ids) => { set({ liveTvVisibleChannels: ids }); get().saveToDisk() },
   setLiveTvHiddenChannels: (ids) => { set({ liveTvHiddenChannels: ids }); get().saveToDisk() },
   hideLiveTvChannel: (channelId) => {
@@ -515,6 +522,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         // Migrate old maxTorrentSize -> maxDownloadSize
         if (!(settings as any).maxDownloadSize && (settings as any).maxTorrentSize) {
           (settings as any).maxDownloadSize = (settings as any).maxTorrentSize
+        }
+        // Normalize persisted country codes to lowercase ISO alpha-2 ('UK' -> 'gb')
+        if (Array.isArray((settings as any).selectedLiveTvCountries)) {
+          (settings as any).selectedLiveTvCountries = Array.from(
+            new Set((settings as any).selectedLiveTvCountries.map(normalizeCountryCode).filter(Boolean))
+          )
         }
         set(settings as Partial<SettingsState>);
       }
