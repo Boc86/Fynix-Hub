@@ -5,6 +5,8 @@
 import { cleanChannelName } from '@/shared/cleanChannelName'
 import { detectCountrySuffix, normalizeAlpha2 } from '@/shared/iso-country-codes'
 
+export { countryFlagEmoji } from '@/shared/iso-country-codes'
+
 const CC_MAP: Record<string, string> = {
   'uk': 'gb', 'gb': 'gb', 'us': 'us', 'ca': 'ca', 'au': 'au', 'nz': 'nz',
   'ie': 'ie', 'fr': 'fr', 'de': 'de', 'es': 'es', 'it': 'it', 'pt': 'pt',
@@ -98,4 +100,24 @@ export function channelKey(name: string): string {
  */
 export function displayName(name: string): string {
   return stripCountryPrefix(name)
+}
+
+/**
+ * Normalize a country code for comparison: lowercase ISO alpha-2 with aliases
+ * ('UK' -> 'gb'). Returns '' for unknown/empty input.
+ */
+export function normalizeCountryCode(code: string): string {
+  return normalizeAlpha2(code || '')
+}
+
+/**
+ * Case/alias-insensitive membership test for the selected-countries filter.
+ * Persisted selections may hold legacy codes ('UK', 'US' uppercase) while
+ * channel countryCodes are lowercase ISO — a raw includes() misses those.
+ */
+export function countryMatches(selected: string[], code: string): boolean {
+  if (!code) return false
+  const want = normalizeCountryCode(code)
+  if (!want) return false
+  return selected.some((s) => normalizeCountryCode(s) === want)
 }

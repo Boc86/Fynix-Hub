@@ -236,7 +236,9 @@ export async function getChannels(): Promise<DamiTVChannel[]> {
         console.log(`[LiveTV] Loaded ${channels.length} channels from ${base}`)
         return channels
       } catch (err: any) {
-        errors.push(`${base}#${attempt}: ${err?.message || err}`)
+        // Include the undici cause code (UND_ERR_CONNECT_TIMEOUT, ENOTFOUND,
+        // ETIMEDOUT, ...) so an in-app failure is distinguishable from a dead API.
+        errors.push(`${base}#${attempt}: ${err?.message || err}${err?.cause?.code ? ` (${err.cause.code})` : ''}`)
         if (attempt < tries) await new Promise((r) => setTimeout(r, 500)) // brief backoff before retry
       }
     }

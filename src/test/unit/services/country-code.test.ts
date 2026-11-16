@@ -35,3 +35,26 @@ describe('detectCountryCode', () => {
     expect(detectCountryCode('')).toBe('')
   })
 })
+
+import { countryMatches, normalizeCountryCode } from '@/renderer/utils/countryCode'
+
+describe('countryMatches / normalizeCountryCode', () => {
+  it('normalizes case and the UK alias to ISO alpha-2', () => {
+    expect(normalizeCountryCode('UK')).toBe('gb')
+    expect(normalizeCountryCode('us')).toBe('us')
+    expect(normalizeCountryCode('US')).toBe('us')
+    expect(normalizeCountryCode('xx')).toBe('')
+    expect(normalizeCountryCode('')).toBe('')
+  })
+
+  it('matches persisted legacy codes against lowercase channel codes', () => {
+    // This is the "No channels found for selected countries" regression:
+    // stored selection ['UK','US'] must match channel countryCode 'gb'/'us'.
+    expect(countryMatches(['UK', 'US'], 'gb')).toBe(true)
+    expect(countryMatches(['UK', 'US'], 'us')).toBe(true)
+    expect(countryMatches(['gb'], 'gb')).toBe(true)
+    expect(countryMatches(['de'], 'gb')).toBe(false)
+    expect(countryMatches(['UK'], '')).toBe(false)
+    expect(countryMatches([], 'gb')).toBe(false)
+  })
+})

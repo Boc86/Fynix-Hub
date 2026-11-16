@@ -225,10 +225,16 @@ async function doMerge(): Promise<MergedChannel[]> {
   const merged = Array.from(map.values())
 
   // Sort: CDN first, then by country + name (the renderer cap takes the head).
+  // Channels with NO detected country go LAST — '' would sort first and fill
+  // the 15k renderer cap with countryless channels, starving the country
+  // filter on the Live TV / Settings pages.
   merged.sort((a, b) => {
     const aCdn = a.sources.includes('cdnlive') ? 0 : 1
     const bCdn = b.sources.includes('cdnlive') ? 0 : 1
     if (aCdn !== bCdn) return aCdn - bCdn
+    const aEmpty = a.countryCode ? 0 : 1
+    const bEmpty = b.countryCode ? 0 : 1
+    if (aEmpty !== bEmpty) return aEmpty - bEmpty
     if (a.countryCode !== b.countryCode) return a.countryCode.localeCompare(b.countryCode)
     return a.name.localeCompare(b.name)
   })

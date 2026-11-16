@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useSettingsStore } from '../../store/settingsStore'
 import { loadMergedChannels } from '../../utils/channels'
+import { countryMatches, countryFlagEmoji } from '../../utils/countryCode'
 import { useChannelLogo, prewarmLogos } from '../../utils/useChannelLogo'
 import { normalizeLogoUrl } from '../../utils/logos'
 import Prompt from '../Prompt/Prompt'
@@ -156,7 +157,7 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
           epgIcon: ch.epgIcon || '',
           countryCode: ch.countryCode,
           countryName: ch.countryName,
-          countryFlag: '',
+          countryFlag: countryFlagEmoji(ch.countryCode),
           playerUrl: '',
           source: ch.sources.includes('cdnlive') ? 'cdnlive' : 'm3u',
           sources: ch.sources,
@@ -201,9 +202,9 @@ export default function LiveTV({ onPlayUrl, onBack, apiRef }: {
 
   const filteredChannels = useMemo(() => {
     let result = channels
-    // Apply country filter
+    // Apply country filter (case/alias-insensitive: persisted codes may be 'UK'/'US')
     if (settingsStore.selectedLiveTvCountries.length > 0) {
-      result = result.filter(c => settingsStore.selectedLiveTvCountries.includes(c.countryCode))
+      result = result.filter(c => countryMatches(settingsStore.selectedLiveTvCountries, c.countryCode))
     }
     // Apply channel visibility filter (A5)
     if (settingsStore.liveTvVisibleChannels.length > 0) {

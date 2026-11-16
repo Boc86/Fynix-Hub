@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSettingsStore } from '../../store/settingsStore'
-import { COUNTRY_NAMES } from '../../utils/countryCode'
+import { COUNTRY_NAMES, countryMatches } from '../../utils/countryCode'
 import { loadMergedChannels, searchMergedChannels, MergedChannel } from '../../utils/channels'
 import styles from './Settings.module.css'
 
@@ -54,7 +54,7 @@ export default function ChannelSelector({ selectedCountries }: { selectedCountri
   const grouped = useMemo(() => {
     const filterByCountry = selectedCountries.length > 0
     const filtered = allChannels
-      .filter(ch => !filterByCountry || selectedCountries.includes(ch.countryCode))
+      .filter(ch => !filterByCountry || countryMatches(selectedCountries, ch.countryCode))
       .filter(ch => !search || ch.name.toLowerCase().includes(search.toLowerCase()))
     const map = new Map<string, MergedChannel[]>()
     for (const ch of filtered) {
