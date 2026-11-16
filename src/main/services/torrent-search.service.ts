@@ -42,25 +42,39 @@ interface BuiltInIndexer {
 const TRACKERS_URL = 'https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt'
 const TRACKERS_REFRESH_MS = 24 * 60 * 60 * 1000 // 24 hours
 
+// Trackers: HTTP/HTTPS/WSS are reliable in Electron (UDP trackers time out).
+// uTP peers still connect via TCP for downloading, but trackers must be HTTP-based
+// because UDP tracker sockets fail in Electron's process context.
 const DEFAULT_TRACKERS = [
-  'udp://tracker.opentrackr.org:1337/announce',
-  'udp://tracker.torrent.eu.org:451/announce',
-  'udp://open.stealth.si:80/announce',
-  'udp://tracker.dler.org:6969/announce',
-  'udp://tracker.moeking.me:6969/announce',
-  'udp://explodie.org:6969/announce',
-  'udp://p4p.arenabg.com:1337/announce',
-  'udp://tracker.birkenwald.de:6969/announce',
-  'udp://9.rarbg.to:2710/announce',
+  // HTTP trackers
+  'http://tracker.dler.org:6969/announce',
+  'http://tracker.dler.com:6969/announce',
+  'http://tracker.p2p.today:6969/announce',
+  'http://tracker.renfei.net:8080/announce',
+  'http://tracker.opentrackr.org:80/announce',
+  'http://explodie.org:6969/announce',
+  'http://open.stealth.si:80/announce',
+  'http://tracker.torrent.eu.org:451/announce',
+  'http://9.rarbg.to:2710/announce',
+  'http://p4p.arenabg.com:1337/announce',
+  // HTTPS trackers
   'https://tracker.tamersunion.org:443/announce',
+  'https://tracker.opentor.net:443/announce',
+  // WebTorrent (WebRTC-based) trackers — useful as fallback
   'wss://tracker.openwebtorrent.com:443/announce',
   'wss://tracker.btorrent.xyz:443/announce',
   'wss://tracker.files.fm:7073/announce',
 ]
 
+// Filter out UDP trackers — they fail in Electron's network context
+const TRACKER_FILTER = (t: string) => !t.startsWith('udp://')
+
 export function getTrackers(): string[] {
   const stored = CacheService.getSetting<string[]>('trackerList')
-  if (stored && stored.length > 0) return stored
+  if (stored && stored.length > 0) {
+    const filtered = stored.filter(TRACKER_FILTER)
+    if (filtered.length > 0) return filtered
+  }
   return DEFAULT_TRACKERS
 }
 
@@ -69,7 +83,7 @@ export async function refreshTrackers(): Promise<string[]> {
     const res = await fetch(TRACKERS_URL)
     if (!res.ok) throw new Error(`Tracker list fetch failed: ${res.status}`)
     const text = await res.text()
-    const trackers = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#'))
+    const trackers = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#') && TRACKER_FILTER(l))
     if (trackers.length === 0) throw new Error('Tracker list empty')
     CacheService.setSetting('trackerList', trackers)
     CacheService.setSetting('trackerListLastUpdated', Date.now())
@@ -87,8 +101,8 @@ export function shouldRefreshTrackers(): boolean {
   return Date.now() - lastUpdated > TRACKERS_REFRESH_MS
 }
 
-function buildMagnetUri(infoHash: string, name: string): string {
-  const trackers = getTrackers().map(t => `tr=${encodeURIComponent(t)}`).join('&')
+function buildMagnetUri(infoHash: string, name: string, extraTrackers: string[] = []): string {
+  const trackers = [...getTrackers(), ...extraTrackers].map(t => `tr=${encodeURIComponent(t)}`).join('&')
   return `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(name)}&${trackers}`
 }
 
@@ -560,12 +574,20 @@ async function searchTorrentio(query: TorrentQuery): Promise<TorrentResult[]> {
       const seedersMatch = titleParts[1]?.match(/👤\s*(\d+)/)
       const seeders = seedersMatch ? parseInt(seedersMatch[1]) : extractNum(titleParts[1] || '', [/(\d+)\s*seed/i])
 
+      // Extract tracker URLs from torrentio's sources field
+      // Format: "tracker:udp://opentor.net:6969", "dht:...", etc.
+      const extraTrackers = (s.sources || [])
+        .filter((src: string) => src.startsWith('tracker:'))
+        .map((src: string) => src.slice('tracker:'.length))
+
+      const magnetUri = buildMagnetUri(infoHash, title, extraTrackers)
+
       results.push({
         title,
         seeders,
         leechers: 0,
         size,
-        magnetUri: buildMagnetUri(infoHash, title),
+        magnetUri,
         infoHash,
         indexer: 'Torrentio',
         quality: qualityFromTitle(title),
@@ -610,12 +632,17 @@ async function searchMediafusion(query: TorrentQuery): Promise<TorrentResult[]> 
       // MediaFusion description uses emoji markers: ▶️ for seeders, 💾 for peers
       const seeders = extractNum(desc, [/▶️\s*(\d+)/, /(\d+)\s*seed/i, /💾\s*(\d+)/])
 
+      // Extract tracker URLs from MediaFusion's sources field
+      const extraTrackers = (s.sources || [])
+        .filter((src: string) => src.startsWith('tracker:'))
+        .map((src: string) => src.slice('tracker:'.length))
+
       results.push({
         title,
         seeders,
         leechers: 0,
         size,
-        magnetUri: buildMagnetUri(infoHash, title),
+        magnetUri: buildMagnetUri(infoHash, title, extraTrackers),
         infoHash,
         indexer: 'MediaFusion',
         quality: qualityFromTitle(title),

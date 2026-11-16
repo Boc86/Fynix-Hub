@@ -399,6 +399,9 @@ export async function registerIpcHandlers(): Promise<void> {
 
   handle('torrent:add', async (_event, magnetUri) => {
     console.log('[Handler] torrent:add', magnetUri.slice(0, 80) + '...')
+    console.log('[Handler] torrent:add FULL magnet:', magnetUri)
+    const trackerCount = (magnetUri.match(/&tr=/g) || []).length
+    console.log('[Handler] torrent:add tracker count:', trackerCount)
     try {
       const torrent = await WebTorrentService.addTorrent(magnetUri)
       console.log('[Handler] torrent:add success', torrent.infoHash, torrent.name)

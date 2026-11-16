@@ -8,6 +8,8 @@ import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
 import { VideoJsPlayer, type VideoJsPlayerHandle } from './VideoJsPlayer'
 import UpNext from '../UpNext/UpNext'
+import ContextMenu, { type ContextTarget } from '../ContextMenu/ContextMenu'
+import { buildMarkWatchedPayload, buildMarkUnwatchedPayload, buildScrobblePayload } from '@/shared/mdblist-payloads'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 /** Imperative handle exposed by VideoPlayer via ref. */
@@ -18,6 +20,12 @@ export interface VideoPlayerHandle {
   wasPlaybackCompleted: () => boolean
   /** Returns current playback progress (0-1). */
   getCurrentProgress: () => number
+  /** Mark the currently-playing item watched (respects the 50% floor). */
+  markWatchedNow: (target: { tmdbId: number; mediaType: 'movie' | 'tv'; season?: number; episode?: number }) => Promise<void>
+  /** Mark the currently-playing item unwatched. */
+  markUnwatchedNow: (target: { tmdbId: number; mediaType: 'movie' | 'tv'; season?: number; episode?: number }) => Promise<void>
+  /** Send an MDBList scrobble action for the current playback position. */
+  scrobbleNow: (action: 'start' | 'pause' | 'stop', force?: boolean) => Promise<void>
 }
 
 interface MediaInfo {
@@ -64,32 +72,23 @@ interface VideoPlayerProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function buildScrobblePayload(tmdbId: number, mediaType: string, progress: number, season?: number, episode?: number) {
-  const pct = Math.max(progress * 100, 1.0)
-  if (mediaType === 'tv' && season !== undefined && episode !== undefined) {
-    return {
-      show: { ids: { tmdb: tmdbId } },
-      episode: { season, number: episode },
-      progress: pct,
-    }
-  }
-  return {
-    movie: { ids: { tmdb: tmdbId } },
-    progress: pct,
-  }
+// Watch threshold: 50% counts as "watched"; hard floor of 20% so a misreported
+// position (e.g. 0%) never marks anything.
+const MIN_MARKED_WATCHED_PROGRESS = 0.50
+const MIN_MARKED_WATCHED_PROGRESS_FLOOR = 0.20
+
+/** Map a player-level target to the MDBList payload type (episode > season > show). */
+function toWatchTargetType(mediaType: 'movie' | 'tv', season?: number, episode?: number): 'movie' | 'tv' | 'episode' | 'season' {
+  if (mediaType === 'movie') return 'movie'
+  if (season !== undefined && episode !== undefined) return 'episode'
+  if (season !== undefined) return 'season'
+  return 'tv'
 }
 
-function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number, episode?: number) {
-  if (mediaType === 'tv' && season !== undefined && episode !== undefined) {
-    return {
-      shows: [{
-        ids: { tmdb: tmdbId },
-        seasons: [{ season, episodes: [{ number: episode }] }],
-      }],
-    }
-  }
-  return { movies: [{ ids: { tmdb: tmdbId } }] }
-}
+// MDBList /scrobble/* body shape is built by buildScrobblePayload() in
+// @/shared/mdblist-payloads (MDBList-native, flat season/episode on `show`).
+
+
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -192,16 +191,18 @@ function VideoPlayerInner({
 
   // ── MDBList scrobble ──────────────────────────────────────────────────
 
-  const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop') => {
+  const scrobble = useCallback(async (action: 'start' | 'pause' | 'stop', force = false) => {
     if (!mediaInfo || mediaInfo.isTrailer) return
     const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
     if (!isFinite(d) || d <= 0) return
     const progress = Math.min(Math.max(lastGoodPosRef.current / d, 0), 1)
     if (!isFinite(progress)) return
     try {
+      // 'start' doubles as the periodic progress ping. Throttle repeats to 60s
+      // so we don't burn the MDBList write budget (300 writes / 5 min), but
+      // always let the first start through immediately (force=true).
       const now = Date.now()
-      const elapsed = now - scrobbleThrottle.current
-      if (action === 'start' && elapsed < 60000) return
+      if (action === 'start' && !force && now - scrobbleThrottle.current < 60000) return
       scrobbleThrottle.current = now
       const payload = buildScrobblePayload(
         mediaInfo.tmdbId, mediaInfo.mediaType, progress,
@@ -214,27 +215,56 @@ function VideoPlayerInner({
     }
   }, [mediaInfo])
 
-  const markAsWatched = useCallback(async () => {
+  // Mark watched / unwatched (generic, callable from parent UI or player context menu).
+  const markWatchedNow = useCallback(async (target: {
+    tmdbId: number
+    mediaType: 'movie' | 'tv'
+    season?: number
+    episode?: number
+  }) => {
     if (!mediaInfo || mediaInfo.isTrailer) return
     const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
+    if (!isFinite(d) || d <= 0) return
     const t = lastGoodPosRef.current
-    let progress = 0
-    if (isFinite(d) && d > 0 && isFinite(t)) progress = Math.min(Math.max(t / d, 0), 1)
-    // Threshold: 90% — user has watched enough to count as "watched"
-    if (progress < 0.90) return
+    const progress = Math.min(Math.max(t / d, 0), 1)
+    const threshold = Math.max(MIN_MARKED_WATCHED_PROGRESS, MIN_MARKED_WATCHED_PROGRESS_FLOOR)
+    if (progress < threshold) return
     try {
-      const payload = buildHistoryPayload(
-        mediaInfo.tmdbId, mediaInfo.mediaType,
-        mediaInfo.season, mediaInfo.episode,
-      )
+      const payload = buildMarkWatchedPayload({
+        type: toWatchTargetType(target.mediaType, target.season, target.episode),
+        tmdbId: target.tmdbId,
+        season: target.season,
+        episode: target.episode,
+      })
       await window.api.mdblist.markWatched(payload)
-      console.log('[Watch] markWatched ok', payload)
+      window.api.log(`[Watch] markWatched now ${target.mediaType}:${target.tmdbId} progress=${Math.round(progress * 100)}%`)
     } catch (e: any) {
       window.api.log(`[Watch] markWatched failed: ${e?.message || e}`)
     }
   }, [mediaInfo])
 
-  // Expose saveCurrentProgress for parent (App.tsx) to call on back-button.
+  const markUnwatchedNow = useCallback(async (target: {
+    tmdbId: number
+    mediaType: 'movie' | 'tv'
+    season?: number
+    episode?: number
+  }) => {
+    if (!mediaInfo || mediaInfo.isTrailer) return
+    try {
+      const payload = buildMarkUnwatchedPayload({
+        type: toWatchTargetType(target.mediaType, target.season, target.episode),
+        tmdbId: target.tmdbId,
+        season: target.season,
+        episode: target.episode,
+      })
+      await window.api.mdblist.markUnwatched(payload)
+      window.api.log(`[Watch] markUnwatched now ${target.mediaType}:${target.tmdbId}`)
+    } catch (e: any) {
+      window.api.log(`[Watch] markUnwatched failed: ${e?.message || e}`)
+    }
+  }, [mediaInfo])
+
+  // Expose for parent (App.tsx) to trigger manually (e.g. from a player context menu).
   useImperativeHandle(ref, () => ({
     saveCurrentProgress: () => {
       saveProgress()
@@ -247,7 +277,10 @@ function VideoPlayerInner({
       if (!isFinite(d) || d <= 0 || !isFinite(t)) return 0
       return Math.min(Math.max(t / d, 0), 1)
     },
-  }), [saveProgress, scrobble, playbackCompletedRef])
+    markWatchedNow,
+    markUnwatchedNow,
+    scrobbleNow: scrobble,
+  }), [saveProgress, scrobble, playbackCompletedRef, markWatchedNow, markUnwatchedNow])
 
   // ── Subtitle load: sidecar first, OpenSubtitles fallback ──────────────────
   // ponytail: forced-only defaults to true (opensubtitlesForcedOnly setting);
@@ -295,13 +328,20 @@ function VideoPlayerInner({
   const finishPlayback = useCallback(async (goNext: boolean) => {
     saveProgress()
     scrobble('stop').catch(() => {})
-    await markAsWatched().catch(() => {})
+    if (mediaInfo && !mediaInfo.isTrailer) {
+      await markWatchedNow({
+        tmdbId: mediaInfo.tmdbId,
+        mediaType: mediaInfo.mediaType,
+        season: mediaInfo.season,
+        episode: mediaInfo.episode,
+      }).catch(() => {})
+    }
     // Bust the MDBList cache + bump refreshVersion so the watched badge and
     // Up Next rows reflect the completed watch immediately.
     await forceRefreshWatchData().catch(() => {})
     if (goNext) onNextEpisode()
     else onBack()
-  }, [saveProgress, scrobble, markAsWatched, onNextEpisode, onBack])
+  }, [saveProgress, scrobble, markWatchedNow, mediaInfo, onNextEpisode, onBack])
 
   // ── Fetch intro segments ───────────────────────────────────────────────
 
@@ -450,7 +490,7 @@ function VideoPlayerInner({
     const d = durationRef.current
 
     if (playing && !startScrobbledRef.current && isFinite(d) && d > 0) {
-      scrobble('start')
+      scrobble('start', true)   // first start always goes out immediately
       startScrobbledRef.current = true
     }
 
@@ -534,7 +574,7 @@ function VideoPlayerInner({
     const prev = prevPlayStateRef.current
     if (!prev && startScrobbledRef.current) {
       // Resume after pause: send a fresh start so MDBList logs the resume time.
-      scrobble('start')
+      scrobble('start', true)
     }
     prevPlayStateRef.current = true
   }, [scrobble])
@@ -633,6 +673,55 @@ function VideoPlayerInner({
     return () => clearTimeout(timeout)
   }, [playerLoading, streamUrl])
 
+  // ── Send a final 'stop' scrobble when the player unmounts ───────────────
+  // Without this, closing the app / navigating away mid-playback leaves an
+  // open scrobble in MDBList forever (no stop is ever recorded).
+  const scrobbleRef = useRef(scrobble)
+  scrobbleRef.current = scrobble
+
+  useEffect(() => {
+    return () => {
+      if (!startScrobbledRef.current) return
+      // Best-effort: fire-and-forget, the component is going away.
+      scrobbleRef.current('stop').catch(() => {})
+    }
+  }, [])
+
+  // ── Right-click context menu (mark watched / unwatched / reset progress) ──
+  const [ctxTarget, setCtxTarget] = useState<ContextTarget | null>(null)
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (!mediaInfo || mediaInfo.isTrailer) return
+    e.preventDefault()
+    setCtxTarget({
+      type: mediaInfo.mediaType === 'tv'
+        ? (mediaInfo.season !== undefined && mediaInfo.episode !== undefined ? 'episode' : 'tv')
+        : 'movie',
+      tmdbId: mediaInfo.tmdbId,
+      title: title || `${mediaInfo.mediaType === 'tv' ? 'TV Show' : 'Movie'} ${mediaInfo.tmdbId}`,
+      season: mediaInfo.season,
+      episode: mediaInfo.episode,
+    })
+  }, [mediaInfo, title])
+
+  const handleCtxMarkWatched = useCallback((t: ContextTarget) => {
+    markWatchedNow({
+      tmdbId: t.tmdbId,
+      mediaType: t.type === 'movie' ? 'movie' : 'tv',
+      season: t.season,
+      episode: t.episode,
+    }).then(() => forceRefreshWatchData()).catch(() => {})
+  }, [markWatchedNow])
+
+  const handleCtxMarkUnwatched = useCallback((t: ContextTarget) => {
+    markUnwatchedNow({
+      tmdbId: t.tmdbId,
+      mediaType: t.type === 'movie' ? 'movie' : 'tv',
+      season: t.season,
+      episode: t.episode,
+    }).then(() => forceRefreshWatchData()).catch(() => {})
+  }, [markUnwatchedNow])
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   if (playerLoading) {
@@ -675,7 +764,11 @@ function VideoPlayerInner({
   }
 
   return (
-    <div className={styles.player} tabIndex={-1}>
+    <div
+      className={styles.player}
+      tabIndex={-1}
+      onContextMenu={handleContextMenu}
+    >
       {/* Video.js player — fills the container, provides all controls */}
       {streamUrl && (
         <VideoJsPlayer
@@ -781,6 +874,25 @@ function VideoPlayerInner({
           )}
           {searchingSubs && <div className={styles.splashSpinner} />}
         </div>
+      )}
+      {/* Right-click menu — mark watched / unwatched / reset progress */}
+      {ctxTarget && (
+        <ContextMenu
+          target={ctxTarget}
+          onClose={() => setCtxTarget(null)}
+          onMarkWatched={handleCtxMarkWatched}
+          onMarkUnwatched={handleCtxMarkUnwatched}
+          onResetProgress={() => {
+            markUnwatchedNow({
+              tmdbId: ctxTarget.tmdbId,
+              mediaType: ctxTarget.type === 'movie' ? 'movie' : 'tv',
+              season: ctxTarget.season,
+              episode: ctxTarget.episode,
+            }).catch(() => {})
+          }}
+          onDropShow={() => {}}
+          onShowSources={() => {}}
+        />
       )}
     </div>
   )

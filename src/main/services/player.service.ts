@@ -45,6 +45,10 @@ interface SessionState {
   timer: ReturnType<typeof setInterval> | null
   okruProxyId: string | null
   _okruProxyDestroy: (() => void) | null
+  /** Original input URL — stored for audio track switching via remux restart */
+  inputUrl: string | null
+  /** Resolved URL after ok.ru/Dailymotion resolution */
+  resolvedUrl: string | null
 }
 
 /**
@@ -68,6 +72,8 @@ function session(clientId: string): SessionState {
       timer: null,
       okruProxyId: null,
       _okruProxyDestroy: null,
+      inputUrl: null,
+      resolvedUrl: null,
     }
     sessions.set(clientId, s)
   }
@@ -121,6 +127,7 @@ export async function startPlayback(
   await stopPlayback(clientId)
   const s = session(clientId)
   s.resumePosition = resumePosition ?? 0
+  s.inputUrl = inputUrl
 
   let resolvedUrl = inputUrl
 
@@ -146,6 +153,9 @@ export async function startPlayback(
     }
   }
 
+  // Store resolved URL for potential audio track switching restart
+  s.resolvedUrl = resolvedUrl
+
   // ── Decide playback path ──────────────────────────────────
   // ponytail: Chromium (Electron 42) decodes HEVC natively via VAAPI.
   // Play HLS/.m3u8 directly; remux only for non-browser-playable streams.
@@ -160,7 +170,8 @@ export async function startPlayback(
       const { sessionId, url } = LocalCache.createFileSession(filePath)
       s.fileSessionId = sessionId
       debug('Local file served via HTTP:', url.slice(0, 80))
-      return { streamUrl: url, duration: null, chapters: [], audioTracks: [], isRemux: false }
+      const probedTracks = FfmpegRemux.probeAudioTracks(url)
+      return { streamUrl: url, duration: null, chapters: [], audioTracks: probedTracks, isRemux: false }
     }
 
     if (needsCdnProxy(resolvedUrl)) {
@@ -174,11 +185,13 @@ export async function startPlayback(
         s.okruProxyId = proxyId
         s.proxyId = proxyId
         s._okruProxyDestroy = destroy
-        return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
+        const probedTracks = FfmpegRemux.probeAudioTracks(proxyUrl)
+        return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: probedTracks, isRemux: false }
       }
       const { proxyId, proxyUrl } = LocalCache.createProxySession(resolvedUrl)
       s.proxyId = proxyId
-      return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
+      const probedTracks = FfmpegRemux.probeAudioTracks(resolvedUrl)
+      return { streamUrl: proxyUrl, duration: null, chapters: [], audioTracks: probedTracks, isRemux: false }
     }
 
     if (isLocal) {
@@ -186,7 +199,8 @@ export async function startPlayback(
     } else {
       debug('URL is browser-playable, passing directly:', resolvedUrl.slice(0, 80))
     }
-    return { streamUrl: resolvedUrl, duration: null, chapters: [], audioTracks: [], isRemux: false }
+    const probedTracks = FfmpegRemux.probeAudioTracks(resolvedUrl)
+    return { streamUrl: resolvedUrl, duration: null, chapters: [], audioTracks: probedTracks, isRemux: false }
   }
 
   // ── FFmpeg remux (non-browser-playable formats) ──────────
@@ -307,22 +321,33 @@ export async function stopPlayback(clientId?: string): Promise<void> {
 }
 
 /**
- * Switch the active audio track for the current FFmpeg session.
+ * Switch the active audio track for the current playback session.
  * Stops the current session, restarts with the selected audio index.
+ * For remux sessions: restarts FFmpeg with the new audio index.
+ * For direct-play sessions: restarts with forceRemux=true to enable
+ * multi-audio-track support via FFmpeg remux.
  * Returns the new stream URL, or null if no session is active.
  */
 export async function switchAudioTrack(audioIndex: number, clientId = 'desktop'): Promise<string | null> {
   const s = sessions.get(clientId)
-  if (!s || !s.remuxId) return null
-  const info = FfmpegRemux.getSessionInfo(s.remuxId)
-  if (!info) return null
-  const inputUrl = info.inputUrl
-  // Capture current playback position before tearing down the session —
-  // otherwise the user has to seek back to where they were after every
-  // language switch.
+  if (!s) return null
   const resumePosition = s.resumePosition ?? 0
+  // Determine the input URL: for remux sessions, use the stored inputUrl;
+  // for direct-play sessions, use the stored streamUrl (which is the
+  // browser-playable URL that needs remuxing for multi-track support).
+  let inputUrl: string | null = null
+  if (s.remuxId) {
+    const info = FfmpegRemux.getSessionInfo(s.remuxId)
+    if (info) inputUrl = info.inputUrl
+  }
+  if (!inputUrl) {
+    // Direct-play session: use the stored resolvedUrl for restart with remux
+    inputUrl = s.resolvedUrl
+  }
+  if (!inputUrl) return null
   await stopPlayback(clientId)
-  const result = await startPlayback(inputUrl, resumePosition, undefined, false, audioIndex, clientId)
+  // Force remux to ensure audio track selection works
+  const result = await startPlayback(inputUrl, resumePosition, undefined, true, audioIndex, clientId)
   return result.streamUrl
 }
 

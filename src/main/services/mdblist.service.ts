@@ -231,10 +231,10 @@ function isNetworkError(err: any): boolean {
 // ── Payload converters (MDBList API uses Trakt-style consumer payloads) ──
 
 export function convertScrobblePayload(media: any): any {
-  // MDBList scrobble API accepts the standard Trakt-style payload directly:
-  //   { show: { ids: { tmdb } }, episode: { season, number }, progress }
-  //   { movie: { ids: { tmdb } }, progress }
-  // No transformation needed — pass through unchanged.
+  // Renderer sends the MDBList-native shape already:
+  //   movie: { movie: { ids: { tmdb } }, progress, app_name }
+  //   show:  { show: { ids: { tmdb }, season, episode }, progress, app_name }
+  // Pass through unchanged.
   return media
 }
 
@@ -498,3 +498,8 @@ export async function getWatchedShowsWithProgress() {
     fetchMdbList('/upnext?hide_unreleased=true'))
   return mapUpnext(data)
 }
+
+// ── MDBList payload builders ────────────────────────────────────────────────
+// Re-exported from the shared module so main + renderer use ONE implementation.
+export { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '../../shared/mdblist-payloads'
+export type { MarkWatchedPayload, WatchTarget } from '../../shared/mdblist-payloads'

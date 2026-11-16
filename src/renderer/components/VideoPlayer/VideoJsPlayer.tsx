@@ -695,14 +695,25 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
         const defaultIdx = probedAudioTracks.findIndex(t => t.isDefault)
         if (defaultIdx >= 0) setActiveAudioTrack(defaultIdx)
       } else {
-        // For direct playback, use video element's audio tracks
+        // For direct playback, prefer video element's native audio tracks
+        // (hls.js populates these from HLS #EXT-X-MEDIA:TYPE=AUDIO).
+        // Fall back to probed tracks if the video element reports none.
         const v = videoRef.current
+        let tracks: { index: number; label: string; language: string; enabled: boolean }[] = []
         if (v) {
-          const tracks = getAudioTracks(v)
-          setDisplayAudioTracks(tracks)
-          const activeA = tracks.findIndex(t => t.enabled)
-          if (activeA >= 0) setActiveAudioTrack(activeA)
+          tracks = getAudioTracks(v)
         }
+        if (tracks.length === 0 && probedAudioTracks && probedAudioTracks.length > 0) {
+          tracks = probedAudioTracks.map(t => ({
+            index: t.index,
+            label: t.title || t.language || `Track ${t.index + 1}`,
+            language: t.language,
+            enabled: t.isDefault,
+          }))
+        }
+        setDisplayAudioTracks(tracks)
+        const activeA = tracks.findIndex(t => t.enabled)
+        if (activeA >= 0) setActiveAudioTrack(activeA)
       }
     }, [isRemux, probedAudioTracks, src])
 
@@ -717,14 +728,21 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       }
       const nextIdx = (activeAudioTrack + 1) % tracks.length
 
-      if (isRemux && onAudioTrackSelect) {
-        onAudioTrackSelect(tracks[nextIdx].index)
-        showOsdMessage(`Switching to: ${tracks[nextIdx].label}`)
-        setActiveAudioTrack(nextIdx)
-        return
+      // Check if the current video element has native audio tracks
+      const nativeTracks = (v as any).audioTracks && (v as any).audioTracks.length > 0
+      if (isRemux || !nativeTracks) {
+        // For remuxed content, or direct playback where tracks came from
+        // ffprobe (no HTML5 audio tracks available), restart with the selected
+        // audio index via the IPC handler.
+        if (onAudioTrackSelect) {
+          onAudioTrackSelect(tracks[nextIdx].index)
+          showOsdMessage(`Switching to: ${tracks[nextIdx].label}`)
+          setActiveAudioTrack(nextIdx)
+          return
+        }
       }
 
-      // HTML5 audio track switching (direct playback)
+      // HTML5 audio track switching (direct playback with native tracks)
       const at = (v as any).audioTracks as any
       if (at) {
         for (let i = 0; i < at.length; i++) {
@@ -740,15 +758,21 @@ export const VideoJsPlayer = forwardRef<VideoJsPlayerHandle, VideoJsPlayerProps>
       const tracks = displayAudioTracks
       const matchTrack = tracks.find(t => t.index === idx)
 
-      if (isRemux && onAudioTrackSelect) {
-        onAudioTrackSelect(idx)
-        setActiveAudioTrack(tracks.findIndex(t => t.index === idx))
-        showOsdMessage(`Audio: ${matchTrack?.label || `Track ${idx + 1}`}`)
-        setAudioMenuOpen(false)
-        return
+      const v = videoRef.current
+      const nativeTracks = (v as any)?.audioTracks && (v as any).audioTracks.length > 0
+      if (isRemux || !nativeTracks) {
+        // For remuxed content, or direct playback where tracks came from
+        // ffprobe (no HTML5 audio tracks available), restart with the selected
+        // audio index via the IPC handler.
+        if (onAudioTrackSelect) {
+          onAudioTrackSelect(idx)
+          setActiveAudioTrack(tracks.findIndex(t => t.index === idx))
+          showOsdMessage(`Audio: ${matchTrack?.label || `Track ${idx + 1}`}`)
+          setAudioMenuOpen(false)
+          return
+        }
       }
 
-      const v = videoRef.current
       if (!v) return
       const at = (v as any).audioTracks as any
       if (at) {

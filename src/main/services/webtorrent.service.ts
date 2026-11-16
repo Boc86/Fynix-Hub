@@ -59,6 +59,9 @@ export async function prefetchBatch(results: { infoHash: string; magnetUri: stri
 
 export async function addTorrent(magnetUri: string, options?: any): Promise<any> {
   debug(`Adding torrent: ${magnetUri.slice(0, 80)}...`)
+  debug(`Full magnet URI (${magnetUri.length} chars): ${magnetUri}`)
+  const trackerCount = (magnetUri.match(/&tr=/g) || []).length
+  debug(`Trackers in magnet URI: ${trackerCount}`)
   const c = await getClient()
   const infoHash = (magnetUri.match(/xt=urn:btih:([a-fA-F0-9]+)/) || [])[1]?.toLowerCase()
 
@@ -100,12 +103,42 @@ export async function addTorrent(magnetUri: string, options?: any): Promise<any>
       debug(`Torrent ready: ${torrent.infoHash}`)
     })
 
-    // Timeout after 120 seconds (increased for slow peer discovery)
+    // Debug: log when peers are discovered
+    torrent.on('noPeers', (err: any) => {
+      debug(`No peers for ${torrent.infoHash.slice(0, 16)}: ${err?.message || 'unknown'}`)
+    })
+
+    torrent.on('warning', (err: any) => {
+      debug(`Torrent warning for ${torrent.infoHash.slice(0, 16)}: ${err?.message || err}`)
+    })
+
+    // Debug: log periodic progress
+    let progressLogCount = 0
+    const progressInterval = setInterval(() => {
+      progressLogCount++
+      debug(`Torrent ${torrent.infoHash.slice(0, 16)} progress: numPeers=${torrent.numPeers}, downloadSpeed=${torrent.downloadSpeed} bytes/s, progress=${torrent.progress}`)
+      if (progressLogCount >= 10) {
+        clearInterval(progressInterval)
+      }
+    }, 5000)
+
+    // Debug: log peer connections and tracker events
+    ;(torrent as any).on('peer', (peer: any, opts?: any) => {
+      const peerStr = typeof peer === 'string' ? peer : (peer?.id || peer?.host || 'obj')
+      const source = opts?.source || 'unknown'
+      debug(`Peer announced for ${torrent.infoHash.slice(0, 16)}: ${peerStr} (source: ${source}, numPeers: ${torrent.numPeers})`)
+    })
+
+    ;(torrent as any).on('peererror', (err: any) => {
+      debug(`Peer error for ${torrent.infoHash.slice(0, 16)}: ${err?.message || err}`)
+    })
+
+    // Timeout after 60 seconds (metadata typically arrives within 30s with uTP)
     setTimeout(() => {
       if (infoHash && !torrentMap.has(infoHash)) {
-        reject(new Error('Torrent add timeout after 120s'))
+        reject(new Error('Torrent add timeout after 60s'))
       }
-    }, 120000)
+    }, 60000)
   })
 }
 

@@ -16,6 +16,7 @@ import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import SplashScreen from './components/Splash/SplashScreen'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
+import { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '@/shared/mdblist-payloads'
 import type { NavView } from './components/Sidebar/Sidebar'
 import type { LiveTVAPI } from './components/LiveTV/LiveTV'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
@@ -688,7 +689,10 @@ export default function App() {
   }, [torrentSearchOpen, runTorrentSearch])
 
   const playTorrent = useCallback(async (result: TorrentResult): Promise<string> => {
-    window.api.log('[App] playTorrent called with:', result?.title, result?.infoHash?.slice(0, 16), 'magnet:', result?.magnetUri?.slice(0, 60))
+    window.api.log('[App] playTorrent called with:', result?.title, result?.infoHash?.slice(0, 16))
+    window.api.log('[App] FULL magnet URI:', result?.magnetUri)
+    const trackerCount = (result?.magnetUri?.match(/&tr=/g) || []).length
+    window.api.log('[App] Trackers in magnet:', trackerCount)
     // Guard: reject results whose infoHash wasn't in the current search
     if (searchInfoHashesRef.current.size > 0 && !searchInfoHashesRef.current.has(result.infoHash.toLowerCase())) {
       const msg = `playTorrent rejected: ${result.infoHash.slice(0, 16)} not in current search (${searchInfoHashesRef.current.size} hashes)`
@@ -720,7 +724,9 @@ export default function App() {
       return url
     }
 
+    window.api.log('[App] Adding torrent to WebTorrent client, waiting for metadata (may take 10-30s)...')
     const torrentResult = await window.api.torrent.addTorrent(result.magnetUri)
+    window.api.log('[App] Torrent metadata acquired, getting stream URL...')
     const streamRes = await window.api.torrent.getStreamUrl(torrentResult.infoHash)
     return streamRes.url
   }, [])
@@ -1514,44 +1520,34 @@ export default function App() {
 
   const handleResetProgress = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = target.type === 'movie'
-        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
-        : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
-          : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
-            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      const payload = buildMarkUnwatchedPayload(target)
       await window.api.mdblist.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      window.api.log(`[MDBList] resetProgress failed: ${e?.message || e}`)
+    }
     await forceRefreshWatchData()
   }, [])
 
   const handleMarkWatched = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = target.type === 'movie'
-        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
-        : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
-          : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
-            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      const payload = buildMarkWatchedPayload(target)
+      window.api.log(`[MDBList] markWatched ${target.type}:${target.tmdbId} S${target.season ?? '-'}E${target.episode ?? '-'}`)
       await window.api.mdblist.markWatched(payload)
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      window.api.log(`[MDBList] markWatched FAILED: ${e?.message || e}`)
+    }
     await forceRefreshWatchData()
   }, [])
 
   const handleMarkUnwatched = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = target.type === 'movie'
-        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
-        : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
-          : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
-            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      const payload = buildMarkUnwatchedPayload(target)
+      window.api.log(`[MDBList] markUnwatched ${target.type}:${target.tmdbId} S${target.season ?? '-'}E${target.episode ?? '-'}`)
       await window.api.mdblist.markUnwatched(payload)
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      window.api.log(`[MDBList] markUnwatched FAILED: ${e?.message || e}`)
+    }
     await forceRefreshWatchData()
   }, [])
 
@@ -1579,7 +1575,7 @@ export default function App() {
   const handleDropShow = useCallback(async (target: ContextTarget) => {
     window.api.log('[MDBList] Drop show clicked: ' + target.title + ' (' + target.tmdbId + ')')
     try {
-      await window.api.mdblist.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
+      await window.api.mdblist.markUnwatched(buildMarkUnwatchedPayload({ type: 'tv', tmdbId: target.tmdbId }))
       useMediaStore.getState().markDroppedFromPlayback(target.tmdbId)
       window.api.log('[MDBList] Drop show success (marked dropped locally)')
     } catch (e: any) {
