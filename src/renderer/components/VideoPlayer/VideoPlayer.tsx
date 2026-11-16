@@ -8,6 +8,7 @@ import styles from './VideoPlayer.module.css'
 import ErrorModal from '../ErrorModal/ErrorModal'
 import { VideoJsPlayer, type VideoJsPlayerHandle } from './VideoJsPlayer'
 import UpNext from '../UpNext/UpNext'
+import { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '../../../main/services/mdblist.service'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 /** Imperative handle exposed by VideoPlayer via ref. */
@@ -79,17 +80,7 @@ function buildScrobblePayload(tmdbId: number, mediaType: string, progress: numbe
   }
 }
 
-function buildHistoryPayload(tmdbId: number, mediaType: string, season?: number, episode?: number) {
-  if (mediaType === 'tv' && season !== undefined && episode !== undefined) {
-    return {
-      shows: [{
-        ids: { tmdb: tmdbId },
-        seasons: [{ season, episodes: [{ number: episode }] }],
-      }],
-    }
-  }
-  return { movies: [{ ids: { tmdb: tmdbId } }] }
-}
+
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -220,21 +211,74 @@ function VideoPlayerInner({
     const t = lastGoodPosRef.current
     let progress = 0
     if (isFinite(d) && d > 0 && isFinite(t)) progress = Math.min(Math.max(t / d, 0), 1)
-    // Threshold: 90% — user has watched enough to count as "watched"
-    if (progress < 0.90) return
+    // Threshold: 50% — user has watched enough to count as "watched".
+    // Hard floor 20% so a misreported progress (e.g. 0%) never counts.
+    const threshold = Math.max(0.50, 0.20)
+    if (progress < threshold) return
     try {
-      const payload = buildHistoryPayload(
-        mediaInfo.tmdbId, mediaInfo.mediaType,
-        mediaInfo.season, mediaInfo.episode,
-      )
+      const payload = buildMarkWatchedPayload({
+        type: mediaInfo.mediaType,
+        tmdbId: mediaInfo.tmdbId,
+        season: mediaInfo.season,
+        episode: mediaInfo.episode,
+      })
       await window.api.mdblist.markWatched(payload)
-      console.log('[Watch] markWatched ok', payload)
+      window.api.log(`[Watch] markWatched ok ${mediaInfo.mediaType}:${mediaInfo.tmdbId} progress=${Math.round(progress * 100)}%`)
     } catch (e: any) {
       window.api.log(`[Watch] markWatched failed: ${e?.message || e}`)
     }
   }, [mediaInfo])
 
-  // Expose saveCurrentProgress for parent (App.tsx) to call on back-button.
+  // Mark watched / unwatched (generic, callable from parent UI or player context menu).
+  const markWatchedNow = useCallback(async (target: {
+    tmdbId: number
+    mediaType: 'movie' | 'tv'
+    season?: number
+    episode?: number
+  }) => {
+    if (!mediaInfo || mediaInfo.isTrailer) return
+    const d = durationRef.current > 0 ? durationRef.current : fallbackDurationRef.current
+    if (!isFinite(d) || d <= 0) return
+    const t = lastGoodPosRef.current
+    const progress = Math.min(Math.max(t / d, 0), 1)
+    const threshold = Math.max(0.50, 0.20)
+    if (progress < threshold) return
+    try {
+      const payload = buildMarkWatchedPayload({
+        type: target.mediaType,
+        tmdbId: target.tmdbId,
+        season: target.season,
+        episode: target.episode,
+      })
+      await window.api.mdblist.markWatched(payload)
+      window.api.log(`[Watch] markWatched now ${target.mediaType}:${target.tmdbId} progress=${Math.round(progress * 100)}%`)
+    } catch (e: any) {
+      window.api.log(`[Watch] markWatched failed: ${e?.message || e}`)
+    }
+  }, [mediaInfo])
+
+  const markUnwatchedNow = useCallback(async (target: {
+    tmdbId: number
+    mediaType: 'movie' | 'tv'
+    season?: number
+    episode?: number
+  }) => {
+    if (!mediaInfo || mediaInfo.isTrailer) return
+    try {
+      const payload = buildMarkUnwatchedPayload({
+        type: target.mediaType,
+        tmdbId: target.tmdbId,
+        season: target.season,
+        episode: target.episode,
+      })
+      await window.api.mdblist.markUnwatched(payload)
+      window.api.log(`[Watch] markUnwatched now ${target.mediaType}:${target.tmdbId}`)
+    } catch (e: any) {
+      window.api.log(`[Watch] markUnwatched failed: ${e?.message || e}`)
+    }
+  }, [mediaInfo])
+
+  // Expose for parent (App.tsx) to trigger manually (e.g. from a player context menu).
   useImperativeHandle(ref, () => ({
     saveCurrentProgress: () => {
       saveProgress()
@@ -247,7 +291,9 @@ function VideoPlayerInner({
       if (!isFinite(d) || d <= 0 || !isFinite(t)) return 0
       return Math.min(Math.max(t / d, 0), 1)
     },
-  }), [saveProgress, scrobble, playbackCompletedRef])
+    markWatchedNow,
+    markUnwatchedNow,
+  }), [saveProgress, scrobble, playbackCompletedRef, markWatchedNow, markUnwatchedNow])
 
   // ── Subtitle load: sidecar first, OpenSubtitles fallback ──────────────────
   // ponytail: forced-only defaults to true (opensubtitlesForcedOnly setting);
