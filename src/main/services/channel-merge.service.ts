@@ -12,6 +12,7 @@
 import { getProvider } from './livetv-providers'
 import { getAllM3UChannels } from './iptv-m3u.service'
 import { cleanChannelName } from '@/shared/cleanChannelName'
+import { countCountriesByCode, countryFlagEmoji, ISO_COUNTRY_NAMES } from '@/shared/iso-country-codes'
 import {
   detectCountryCode,
   COUNTRY_NAMES,
@@ -128,6 +129,39 @@ export async function searchMergedChannels(query: string, limit = 300): Promise<
   }
   return out
 }
+
+export interface AvailableCountry {
+  code: string
+  name: string
+  flag: string
+  count: number
+}
+
+/**
+ * Countries present in the merged channel list (CDN + M3U), with per-country
+ * channel counts. Names/flags come from the static ISO 3166-1 alpha-2 table
+ * (src/shared/iso-country-codes.ts) — NOT from the cdnlivetv "dami-tv" API,
+ * which is no longer operational. Never throws: if the merge fails entirely we
+ * still return the static ISO list (count 0) so the country filter stays usable.
+ */
+export async function getAvailableCountries(): Promise<AvailableCountry[]> {
+  try {
+    const all = await getMergedChannels()
+    const counted = countCountriesByCode(all)
+    if (counted.length > 0) return counted
+  } catch (err: any) {
+    console.log('[Channels] getAvailableCountries: merge failed, using static ISO list:', err?.message || err)
+  }
+  return Object.keys(ISO_COUNTRY_NAMES)
+    .map((code) => ({
+      code,
+      name: ISO_COUNTRY_NAMES[code],
+      flag: countryFlagEmoji(code),
+      count: 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
 
 async function doMerge(): Promise<MergedChannel[]> {
   const [cdnChs, m3uChs] = await Promise.all([

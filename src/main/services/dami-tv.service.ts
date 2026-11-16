@@ -1,5 +1,6 @@
 import * as CacheService from './cache.service'
 import { lookupLogo } from './tv-logo.service'
+import { countryFlagEmoji, ISO_COUNTRY_NAMES } from '@/shared/iso-country-codes'
 
 const API_BASE = 'https://api.cdnlivetv.is/api/v1'
 const API_BASE_TV = 'https://cdnlivetv.tv/api/v1'
@@ -42,19 +43,11 @@ const CC_MAP: [string, string][] = [
   ['denmark', 'dk'],
 ]
 
+// Names come from the shared static ISO 3166-1 alpha-2 table; 'intl'/'int' are
+// non-ISO pseudo-codes used by this provider for international feeds.
 const COUNTRY_NAMES: Record<string, string> = {
-  us: "United States", gb: "United Kingdom", es: "Spain", fr: "France", de: "Germany",
-  it: "Italy", pl: "Poland", au: "Australia", pt: "Portugal", ca: "Canada", br: "Brazil",
-  mx: "Mexico", ar: "Argentina", in: "India", hk: "Hong Kong", my: "Malaysia", intl: "International",
-  ae: "UAE", se: "Sweden", no: "Norway", dk: "Denmark", hr: "Croatia", rs: "Serbia",
-  il: "Israel", hu: "Hungary", cz: "Czech Republic", ro: "Romania", bg: "Bulgaria",
-  gr: "Greece", tr: "Turkey", za: "South Africa", cy: "Cyprus", si: "Slovenia",
-  ie: "Ireland", nz: "New Zealand", pe: "Peru", dz: "Algeria", ru: "Russia",
-  az: "Azerbaijan", id: "Indonesia", nl: "Netherlands", int: "International",
-  at: "Austria", sa: "Saudi Arabia", be: "Belgium", cl: "Chile", uy: "Uruguay",
-  co: "Colombia", eg: "Egypt", ua: "Ukraine", jp: "Japan", kr: "South Korea",
-  th: "Thailand", ph: "Philippines", sg: "Singapore", pk: "Pakistan", bd: "Bangladesh",
-  qa: "Qatar", kw: "Kuwait", bh: "Bahrain", om: "Oman", jo: "Jordan",
+  intl: 'International', int: 'International',
+  ...ISO_COUNTRY_NAMES,
 }
 
 function detectCountryCode(name: string): string {
@@ -73,10 +66,7 @@ function detectCountryCode(name: string): string {
 }
 
 function countryFlag(code: string): string {
-  if (!code || code === 'intl' || code === 'int') return '\uD83C\uDF0D'
-  const c = code.toUpperCase()
-  if (c.length !== 2) return '\uD83C\uDF0D'
-  return String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65) + String.fromCodePoint(0x1F1E6 + c.charCodeAt(1) - 65)
+  return countryFlagEmoji(code)
 }
 
 export interface DamiTVStream {
@@ -239,7 +229,10 @@ export async function getChannels(): Promise<DamiTVChannel[]> {
       console.log('[LiveTV] Using stale cached channels')
       return JSON.parse(stale)
     }
-    throw err
+    // cdnlivetv.is is no longer operational — fail soft with an empty list so
+    // callers (IPC handlers, provider fallback) don't hard-error; M3U sources
+    // still provide channels via the merge service.
+    return []
   }
 }
 
