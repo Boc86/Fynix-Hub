@@ -16,6 +16,7 @@ import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import SplashScreen from './components/Splash/SplashScreen'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
+import { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '@/shared/mdblist-payloads'
 import type { NavView } from './components/Sidebar/Sidebar'
 import type { LiveTVAPI } from './components/LiveTV/LiveTV'
 import type { TorrentResult, RivestreamResult, UsenetResult } from './types.d'
@@ -1517,47 +1518,38 @@ export default function App() {
     setContextTarget(target)
   }, [])
 
-  // Shared payload builder for mark watched / unwatched / reset progress.
-  const buildWatchPayload = useCallback((target: ContextTarget) => {
-    if (target.type === 'movie') {
-      return { movies: [{ ids: { tmdb: target.tmdbId } }] }
-    }
-    if (target.type === 'episode') {
-      return {
-        shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season!, episodes: [{ number: target.episode! }] }] }],
-      }
-    }
-    if (target.type === 'season') {
-      return { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season! }] }] }
-    }
-    // 'tv' → mark the whole show as watched
-    return { shows: [{ ids: { tmdb: target.tmdbId } }] }
-  }, [])
-
   const handleResetProgress = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = buildWatchPayload(target)
+      const payload = buildMarkUnwatchedPayload(target)
       await window.api.mdblist.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      window.api.log(`[MDBList] resetProgress failed: ${e?.message || e}`)
+    }
     await forceRefreshWatchData()
-  }, [buildWatchPayload])
+  }, [])
 
   const handleMarkWatched = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = buildWatchPayload(target)
+      const payload = buildMarkWatchedPayload(target)
+      window.api.log(`[MDBList] markWatched ${target.type}:${target.tmdbId} S${target.season ?? '-'}E${target.episode ?? '-'}`)
       await window.api.mdblist.markWatched(payload)
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      window.api.log(`[MDBList] markWatched FAILED: ${e?.message || e}`)
+    }
     await forceRefreshWatchData()
-  }, [buildWatchPayload])
+  }, [])
 
   const handleMarkUnwatched = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = buildWatchPayload(target)
+      const payload = buildMarkUnwatchedPayload(target)
+      window.api.log(`[MDBList] markUnwatched ${target.type}:${target.tmdbId} S${target.season ?? '-'}E${target.episode ?? '-'}`)
       await window.api.mdblist.markUnwatched(payload)
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      window.api.log(`[MDBList] markUnwatched FAILED: ${e?.message || e}`)
+    }
     await forceRefreshWatchData()
-  }, [buildWatchPayload])
+  }, [])
 
   const handleShowSources = useCallback(async (target: ContextTarget) => {
     if (target.type === 'episode') {
@@ -1583,7 +1575,7 @@ export default function App() {
   const handleDropShow = useCallback(async (target: ContextTarget) => {
     window.api.log('[MDBList] Drop show clicked: ' + target.title + ' (' + target.tmdbId + ')')
     try {
-      await window.api.mdblist.markUnwatched({ shows: [{ ids: { tmdb: target.tmdbId } }] })
+      await window.api.mdblist.markUnwatched(buildMarkUnwatchedPayload({ type: 'tv', tmdbId: target.tmdbId }))
       useMediaStore.getState().markDroppedFromPlayback(target.tmdbId)
       window.api.log('[MDBList] Drop show success (marked dropped locally)')
     } catch (e: any) {
