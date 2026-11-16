@@ -4,6 +4,8 @@ import {
   isIsoAlpha2,
   countryFlagEmoji,
   countCountriesByCode,
+  detectCountrySuffix,
+  normalizeAlpha2,
 } from '@/shared/iso-country-codes'
 
 describe('iso-country-codes static table', () => {
@@ -76,5 +78,35 @@ describe('countCountriesByCode', () => {
 
   it('returns empty list for no channels', () => {
     expect(countCountriesByCode([])).toEqual([])
+  })
+})
+
+describe('normalizeAlpha2', () => {
+  it('passes through valid ISO codes lowercase', () => {
+    expect(normalizeAlpha2('US')).toBe('us')
+    expect(normalizeAlpha2('dk')).toBe('dk')
+  })
+  it('maps the UK alias to GB (ISO uses GB for United Kingdom)', () => {
+    expect(normalizeAlpha2('UK')).toBe('gb')
+  })
+  it('returns empty for non-ISO codes', () => {
+    expect(normalizeAlpha2('XX')).toBe('')
+    expect(normalizeAlpha2('HD')).toBe('')
+    expect(normalizeAlpha2('')).toBe('')
+  })
+})
+
+describe('detectCountrySuffix', () => {
+  it('detects trailing alpha-2 country codes in cdnlivetv-style names', () => {
+    expect(detectCountrySuffix('Sky Sports F1 FHD UK')).toBe('gb')
+    expect(detectCountrySuffix('Canal 9 HD DK')).toBe('dk')
+    expect(detectCountrySuffix('ZDF FHD DE')).toBe('de')
+    expect(detectCountrySuffix('beIN SPORTS 1 FHD TR')).toBe('tr')
+  })
+  it('ignores quality tags and non-ISO endings', () => {
+    expect(detectCountrySuffix('BBC One HD')).toBe('')       // HD not ISO
+    expect(detectCountrySuffix('Channel 4')).toBe('')
+    expect(detectCountrySuffix('MLB | Texas Rangers')).toBe('') // "rs"? no — ends with "Rangers"
+    expect(detectCountrySuffix('')).toBe('')
   })
 })

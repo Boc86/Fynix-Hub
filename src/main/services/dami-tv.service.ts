@@ -1,7 +1,6 @@
 import * as CacheService from './cache.service'
 import { lookupLogo } from './tv-logo.service'
-import { countryFlagEmoji, ISO_COUNTRY_NAMES } from '@/shared/iso-country-codes'
-
+import { countryFlagEmoji, detectCountrySuffix, ISO_COUNTRY_NAMES } from '@/shared/iso-country-codes'
 const API_BASE = 'https://api.cdnlivetv.is/api/v1'
 const API_BASE_TV = 'https://cdnlivetv.tv/api/v1'
 const CACHE_TTL = 60000
@@ -62,6 +61,11 @@ function detectCountryCode(name: string): string {
       return code
     }
   }
+  // cdnlivetv channel names carry the country as a trailing alpha-2 suffix
+  // ("Sky Sports F1 FHD UK", "Canal 9 HD DK") — the API's `code` field is
+  // empty these days. Validate against the static ISO 3166-1 table.
+  const suffix = detectCountrySuffix(name)
+  if (suffix) return suffix
   return 'intl'
 }
 

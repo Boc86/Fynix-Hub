@@ -70,6 +70,33 @@ export function isIsoAlpha2(code: string): boolean {
   return !!code && code.length === 2 && code.toLowerCase() in ISO_COUNTRY_NAMES
 }
 
+/**
+ * Non-ISO alpha-2 codes seen in IPTV feeds that map to an ISO code.
+ * 'UK' is the common one — ISO 3166-1 uses 'GB' for the United Kingdom.
+ */
+export const ISO_ALPHA2_ALIASES: Record<string, string> = {
+  uk: 'gb',
+}
+
+/** Normalize any 2-letter code (incl. aliases) to a lowercase ISO alpha-2 code; '' if unknown. */
+export function normalizeAlpha2(code: string): string {
+  const c = (code || '').toLowerCase()
+  if (c in ISO_COUNTRY_NAMES) return c
+  return ISO_ALPHA2_ALIASES[c] || ''
+}
+
+/**
+ * Detect a trailing country code in a channel name, e.g.
+ * "Sky Sports F1 FHD UK" -> "gb", "Canal 9 HD DK" -> "dk".
+ * Validated against the ISO table so quality tags ("HD"/"FHD") and other
+ * 2-letter endings don't false-positive. Returns '' when no match.
+ */
+export function detectCountrySuffix(name: string): string {
+  const m = (name || '').trim().match(/[\s\-|]\s*([A-Za-z]{2})$/)
+  return m ? normalizeAlpha2(m[1]) : ''
+}
+
+
 /** Regional-indicator flag emoji for an alpha-2 code; 🌍 when unknown. */
 export function countryFlagEmoji(code: string): string {
   if (!code || code.length !== 2) return '\u{1F30D}'
