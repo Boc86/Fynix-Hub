@@ -498,3 +498,55 @@ export async function getWatchedShowsWithProgress() {
     fetchMdbList('/upnext?hide_unreleased=true'))
   return mapUpnext(data)
 }
+
+// ── MDBList payload builders ────────────────────────────────────────────────
+export interface MarkWatchedPayload {
+  movies?: { ids: { tmdb: number }[] } | null
+  shows?: { ids: { tmdb: number }; seasons?: { number: number; episodes?: { number: number }[] }[] } | null
+}
+
+/**
+ * Build the MDBList /sync/watched body from a ContextTarget.
+ * Used by both the renderer (App.tsx) and the player (VideoPlayer.tsx).
+ */
+export function buildMarkWatchedPayload(target: {
+  type: 'movie' | 'tv' | 'episode' | 'season'
+  tmdbId: number
+  season?: number
+  episode?: number
+}): MarkWatchedPayload {
+  if (target.type === 'movie') {
+    return { movies: [{ ids: { tmdb: target.tmdbId } }] }
+  }
+  if (target.type === 'episode') {
+    return {
+      shows: [{
+        ids: { tmdb: target.tmdbId },
+        seasons: [{ number: target.season!, episodes: [{ number: target.episode! }] }],
+      }],
+    }
+  }
+  if (target.type === 'season') {
+    return {
+      shows: [{
+        ids: { tmdb: target.tmdbId },
+        seasons: [{ number: target.season! }],
+      }],
+    }
+  }
+  // 'tv' → mark the whole show as watched
+  return { shows: [{ ids: { tmdb: target.tmdbId } }] }
+}
+
+/**
+ * Build the MDBList /sync/watched/remove body from a ContextTarget.
+ * Same shape as markWatchedPayload.
+ */
+export function buildMarkUnwatchedPayload(target: {
+  type: 'movie' | 'tv' | 'episode' | 'season'
+  tmdbId: number
+  season?: number
+  episode?: number
+}): MarkWatchedPayload {
+  return buildMarkWatchedPayload(target)
+}
