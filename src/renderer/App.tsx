@@ -1517,48 +1517,47 @@ export default function App() {
     setContextTarget(target)
   }, [])
 
+  // Shared payload builder for mark watched / unwatched / reset progress.
+  const buildWatchPayload = useCallback((target: ContextTarget) => {
+    if (target.type === 'movie') {
+      return { movies: [{ ids: { tmdb: target.tmdbId } }] }
+    }
+    if (target.type === 'episode') {
+      return {
+        shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season!, episodes: [{ number: target.episode! }] }] }],
+      }
+    }
+    if (target.type === 'season') {
+      return { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season! }] }] }
+    }
+    // 'tv' → mark the whole show as watched
+    return { shows: [{ ids: { tmdb: target.tmdbId } }] }
+  }, [])
+
   const handleResetProgress = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = target.type === 'movie'
-        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
-        : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
-          : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
-            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      const payload = buildWatchPayload(target)
       await window.api.mdblist.markUnwatched(payload)
       await window.api.watch.updateProgress(target.tmdbId, target.type, 0, target.season, target.episode)
     } catch { /* ignore */ }
     await forceRefreshWatchData()
-  }, [])
+  }, [buildWatchPayload])
 
   const handleMarkWatched = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = target.type === 'movie'
-        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
-        : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
-          : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
-            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      const payload = buildWatchPayload(target)
       await window.api.mdblist.markWatched(payload)
     } catch { /* ignore */ }
     await forceRefreshWatchData()
-  }, [])
+  }, [buildWatchPayload])
 
   const handleMarkUnwatched = useCallback(async (target: ContextTarget) => {
     try {
-      const payload = target.type === 'movie'
-        ? { movies: [{ ids: { tmdb: target.tmdbId } }] }
-        : target.episode !== undefined
-          ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season, episodes: [{ number: target.episode }] }] }] }
-          : target.season !== undefined
-            ? { shows: [{ ids: { tmdb: target.tmdbId }, seasons: [{ season: target.season }] }] }
-            : { shows: [{ ids: { tmdb: target.tmdbId } }] }
+      const payload = buildWatchPayload(target)
       await window.api.mdblist.markUnwatched(payload)
     } catch { /* ignore */ }
     await forceRefreshWatchData()
-  }, [])
+  }, [buildWatchPayload])
 
   const handleShowSources = useCallback(async (target: ContextTarget) => {
     if (target.type === 'episode') {
