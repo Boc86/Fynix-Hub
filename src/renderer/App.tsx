@@ -14,6 +14,7 @@ import VirtualKeyboard from './components/VirtualKeyboard/VirtualKeyboard'
 import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
+import ToastContainer from './components/Toast/ToastContainer'
 import SplashScreen from './components/Splash/SplashScreen'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '@/shared/mdblist-payloads'
@@ -2119,7 +2120,8 @@ export default function App() {
               }}
             />
           )
-        })()}
+        })()
+      <ToastContainer id="toast-container" />
     </Layout>
   )
 }
