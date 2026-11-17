@@ -5,6 +5,7 @@ interface SkeletonProps {
   width?: string | number
   height?: string | number
   className?: string
+  style?: React.CSSProperties
   variant?: 'text' | 'circular' | 'rectangular'
 }
 

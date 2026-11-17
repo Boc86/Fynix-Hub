@@ -2126,8 +2126,10 @@ export default function App() {
               }}
             />
           )
-        })()
-      <ToastContainer id="toast-container" />
+        })()}
+      <>
+        <ToastContainer id="toast-container" />
+      </>
     </Layout>
     </ThemeProvider>
   )

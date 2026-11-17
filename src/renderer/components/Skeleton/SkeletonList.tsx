@@ -11,8 +11,8 @@ export default function SkeletonList({ count = 5 }: { count?: number }) {
             <Skeleton variant="rectangular" width={80} height={120} />
           </div>
           <div className={styles.info}>
-            <Skeleton variant="text" width={150} height={20} style={{ marginBottom: 8 }} />
-            <Skeleton variant="text" width={100} height={16} style={{ marginBottom: 8 }} />
+            <Skeleton variant="text" width={150} height={20} style={{ marginBottom: 8 }} className="mb-2" />
+            <Skeleton variant="text" width={100} height={16} style={{ marginBottom: 8 }} className="mb-2" />
             <Skeleton variant="text" width={80} height={16} />
           </div>
         </div>

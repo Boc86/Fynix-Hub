@@ -15,15 +15,19 @@ interface ToastProps {
 }
 
 export default function Toast({ id, message, type, action, duration = 5000, onClose }: ToastProps) {
-  const timerRef = useRef<NodeJS.Timeout>()
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   useFocusTrap(containerRef, false) // No focus trap for toasts
   
   useEffect(() => {
     if (duration > 0) {
       timerRef.current = setTimeout(() => onClose(id), duration)
+      return () => {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current)
+        }
+      }
     }
-    return () => clearTimeout(timerRef.current)
   }, [id, duration, onClose])
   
   const getIcon = () => {

@@ -1,4 +1,5 @@
 import { createContext, useContext, useCallback, useRef, useState } from "react"
+import React from "react"
 
 interface NavigationState {
   view: string
@@ -59,9 +60,9 @@ export function NavigationProvider({ children, onNavigate }: NavigationProviderP
     currentHistory: history
   }
   
-  return (
-    <NavigationContext.Provider value={contextValue}>
-      {children}
-    </NavigationContext.Provider>
+  return React.createElement(
+    NavigationContext.Provider,
+    { value: contextValue },
+    children
   )
 }
