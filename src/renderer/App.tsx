@@ -15,6 +15,7 @@ import ProfilePicker from './components/ProfilePicker/ProfilePicker'
 import Prompt, { Confirm } from './components/Prompt/Prompt'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import ToastContainer from './components/Toast/ToastContainer'
+import { ThemeProvider } from './context/ThemeContext'
 import SplashScreen from './components/Splash/SplashScreen'
 import type { ContextTarget } from './components/ContextMenu/ContextMenu'
 import { buildMarkWatchedPayload, buildMarkUnwatchedPayload } from '@/shared/mdblist-payloads'
@@ -1743,7 +1744,11 @@ export default function App() {
 
   // Show splash screen until main process signals ready (preloader complete)
   if (!appReady) {
-    return <SplashScreen status={appStatus} />
+    return (
+      <ThemeProvider>
+        <SplashScreen status={appStatus} />
+      </ThemeProvider>
+    )
   }
 
   if (showProfileSplash) {
@@ -1776,7 +1781,8 @@ export default function App() {
   const isEpisode = selectedMedia?.mediaType === 'tv' && storeEpisode !== null
 
   return (
-    <Layout>
+    <ThemeProvider>
+      <Layout>
       <Sidebar
         open={sidebarOpen}
         currentView={view === 'sports' ? 'sports' : view === 'live-tv' ? 'live-tv' : view === 'epg' ? 'epg' : view === 'recordings' ? 'recordings' : view === 'settings' ? 'settings' : view === 'movies' ? 'movies' : view === 'tv-shows' ? 'tv-shows' : view === 'youtube' ? 'youtube' : 'browser'}
@@ -2123,5 +2129,6 @@ export default function App() {
         })()
       <ToastContainer id="toast-container" />
     </Layout>
+    </ThemeProvider>
   )
 }

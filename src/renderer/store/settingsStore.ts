@@ -97,6 +97,7 @@ interface SettingsState {
   activeProfileId: string | null
   autoLoginProfileId: string | null
   networkEnabled: boolean
+  theme: string
   networkPort: number
   networkUsername: string
   networkPassword: string
@@ -135,6 +136,7 @@ interface SettingsState {
   setPreferredAudioLanguage: (lang: string) => void
   setClassificationCountry: (country: string) => void
   setAccentColor: (color: string) => void
+  setTheme: (theme: string) => void
   setRemoteMapping: (mapping: Record<string, string>) => void
   setSportsEnabled: (enabled: boolean) => void
   setSportsSelected: (ids: string[]) => void
@@ -255,6 +257,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   networkPort: 43862,
   networkUsername: '',
   networkPassword: '',
+  theme: 'dark',
 
   setTmdbApiKey: (key) => set({ tmdbApiKey: key }),
   setFanartApiKey: (key) => set({ fanartApiKey: key }),
@@ -290,6 +293,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setPreferredAudioLanguage: (lang) => { set({ preferredAudioLanguage: lang }); get().saveToDisk() },
   setClassificationCountry: (country) => { set({ classificationCountry: country }); get().saveToDisk() },
   setAccentColor: (color) => { set({ accentColor: color }); get().saveToDisk() },
+  setTheme: (theme) => { set({ theme }); get().saveToDisk() },
   setRemoteMapping: (mapping: Record<string, string>) => { set({ remoteMapping: mapping }); get().saveToDisk() },
   setSportsEnabled: async (enabled) => { 
     set({ sportsEnabled: enabled }); 
