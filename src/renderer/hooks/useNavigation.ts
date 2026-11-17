@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useRef, useState } from 'react'
+import { createContext, useContext, useCallback, useRef, useState } from "react"
 
 interface NavigationState {
   view: string
@@ -10,7 +10,7 @@ interface NavigationState {
 }
 
 interface NavigationContextType {
-  navigate: (view: string, options?: { scrollPosition?: number; searchQuery?: string; focusedItem?: NavigationState['focusedItem']; filter?: string }) => void
+  navigate: (view: string, options?: { scrollPosition?: number; searchQuery?: string; focusedItem?: NavigationState["focusedItem"]; filter?: string }) => void
   goBack: () => void
   canGoBack: boolean
   currentHistory: NavigationState[]
@@ -20,7 +20,7 @@ const NavigationContext = createContext<NavigationContextType | null>(null)
 
 export function useNavigation() {
   const context = useContext(NavigationContext)
-  if (!context) throw new Error('useNavigation must be used within NavigationProvider')
+  if (!context) throw new Error("useNavigation must be used within NavigationProvider")
   return context
 }
 
@@ -30,9 +30,9 @@ interface NavigationProviderProps {
 }
 
 export function NavigationProvider({ children, onNavigate }: NavigationProviderProps) {
-  const [history, setHistory] = useState<NavigationState[]>([{ view: 'browser', timestamp: Date.now() }])
+  const [history, setHistory] = useState<NavigationState[]>([{ view: "browser", timestamp: Date.now() }])
   
-  const navigate = useCallback((view: string, options?: { scrollPosition?: number; searchQuery?: string; focusedItem?: NavigationState['focusedItem']; filter?: string }) => {
+  const navigate = useCallback((view: string, options?: { scrollPosition?: number; searchQuery?: string; focusedItem?: NavigationState["focusedItem"]; filter?: string }) => {
     setHistory(prev => [...prev, { 
       view, 
       timestamp: Date.now(),
@@ -47,19 +47,20 @@ export function NavigationProvider({ children, onNavigate }: NavigationProviderP
       const prev = newHistory[newHistory.length - 1]
       setHistory(newHistory)
       onNavigate(prev.view)
-      // Return the previous state for restoration
       return prev
     }
     return null
   }, [history, onNavigate])
   
+  const contextValue = {
+    navigate,
+    goBack,
+    canGoBack: history.length > 1,
+    currentHistory: history
+  }
+  
   return (
-    <NavigationContext.Provider value={{
-      navigate,
-      goBack,
-      canGoBack: history.length > 1,
-      currentHistory: history
-    }}>
+    <NavigationContext.Provider value={contextValue}>
       {children}
     </NavigationContext.Provider>
   )
