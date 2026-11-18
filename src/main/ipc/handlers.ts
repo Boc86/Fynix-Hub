@@ -8,6 +8,7 @@ const TMDB_CACHE_VERSION = 2 // bump when TMDB append_to_response fields change
 import * as TmdbService from '../services/tmdb.service'
 import * as MdbListService from '../services/mdblist.service'
 import * as WebTorrentService from '../services/webtorrent.service'
+import * as TorrentUtils from '../utils/torrent-utils'
 import * as TorrentSearchService from '../services/torrent-search.service'
 import * as DebridService from '../services/debrid.service'
 import * as CacheService from '../services/cache.service'
@@ -21,6 +22,7 @@ import * as PlayerService from '../services/player.service'
 import * as OpenSubtitlesService from '../services/opensubtitles.service'
 import * as SportsService from '../services/sports.service'
 import * as ReplayZoneService from '../services/replayzone.service'
+import * as SportVideoArchiveService from '../services/sport-video-archive.service'
 import * as StreamedPkService from '../services/streamedpk.service'
 import * as ExtractorService from '../services/extractor.service'
 import * as DamiTVService from '../services/dami-tv.service'
@@ -376,6 +378,35 @@ export async function registerIpcHandlers(): Promise<void> {
     }
   })
 
+  handle('torrent:download-file', async (_event, url: string) => {
+    console.log('[Handler] torrent:download-file:', url)
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      const arrayBuffer = await response.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+      console.log('[Handler] torrent:download-file success:', buffer.length, 'bytes')
+      return buffer
+    } catch (err: any) {
+      console.error('[Handler] torrent:download-file failed:', err.message)
+      throw err
+    }
+  })
+
+  handle('torrent:convert-to-magnet', async (_event, torrentData: Buffer) => {
+    console.log('[Handler] torrent:convert-to-magnet: Converting torrent file to magnet URI')
+    try {
+      const magnetUri = await TorrentUtils.convertTorrentToMagnet(torrentData)
+      console.log('[Handler] torrent:convert-to-magnet success:', magnetUri)
+      return magnetUri
+    } catch (err: any) {
+      console.error('[Handler] torrent:convert-to-magnet failed:', err.message)
+      throw err
+    }
+  })
+
   handle('indexer-catalog:get', () => {
     return {
       catalog: IndexerCatalogService.getStoredCatalog(),
@@ -718,11 +749,18 @@ export async function registerIpcHandlers(): Promise<void> {
   })
 
   handle('replayzone:search', async (_event, query: string, sport?: string, league?: string) => {
-    return ReplayZoneService.searchReplays(query, sport, league)
+    console.log(`[IPC] replayzone:search called with:`, { query, sport, league })
+    console.log(`[IPC] Switching to Sport Video Archive service`)
+    const results = await SportVideoArchiveService.searchReplays(query, sport, league)
+    console.log(`[IPC] replayzone:search returning ${results.length} results`)
+    return results
   })
 
   handle('replayzone:search-by-sport', async (_event, category: string) => {
-    const results = await ReplayZoneService.searchByCategory(category)
+    console.log(`[IPC] replayzone:search-by-sport called with:`, { category })
+    console.log(`[IPC] Switching to Sport Video Archive service`)
+    const results = await SportVideoArchiveService.searchReplays(category)
+    console.log(`[IPC] replayzone:search-by-sport returning ${results.length} results`)
     return results
   })
 

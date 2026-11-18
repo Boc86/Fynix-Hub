@@ -127,7 +127,21 @@ export async function searchReplays(
     const normalizedQuery = normalize(query)
     if (!normalizedQuery) return []
 
+    // Extract year from query if present (e.g., "2026 Sao Paulo grand prix" -> "2026")
     const queryWords = normalizedQuery.split(' ').filter(w => w.length > 2)
+    const yearMatch = queryWords.find(w => /^\d{4}$/.test(w))
+    const searchYear = yearMatch ? parseInt(yearMatch) : null
+    const titleWords = queryWords.filter(w => !/^\d{4}$/.test(w))
+    
+    console.log(`[ReplayZone] Query analysis:`, {
+      query,
+      normalizedQuery,
+      queryWords,
+      yearMatch,
+      searchYear,
+      titleWords
+    })
+    
     const sportCompact = sport ? compact(sport) : ''
     const leagueCompact = league ? compact(league) : ''
 
@@ -143,27 +157,63 @@ export async function searchReplays(
         const rSport = normalize(r.sport || '')
         const rCategory = normalize(r.category || '')
         const titleCompact = compact(normalizedTitle)
-        const matchedWords = queryWords.filter(w => normalizedTitle.includes(w))
+        const matchedWords = titleWords.filter(w => normalizedTitle.includes(w))
         let score = 0
 
-        if (normalizedTitle === normalizedQuery) score = 100
-        else if (normalizedTitle.includes(normalizedQuery)) score = 80
-        else {
+        // Year matching: if a year is specified in the query, prioritize replays from that year
+        let yearScore = 0
+        if (searchYear) {
+          console.log(`[ReplayZone] Checking year for replay: "${r.title}"`, {
+            date: r.date,
+            titleYear: r.title.match(/\b(19|20)\d{2}\b/)?.[0],
+            searchYear
+          })
+          
+          const replayYear = parseInt(r.date) || parseInt(r.title.match(/\b(19|20)\d{2}\b/)?.[0] || '0')
+          if (replayYear === searchYear) {
+            yearScore = 50 // Strong boost for exact year match
+            console.log(`[ReplayZone] Exact year match! +50 points`)
+          } else if (replayYear && Math.abs(replayYear - searchYear) <= 1) {
+            yearScore = 10 // Small boost for adjacent years
+            console.log(`[ReplayZone] Adjacent year match! +10 points`)
+          } else {
+            // Penalize non-matching years to prioritize closer years
+            const yearDiff = Math.abs(replayYear - searchYear)
+            yearScore = Math.max(-10, -yearDiff) // Penalty up to -10 points
+            console.log(`[ReplayZone] Year penalty: ${yearScore} points (diff: ${yearDiff})`)
+          }
+        }
+
+        if (normalizedTitle === normalizedQuery) {
+          score = 100 + yearScore
+          console.log(`[ReplayZone] Exact title match! +100 points (total: ${score})`)
+        } else if (normalizedTitle.includes(normalizedQuery)) {
+          score = 80 + yearScore
+          console.log(`[ReplayZone] Query contained in title! +80 points (total: ${score})`)
+        } else {
           // Require ALL specific (non-generic) query words to be present.
           // If the query is "Aragon Sprint", "Aragon" is specific and must
           // be in the title; "Sprint" is generic and optional.
-          if (specificWords.length > 0) {
-            const allSpecificMatch = specificWords.every(w => titleCompact.includes(w))
+          console.log(`[ReplayZone] Checking specific words for: "${r.title}"`)
+          console.log(`[ReplayZone] titleWords: ${titleWords.join(', ')}`)
+          console.log(`[ReplayZone] titleCompact: "${titleCompact}"`)
+          console.log(`[ReplayZone] allSpecificMatch: ${titleWords.every(w => titleCompact.includes(w))}`)
+          
+          if (titleWords.length > 0) {
+            const allSpecificMatch = titleWords.every(w => titleCompact.includes(w))
             if (!allSpecificMatch) {
               // This result doesn't contain the key disambiguator word(s) —
               // hard-reject it.
               score = 0
+              console.log(`[ReplayZone] Hard reject - missing specific words`)
             } else {
               // Non-linear reward: prefer more total word matches.
-              score = matchedWords.length * matchedWords.length * 10
+              score = matchedWords.length * matchedWords.length * 10 + yearScore
+              console.log(`[ReplayZone] Word match score: ${matchedWords.length} words matched = ${score}`)
             }
           } else {
-            score = matchedWords.length * matchedWords.length * 10
+            score = matchedWords.length * matchedWords.length * 10 + yearScore
+            console.log(`[ReplayZone] No specific words, word match score: ${matchedWords.length} words matched = ${score}`)
           }
         }
 
@@ -200,7 +250,19 @@ export async function searchReplays(
       .filter(s => s.score > 0)
       .sort((a, b) => b.score - a.score)
 
-    return scored.map(s => s.result)
+    console.log(`[ReplayZone] Final results: ${scored.length} replays found`)
+    scored.slice(0, 5).forEach((s, i) => {
+      console.log(`[ReplayZone] ${i + 1}. "${s.result.title}" (score: ${s.score}, year: ${s.result.date})`)
+      if (s.score === 0) {
+        console.log(`[ReplayZone]   -> This result was hard rejected (score: 0)`)
+      }
+    })
+
+    // Filter out zero-score results to avoid showing irrelevant matches
+    const validResults = scored.filter(s => s.score > 0)
+    console.log(`[ReplayZone] Valid results (score > 0): ${validResults.length}`)
+
+    return validResults.map(s => s.result)
   } catch (err: any) {
     console.error('[ReplayZone] Search failed:', err.message)
     return []
