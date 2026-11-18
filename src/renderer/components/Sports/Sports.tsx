@@ -343,21 +343,80 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
     const title = isTeamEvent(event)
       ? `${event.homeTeamName} vs ${event.awayTeamName}`
       : event.name
+    const eventYear = new Date(event.scheduledStart).getFullYear() || undefined
+    const searchQuery = eventYear ? `${title} ${eventYear}` : title
+    
+    console.log('[Sports] handlePlayEvent called with:', {
+      event: event.name,
+      scheduledStart: event.scheduledStart,
+      eventYear,
+      title,
+      searchQuery
+    })
+    
     setReplaySearching(true)
     setReplayResults([])
     setReplayFocused(0)
     try {
-      const results = await window.api.sports.searchReplays(title, store.selectedSport?.name, store.selectedLeague?.name)
-      if (results.length > 0) setReplayResults(results)
-      else onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined)
-    } catch { onPlay(title, new Date(event.scheduledStart).getFullYear() || undefined) }
+      console.log('[Sports] Searching for replays with query:', searchQuery)
+      const results = await window.api.sports.searchReplays(searchQuery, store.selectedSport?.name, store.selectedLeague?.name)
+      console.log('[Sports] Search results:', results.length, 'results found')
+      if (results.length > 0) {
+        console.log('[Sports] All results with details:')
+        results.forEach((r: any, i: number) => {
+          console.log(`[Sports] ${i + 1}. "${r.title}" (year: ${r.year}, date: ${r.date}, sources: ${r.sources.length})`)
+        })
+        
+        // Filter out MEGA sources from all results
+        const filteredResults = results.map((r: any) => ({
+          ...r,
+          sources: r.sources.filter((s: any) => s.type !== 'mega')
+        }))
+        
+        console.log('[Sports] Filtered results (MEGA sources removed):')
+        filteredResults.forEach((r: any, i: number) => {
+          console.log(`[Sports] ${i + 1}. "${r.title}" (filtered sources: ${r.sources.length})`)
+        })
+        
+        setReplayResults(filteredResults)
+      } else {
+        console.log('[Sports] No results found, falling back to play with year:', eventYear)
+        onPlay(title, eventYear)
+      }
+    } catch (err) {
+      console.log('[Sports] Search failed, falling back to play with year:', eventYear, 'error:', err)
+      onPlay(title, eventYear)
+    }
     setReplaySearching(false)
   }, [store.selectedEvent, onPlay, isTeamEvent])
 
-  const handlePlaySource = useCallback(async (url: string) => {
+  const handlePlaySource = useCallback(async (url: string, type?: string) => {
     setSourcePlayError(null)
     try {
-      await onPlayUrl(url)
+      // If it's a torrent URL, ensure it goes through the webtorrent pipe
+      if (type === 'torrent' || url.endsWith('.torrent')) {
+        window.api.log('[Sports] Torrent URL — downloading .torrent file via main process to avoid CORS')
+        
+        // Download the .torrent file using the main process (no CORS restrictions)
+        const torrentData = await window.api.torrent.downloadTorrentFile(url)
+        
+        // Convert .torrent file to magnet URI
+        const magnetUri = await window.api.torrent.convertTorrentToMagnet(torrentData)
+        
+        window.api.log('[Sports] Torrent converted to magnet URI:', magnetUri)
+        
+        // Add the torrent to WebTorrent service
+        const result = await window.api.torrent.addTorrent(magnetUri)
+        
+        // Get the stream URL for the first file
+        const streamUrl = await window.api.torrent.getStreamUrl(result.infoHash, 0)
+        
+        // Play the stream URL
+        await onPlayUrl(streamUrl)
+      } else {
+        // For non-torrent URLs, use the standard playback
+        await onPlayUrl(url)
+      }
     } catch (err: any) {
       setSourcePlayError(err?.message ? `Playback failed: ${err.message}` : 'This source could not be played. Try another.')
     }
@@ -365,8 +424,8 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
 
   const handleFallbackReplaySelect = useCallback(async (result: ReplayResult) => {
     if (result.sources.length === 0) return
-    const firstSource = result.sources[0].url
-    await handlePlaySource(firstSource)
+    const firstSource = result.sources[0]
+    await handlePlaySource(firstSource.url, firstSource.type)
   }, [handlePlaySource])
 
   const goBack = useCallback(() => {
@@ -431,7 +490,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         if (scheduleStreams.length > 0) {
           if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.min(i + 1, scheduleStreams.length - 1)) }
           else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setFocusedIndex((i: number) => Math.max(i - 1, 0)) }
-          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = scheduleStreams[focusedIndex]; if (s) handlePlaySource(s.embedUrl) }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = scheduleStreams[focusedIndex]; if (s) handlePlaySource(s.embedUrl, 'stream') }
           else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setScheduleStreams([]); setFocusedIndex(0) }
           return
         }
@@ -469,7 +528,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
         if (selectedReplay) {
           if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setReplayFocused((i: number) => Math.min(i + 1, selectedReplay.sources.length - 1)) }
           else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setReplayFocused((i: number) => Math.max(i - 1, 0)) }
-          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = selectedReplay.sources[replayFocused]; if (s) handlePlaySource(s.url) }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const s = selectedReplay.sources[replayFocused]; if (s) handlePlaySource(s.url, s.type) }
           else if (e.key === 'Backspace' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setSelectedReplay(null); setReplayFocused(0); setSourcePlayError(null) }
           return
         }
@@ -617,7 +676,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
               {scheduleStreams.map((s, i) => (
                 <div key={i} data-focus-index={i} tabIndex={0}
                   style={eventCardStyle(isFocused(i, focusedIndex))}
-                  onClick={() => handlePlaySource(s.embedUrl)}
+                  onClick={() => handlePlaySource(s.embedUrl, 'stream')}
                   onMouseEnter={() => setFocusedIndex(i)}
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, textAlign: 'center' }}>
@@ -990,7 +1049,7 @@ export default function Sports({ onPlay, onPlayUrl, onBack }: { onPlay: (title: 
                 {selectedReplay.sources.map((s, i) => (
                   <div key={i} tabIndex={0}
                     style={eventCardStyle(replayFocused === i)}
-                    onClick={() => handlePlaySource(s.url)}
+                    onClick={() => handlePlaySource(s.url, s.type)}
                     onMouseEnter={() => setReplayFocused(i)}
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1, textAlign: 'center' }}>

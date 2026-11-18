@@ -167,13 +167,27 @@ async function populateImages<T extends { id: string }>(
 
 const http = {
   async get<T>(path: string): Promise<ApiResponse<T>> {
-    const res = await fetch(`${SPORTARR_BASE}${path}`)
-    if (!res.ok) throw new Error(`Sportarr API error: ${res.status}`)
+    const url = `${SPORTARR_BASE}${path}`
+    console.log(`[Sports] Making HTTP GET request to: ${url}`)
+    const res = await fetch(url)
+    console.log(`[Sports] HTTP response status: ${res.status} ${res.statusText}`)
+    if (!res.ok) {
+      const errorText = await res.text()
+      console.error(`[Sports] HTTP error response:`, errorText)
+      throw new Error(`Sportarr API error: ${res.status} - ${errorText}`)
+    }
     return res.json()
   },
   async getOne<T>(path: string): Promise<T> {
-    const res = await fetch(`${SPORTARR_BASE}${path}`)
-    if (!res.ok) throw new Error(`Sportarr API error: ${res.status}`)
+    const url = `${SPORTARR_BASE}${path}`
+    console.log(`[Sports] Making HTTP GET ONE request to: ${url}`)
+    const res = await fetch(url)
+    console.log(`[Sports] HTTP ONE response status: ${res.status} ${res.statusText}`)
+    if (!res.ok) {
+      const errorText = await res.text()
+      console.error(`[Sports] HTTP ONE error response:`, errorText)
+      throw new Error(`Sportarr API error: ${res.status} - ${errorText}`)
+    }
     return res.json()
   },
 }
@@ -222,6 +236,7 @@ export async function getLeaguesBySport(sportId: string): Promise<SportarrLeague
   if (cached) return JSON.parse(cached) as SportarrLeague[]
 
   try {
+    console.log(`[Sports] Fetching leagues for sport ${sportId} from ${SPORTARR_BASE}/leagues?sport=${encodeURIComponent(sportId)}`)
     const items = await fetchAll<SportarrLeague>(`/leagues?sport=${encodeURIComponent(sportId)}`)
     let leagues = items.filter(l => l.isActive)
     leagues = await populateImages('league', leagues, 'logoUrl')
@@ -230,6 +245,21 @@ export async function getLeaguesBySport(sportId: string): Promise<SportarrLeague
     return leagues
   } catch (err: any) {
     console.error(`[Sports] Failed to fetch leagues for ${sportId}:`, err.message)
+    console.error(`[Sports] Error details:`, err)
+    // Try a direct fetch to see if the API is working
+    try {
+      console.log(`[Sports] Trying direct fetch for ${sportId}`)
+      const directRes = await fetch(`${SPORTARR_BASE}/leagues?sport=${encodeURIComponent(sportId)}`)
+      console.log(`[Sports] Direct fetch status: ${directRes.status}`)
+      if (!directRes.ok) {
+        console.error(`[Sports] Direct fetch failed: ${directRes.status} ${directRes.statusText}`)
+      } else {
+        const directData = await directRes.json()
+        console.log(`[Sports] Direct fetch returned ${directData.items?.length || 0} items`)
+      }
+    } catch (directErr: any) {
+      console.error(`[Sports] Direct fetch also failed:`, directErr.message)
+    }
     return []
   }
 }

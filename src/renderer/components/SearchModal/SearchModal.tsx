@@ -43,6 +43,8 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const modalRef = useRef<HTMLDivElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
+  const [resultsScrollPosition, setResultsScrollPosition] = useState(0)
   const [sourceVyla, setSourceVyla] = useState(store.vylaSearchEnabled)
   const [sourceTorrent, setSourceTorrent] = useState(store.torrentSearchEnabled)
   const [sourceUsenet, setSourceUsenet] = useState(store.usenetSearchEnabled)
@@ -134,6 +136,22 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
       doSearch(query)
     }
   }, [sourceVyla, sourceTorrent, sourceUsenet])
+
+  // Track results scroll position
+  useEffect(() => {
+    if (resultsRef.current) {
+      const handleScroll = () => setResultsScrollPosition(resultsRef.current?.scrollTop || 0)
+      resultsRef.current.addEventListener('scroll', handleScroll)
+      return () => resultsRef.current?.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+
+  // Restore results scroll position when query changes
+  useEffect(() => {
+    if (resultsRef.current && resultsScrollPosition > 0) {
+      resultsRef.current.scrollTop = resultsScrollPosition
+    }
+  }, [resultsScrollPosition, query])
 
   useEffect(() => {
     const sections = (): Array<{ id: 'input' | 'filter' | 'result'; count: number }> => [
@@ -277,7 +295,7 @@ export default function SearchModal({ onClose, onSelect, keyboardOpen, onFreeSea
             ))}
           </div>
         )}
-        <div className={styles.results}>
+        <div ref={resultsRef} className={styles.results}>
           {isTorrentView && (
             <div style={{ display: 'flex', gap: 6, padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <button

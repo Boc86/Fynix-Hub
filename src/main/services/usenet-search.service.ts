@@ -128,7 +128,11 @@ export async function searchUsenet(
   onResult?: (result: UsenetResult) => void,
   preferredLanguages?: string[]
 ): Promise<UsenetResult[]> {
-  const searchTerm = query.query || query.title || ''
+  // Include year in search term if available
+  let searchTerm = query.query || query.title || ''
+  if (query.year && searchTerm) {
+    searchTerm = `${searchTerm} ${query.year}`
+  }
   if (!searchTerm) return []
 
   // Resolve an IMDb id so we can use the precise movie/tvsearch APIs instead of
@@ -163,7 +167,11 @@ async function searchNewznabIndexer(
 ): Promise<UsenetResult[]> {
   if (!indexer.enabled || !indexer.url || !indexer.apiKey) return []
 
-  const searchTerm = query.query || query.title || ''
+  // Include year in search term if available
+  let searchTerm = query.query || query.title || ''
+  if (query.year && searchTerm) {
+    searchTerm = `${searchTerm} ${query.year}`
+  }
   const base = indexer.url.replace(/\/+$/, '')
   const apiBase = base.endsWith('/api') ? base : `${base}/api`
 

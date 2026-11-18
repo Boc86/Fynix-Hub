@@ -5,6 +5,7 @@ import type { SportarrSport } from '../../types.d'
 import Prompt, { Confirm } from '../Prompt/Prompt'
 import ChannelSelector from './ChannelSelector'
 import NetworkAccessSection from './NetworkAccessSection'
+import { themes } from '../../styles/themes'
 import styles from './Settings.module.css'
 
 interface BuiltInDefinition {
@@ -626,6 +627,23 @@ export default function Settings({ onClose }: SettingsProps) {
                   onChange={(e) => store.setMaxDownloadSize(Math.max(0, parseInt(e.target.value) || 0))}
                 />
                 <span className={styles.settingDesc}>GB</span>
+              </div>
+            </div>
+
+            <div className={styles.settingGroup}>
+              <h3 className={styles.settingTitle}>Theme</h3>
+              <p className={styles.settingDesc}>Choose your preferred color scheme</p>
+              <div className={styles.toggleGrid}>
+                {Object.entries(themes).map(([key, theme]) => (
+                  <button
+                    key={key}
+                    tabIndex={0}
+                    className={`${styles.toggle} ${store.theme === key ? styles.toggleActive : ''}`}
+                    onClick={() => store.setTheme(key)}
+                  >
+                    {theme.name}
+                  </button>
+                ))}
               </div>
             </div>
           </div>

@@ -39,6 +39,7 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   const browserRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const providerTrackRef = useRef<HTMLDivElement | null>(null)
+  const [scrollPosition, setScrollPosition] = useState(0)
   const [focusedRow, setFocusedRow] = useState(0)
   const [focusedCard, setFocusedCard] = useState(0)
   const [scrolled, setScrolled] = useState(false)
@@ -531,18 +532,33 @@ export default function Browser({ onSelectMedia, onContextMenu, mediaTypeFilter,
   }, [hasProviderBar])
 
   // Scroll focused provider into view
-  // Scroll focused provider into view
-    useEffect(() => {
-      // Don't scroll if not in provider bar or ref not available
-      if (focusedProvider < -1 || !providerTrackRef.current) return
+  useEffect(() => {
+    // Don't scroll if not in provider bar or ref not available
+    if (focusedProvider < -1 || !providerTrackRef.current) return
 
-      const index = focusedProvider + 1
-      const btn = providerTrackRef.current?.children[index] as HTMLElement | undefined
-    
-      if (btn) {
-        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
-      }
-    }, [focusedProvider, providerTrackRef])
+    const index = focusedProvider + 1
+    const btn = providerTrackRef.current?.children[index] as HTMLElement | undefined
+  
+    if (btn) {
+      btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+    }
+  }, [focusedProvider, providerTrackRef])
+
+  // Track scroll position
+  useEffect(() => {
+    if (scrollRef.current) {
+      const handleScroll = () => setScrollPosition(scrollRef.current?.scrollTop || 0)
+      scrollRef.current.addEventListener('scroll', handleScroll)
+      return () => scrollRef.current?.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+
+  // Restore scroll position on mount
+  useEffect(() => {
+    if (scrollRef.current && scrollPosition > 0) {
+      scrollRef.current.scrollTop = scrollPosition
+    }
+  }, [scrollPosition])
 
   const visibleRows = getVisibleRows()
 
